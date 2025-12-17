@@ -1,11 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { generateIrisResponse } from '../../services/geminiService';
-import { ChatMessage } from '../../types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { generateIrisResponse, UserContext } from '../../services/geminiService';
+import { dbService, STORES } from '../../services/db';
+import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant } from '../../types';
 import { Send, Sparkles, Bot, User } from 'lucide-react';
 
 const IrisView: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [userContext, setUserContext] = useState<UserContext | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'init',
@@ -15,6 +17,49 @@ const IrisView: React.FC = () => {
     }
   ]);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Fetch all user data for context
+  const fetchUserContext = useCallback(async () => {
+    try {
+      const [projects, tasks, notes, habits, goals, milestones, logs, rants] = await Promise.all([
+        dbService.getAll<Project>(STORES.PROJECTS),
+        dbService.getAll<Task>(STORES.TASKS),
+        dbService.getAll<Note>(STORES.NOTES),
+        dbService.getAll<Habit>(STORES.HABITS),
+        dbService.getAll<Goal>(STORES.GOALS),
+        dbService.getAll<Milestone>(STORES.MILESTONES),
+        dbService.getAll<LogEntry>(STORES.LOGS),
+        dbService.getAll<Rant>(STORES.RANTS),
+      ]);
+      
+      // Try to get user profile (single item)
+      let profile: UserProfile | undefined;
+      try {
+        profile = await dbService.get<UserProfile>(STORES.PROFILE, 'user');
+      } catch {
+        profile = undefined;
+      }
+
+      setUserContext({
+        profile,
+        projects,
+        tasks,
+        notes,
+        habits,
+        goals,
+        milestones,
+        logs,
+        rants,
+      });
+    } catch (error) {
+      console.error('Failed to fetch user context:', error);
+    }
+  }, []);
+
+  // Load user context on mount
+  useEffect(() => {
+    fetchUserContext();
+  }, [fetchUserContext]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -41,7 +86,10 @@ const IrisView: React.FC = () => {
         parts: [{ text: m.text }]
       }));
 
-      const responseText = await generateIrisResponse(history, userMsg.text);
+      const responseText = await generateIrisResponse(history, userMsg.text, userContext || undefined);
+
+      // Refresh context after each interaction (user might have asked Iris about updates)
+      fetchUserContext();
 
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -129,6 +177,7 @@ const IrisView: React.FC = () => {
           <button 
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
+            title="Send message"
             className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send size={18} />

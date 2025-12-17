@@ -62,6 +62,13 @@ export interface Milestone {
   description: string;
 }
 
+export interface Rant {
+  id: string;
+  content: string;
+  createdAt: string;
+  mood?: 'frustrated' | 'angry' | 'overwhelmed' | 'confused';
+}
+
 export interface UserProfile {
   id: string; // usually 'current-user'
   nickname: string;
