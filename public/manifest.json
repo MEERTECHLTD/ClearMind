@@ -9,7 +9,7 @@
   "background_color": "#05050A",
   "theme_color": "#6366f1",
   "description": "An AI-powered productivity tool and developer diary. Supported by meertech.tech and Google DeepMind.",
-  "orientation": "any",
+  "orientation": "natural",
   "categories": ["productivity", "utilities"],
   "prefer_related_applications": false,
   "icons": [
