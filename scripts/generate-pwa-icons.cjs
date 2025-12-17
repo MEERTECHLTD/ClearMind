@@ -4,37 +4,30 @@ const path = require('path');
 const sourceImage = path.join(__dirname, '..', 'clearmindlogo.jpg');
 const outputDir = path.join(__dirname, '..', 'public');
 
+const sizes = [
+  { size: 16, name: 'icon-16.png' },
+  { size: 32, name: 'icon-32.png' },
+  { size: 144, name: 'icon-144.png' },
+  { size: 180, name: 'icon-180.png' },
+  { size: 192, name: 'icon-192.png' },
+  { size: 512, name: 'icon-512.png' },
+  { size: 192, name: 'icon-maskable-192.png' },
+  { size: 512, name: 'icon-maskable-512.png' },
+  { size: 32, name: 'favicon.png' },
+  { size: 180, name: 'apple-touch-icon.png' },
+];
+
 async function generateIcons() {
   console.log('Generating PWA icons from:', sourceImage);
   
   try {
-    // Generate 192x192 icon
-    await sharp(sourceImage)
-      .resize(192, 192, { fit: 'cover' })
-      .png()
-      .toFile(path.join(outputDir, 'icon-192.png'));
-    console.log('✓ Generated icon-192.png');
-
-    // Generate 512x512 icon
-    await sharp(sourceImage)
-      .resize(512, 512, { fit: 'cover' })
-      .png()
-      .toFile(path.join(outputDir, 'icon-512.png'));
-    console.log('✓ Generated icon-512.png');
-
-    // Generate favicon (32x32)
-    await sharp(sourceImage)
-      .resize(32, 32, { fit: 'cover' })
-      .png()
-      .toFile(path.join(outputDir, 'favicon.png'));
-    console.log('✓ Generated favicon.png');
-
-    // Generate apple-touch-icon (180x180)
-    await sharp(sourceImage)
-      .resize(180, 180, { fit: 'cover' })
-      .png()
-      .toFile(path.join(outputDir, 'apple-touch-icon.png'));
-    console.log('✓ Generated apple-touch-icon.png');
+    for (const { size, name } of sizes) {
+      await sharp(sourceImage)
+        .resize(size, size, { fit: 'cover' })
+        .png()
+        .toFile(path.join(outputDir, name));
+      console.log(`✓ Generated ${name} (${size}x${size})`);
+    }
 
     console.log('\nAll icons generated successfully!');
   } catch (error) {

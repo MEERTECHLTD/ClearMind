@@ -1,0 +1,145 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.6",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "${$root.icon}",
+                  "size": "Small",
+                  "style": "Person"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Daily Habits",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "Light"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${$root.date}",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "spacing": "None"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "${$root.streakText}",
+          "wrap": true,
+          "size": "Large",
+          "weight": "Bolder"
+        },
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "🔥 ${$root.currentStreak}",
+                  "size": "ExtraLarge",
+                  "weight": "Bolder",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Current Streak",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "horizontalAlignment": "Center"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "✅ ${$root.completedToday}/${$root.totalHabits}",
+                  "size": "ExtraLarge",
+                  "weight": "Bolder",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Today",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "horizontalAlignment": "Center"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Next habit:",
+          "size": "Small",
+          "isSubtle": true
+        },
+        {
+          "type": "TextBlock",
+          "text": "${$root.nextHabit}",
+          "wrap": true,
+          "weight": "Bolder"
+        }
+      ],
+      "$when": "${$root.nextHabit != ''}"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Execute",
+      "title": "Open Habits",
+      "verb": "open_habits"
+    },
+    {
+      "type": "Action.Execute",
+      "title": "Check In",
+      "verb": "checkin_habit"
+    }
+  ],
+  "backgroundImage": {
+    "url": "${$root.background}",
+    "fillMode": "Cover"
+  }
+}

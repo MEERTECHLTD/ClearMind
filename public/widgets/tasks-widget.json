@@ -1,0 +1,117 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.6",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "${$root.icon}",
+                  "size": "Small",
+                  "style": "Person"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Today's Tasks",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "Light"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${$root.date}",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "spacing": "None"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "${$root.summary}",
+          "wrap": true,
+          "size": "Large",
+          "weight": "Bolder"
+        },
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "📋 Total",
+              "value": "${$root.total}"
+            },
+            {
+              "title": "✅ Completed",
+              "value": "${$root.completed}"
+            },
+            {
+              "title": "⏳ Pending",
+              "value": "${$root.pending}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Next up:",
+          "size": "Small",
+          "isSubtle": true
+        },
+        {
+          "type": "TextBlock",
+          "text": "${$root.nextTask}",
+          "wrap": true,
+          "weight": "Bolder"
+        }
+      ],
+      "$when": "${$root.nextTask != ''}"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Execute",
+      "title": "Open Tasks",
+      "verb": "open_tasks"
+    },
+    {
+      "type": "Action.Execute",
+      "title": "Add Task",
+      "verb": "add_task"
+    }
+  ],
+  "backgroundImage": {
+    "url": "${$root.background}",
+    "fillMode": "Cover"
+  }
+}
