@@ -1,6 +1,8 @@
-# 🧠 ClearMind
+# 🌐 ClearMind
 
 > **Your AI-Powered Personal Productivity Companion**
+
+🌐 **Live Demo:** [clearmind.meertech.tech](https://clearmind.meertech.tech)
 
 ClearMind is a modern, feature-rich productivity application designed for developers and creators who want to stay organized, track their progress, and maintain mental clarity. Built with React, TypeScript, and powered by Google's Gemini AI.
 
@@ -142,7 +144,7 @@ ClearMind/
 │       ├── DailyLogView.tsx
 │       ├── AnalyticsView.tsx
 │       ├── IrisView.tsx       # AI Companion
-│       ├── AetherisView.tsx
+│       ├── IRISView.tsx
 │       ├── RantCorner.tsx     # Vent with AI support
 │       ├── SettingsView.tsx
 │       └── OnboardingView.tsx

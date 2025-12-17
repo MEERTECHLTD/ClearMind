@@ -45,12 +45,12 @@ export const generateIrisResponse = async (
   }
 };
 
-export const generateAetherisResponse = async (
+export const generateIRISResponse = async (
   history: { role: string; parts: { text: string }[] }[],
   message: string
 ): Promise<string> => {
   if (!ai) {
-    return "Aetheris is offline. Please configure your API Key.";
+    return "IRIS is offline. Please configure your API Key.";
   }
 
   try {
@@ -67,7 +67,7 @@ export const generateAetherisResponse = async (
         }
       ],
       config: {
-        systemInstruction: `You are Aetheris, the AI companion inside the productivity tool "ClearMind". 
+        systemInstruction: `You are IRIS, the AI companion inside the productivity tool "ClearMind". 
         You were created by a developer who struggled with consistency but turned it around. 
         Your goal is to help the user document their journey, offer encouragement during "rant" sessions, and help break down complex software engineering tasks.
         Be concise, technical but friendly, and always push for "one more commit".`,
@@ -76,7 +76,7 @@ export const generateAetherisResponse = async (
 
     return response.text || "I'm thinking...";
   } catch (error) {
-    console.error("Error communicating with Aetheris:", error);
+    console.error("Error communicating with IRIS:", error);
     return "Connection to the neural link failed. Try again.";
   }
 };

@@ -1,16 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { generateAetherisResponse } from '../../services/geminiService';
+import { generateIRISResponse } from '../../services/geminiService';
 import { ChatMessage } from '../../types';
 import { Send, Sparkles, Bot, User } from 'lucide-react';
 
-const AetherisView: React.FC = () => {
+const IRISView: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'init',
       role: 'model',
-      text: "Hello. I am Aetheris. I'm here to help you maintain consistency and log your journey. What are we shipping today?",
+      text: "Hello. I am IRIS. I'm here to help you maintain consistency and log your journey. What are we shipping today?",
       timestamp: new Date()
     }
   ]);
@@ -41,7 +41,7 @@ const AetherisView: React.FC = () => {
         parts: [{ text: m.text }]
       }));
 
-      const responseText = await generateAetherisResponse(history, userMsg.text);
+      const responseText = await generateIRISResponse(history, userMsg.text);
 
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -72,7 +72,7 @@ const AetherisView: React.FC = () => {
            <Sparkles className="text-purple-500" size={24} />
         </div>
         <div>
-          <h2 className="text-xl font-bold dark:text-white text-gray-900">Aetheris</h2>
+          <h2 className="text-xl font-bold dark:text-white text-gray-900">IRIS</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">Your AI co-pilot for the journey.</p>
         </div>
       </div>
@@ -123,7 +123,7 @@ const AetherisView: React.FC = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyPress}
-            placeholder="Ask Aetheris for guidance or document a thought..."
+            placeholder="Ask IRIS for guidance or document a thought..."
             className="w-full bg-midnight-light border dark:border-gray-700 border-gray-300 dark:text-white text-gray-900 rounded-xl pl-6 pr-14 py-4 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 shadow-sm"
           />
           <button 
@@ -134,10 +134,10 @@ const AetherisView: React.FC = () => {
             <Send size={18} />
           </button>
         </div>
-        <p className="text-center text-xs text-gray-500 dark:text-gray-600 mt-3">Aetheris helps you stay consistent. AI responses can vary.</p>
+        <p className="text-center text-xs text-gray-500 dark:text-gray-600 mt-3">IRIS helps you stay consistent. AI responses can vary.</p>
       </div>
     </div>
   );
 };
 
-export default AetherisView;
+export default IRISView;
