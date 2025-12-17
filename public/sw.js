@@ -1,4 +1,4 @@
-const CACHE_NAME = 'clearmind-v4';
+const CACHE_NAME = 'clearmind-v5';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -8,6 +8,10 @@ const urlsToCache = [
   '/icon-512.png',
   '/icon-maskable-192.png',
   '/icon-maskable-512.png',
+  '/widgets/tasks-widget.json',
+  '/widgets/habits-widget.json',
+  '/widgets/quick-note-widget.json',
+  '/widgets/daily-progress-widget.json',
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];

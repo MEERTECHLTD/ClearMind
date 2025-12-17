@@ -1,0 +1,221 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.6",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "${$root.icon}",
+                  "size": "Small",
+                  "style": "Person"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Today's Progress",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "Light"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${$root.date}",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "spacing": "None"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "${$root.greeting}",
+          "wrap": true,
+          "size": "Medium",
+          "weight": "Bolder"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "✅",
+                  "size": "Large",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${$root.tasksCompleted}",
+                  "weight": "Bolder",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Tasks",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "horizontalAlignment": "Center"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "🔄",
+                  "size": "Large",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${$root.habitsCompleted}",
+                  "weight": "Bolder",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Habits",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "horizontalAlignment": "Center"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "🎯",
+                  "size": "Large",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${$root.goalsProgress}%",
+                  "weight": "Bolder",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Goals",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "horizontalAlignment": "Center"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "📝",
+                  "size": "Large",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${$root.notesCount}",
+                  "weight": "Bolder",
+                  "horizontalAlignment": "Center"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Notes",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "horizontalAlignment": "Center"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "🔥 ${$root.streakDays} day streak!",
+          "size": "Medium",
+          "weight": "Bolder",
+          "color": "Attention",
+          "horizontalAlignment": "Center"
+        }
+      ],
+      "$when": "${$root.streakDays > 0}"
+    },
+    {
+      "type": "Container",
+      "spacing": "Small",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "💡 ${$root.tip}",
+          "wrap": true,
+          "size": "Small",
+          "isSubtle": true
+        }
+      ],
+      "$when": "${$root.tip != ''}"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Execute",
+      "title": "Open Dashboard",
+      "verb": "open_dashboard"
+    },
+    {
+      "type": "Action.Execute",
+      "title": "Daily Log",
+      "verb": "open_daily_log"
+    }
+  ],
+  "backgroundImage": {
+    "url": "${$root.background}",
+    "fillMode": "Cover"
+  }
+}

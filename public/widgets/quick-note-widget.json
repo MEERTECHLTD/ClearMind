@@ -1,0 +1,97 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.6",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "${$root.icon}",
+                  "size": "Small",
+                  "style": "Person"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Quick Note",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "Light"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Capture your thoughts",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "spacing": "None"
+                }
+              ],
+              "verticalContentAlignment": "Center"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "Input.Text",
+          "id": "noteContent",
+          "placeholder": "What's on your mind?",
+          "isMultiline": true,
+          "maxLength": 500
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Small",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "📝 ${$root.recentNotesCount} notes today",
+          "size": "Small",
+          "isSubtle": true
+        }
+      ],
+      "$when": "${$root.recentNotesCount > 0}"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Submit",
+      "title": "💾 Save Note",
+      "style": "positive",
+      "data": {
+        "action": "save_quick_note"
+      }
+    },
+    {
+      "type": "Action.Execute",
+      "title": "📓 View Notes",
+      "verb": "open_notes"
+    }
+  ],
+  "backgroundImage": {
+    "url": "${$root.background}",
+    "fillMode": "Cover"
+  }
+}

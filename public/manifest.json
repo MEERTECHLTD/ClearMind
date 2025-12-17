@@ -95,7 +95,7 @@
       "description": "Quickly add a note or thought",
       "tag": "quick-note",
       "template": "generic",
-      "ms_ac_template": "/widgets/note-widget.json",
+      "ms_ac_template": "/widgets/quick-note-widget.json",
       "data": "/api/widgets/note",
       "type": "application/json",
       "icons": [
@@ -112,13 +112,13 @@
       ]
     },
     {
-      "name": "Goals Progress",
-      "short_name": "Goals",
-      "description": "View your goals and progress",
-      "tag": "goals",
+      "name": "Daily Progress",
+      "short_name": "Progress",
+      "description": "View your daily progress overview",
+      "tag": "daily-progress",
       "template": "generic",
-      "ms_ac_template": "/widgets/goals-widget.json",
-      "data": "/api/widgets/goals",
+      "ms_ac_template": "/widgets/daily-progress-widget.json",
+      "data": "/api/widgets/progress",
       "type": "application/json",
       "icons": [
         {
