@@ -1,21 +1,34 @@
-const CACHE_NAME = 'clearmind-v1';
+const CACHE_NAME = 'clearmind-v3';
 const urlsToCache = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/icon.svg',
+  '/icon-192.png',
+  '/icon-512.png',
   'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap',
-  // Cache generic icons
-  'https://cdn-icons-png.flaticon.com/512/2906/2906274.png'
+  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
   );
+  // Force the waiting service worker to become the active service worker
+  self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
+  // Handle navigation requests (SPA fallback)
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return caches.match('/index.html');
+      })
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((response) => {
       // Return cached response if found
@@ -41,7 +54,8 @@ self.addEventListener('fetch', (event) => {
 
         return response;
       }).catch(() => {
-        // Fallback or offline page logic could go here
+        // Return cached index.html for navigation fallback
+        return caches.match('/index.html');
       });
     })
   );

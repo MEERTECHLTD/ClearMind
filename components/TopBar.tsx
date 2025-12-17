@@ -1,7 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, Moon, Sun, Download, Bell, Menu, LogOut, Settings, Clock } from 'lucide-react';
-import { UserProfile, ViewState, Task } from '../types';
+import { UserProfile, ViewState, Task, Project, Note } from '../types';
 import { dbService, STORES } from '../services/db';
+
+interface SearchResult {
+  type: 'task' | 'project' | 'note';
+  id: string;
+  title: string;
+  subtitle?: string;
+}
 
 interface TopBarProps {
   user: UserProfile;
@@ -27,9 +34,13 @@ const TopBar: React.FC<TopBarProps> = ({
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Task[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -40,10 +51,61 @@ const TopBar: React.FC<TopBarProps> = ({
       if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
         setIsNotificationsOpen(false);
       }
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Search functionality
+  useEffect(() => {
+    const performSearch = async () => {
+      if (!searchQuery.trim()) {
+        setSearchResults([]);
+        setIsSearchOpen(false);
+        return;
+      }
+
+      const query = searchQuery.toLowerCase();
+      const results: SearchResult[] = [];
+
+      try {
+        // Search tasks
+        const tasks = await dbService.getAll<Task>(STORES.TASKS);
+        tasks.filter(t => t.title.toLowerCase().includes(query)).slice(0, 3).forEach(t => {
+          results.push({ type: 'task', id: t.id, title: t.title, subtitle: t.priority + ' Priority' });
+        });
+
+        // Search projects
+        const projects = await dbService.getAll<Project>(STORES.PROJECTS);
+        projects.filter(p => p.title.toLowerCase().includes(query) || p.description.toLowerCase().includes(query)).slice(0, 3).forEach(p => {
+          results.push({ type: 'project', id: p.id, title: p.title, subtitle: p.status });
+        });
+
+        // Search notes
+        const notes = await dbService.getAll<Note>(STORES.NOTES);
+        notes.filter(n => n.title.toLowerCase().includes(query) || n.content.toLowerCase().includes(query)).slice(0, 3).forEach(n => {
+          results.push({ type: 'note', id: n.id, title: n.title, subtitle: n.tags.join(', ') || 'No tags' });
+        });
+
+        setSearchResults(results);
+        setIsSearchOpen(results.length > 0);
+      } catch (e) {
+        console.error("Search failed:", e);
+      }
+    };
+
+    const debounce = setTimeout(performSearch, 300);
+    return () => clearTimeout(debounce);
+  }, [searchQuery]);
+
+  const handleSearchResultClick = (result: SearchResult) => {
+    onNavigate(result.type === 'task' ? 'tasks' : result.type === 'project' ? 'projects' : 'notes');
+    setSearchQuery('');
+    setIsSearchOpen(false);
+  };
 
   // Poll for notifications (Tasks due today or overdue)
   useEffect(() => {
@@ -80,14 +142,42 @@ const TopBar: React.FC<TopBarProps> = ({
       </button>
 
       {/* Search */}
-      <div className="flex-1 max-w-xl">
+      <div className="flex-1 max-w-xl" ref={searchRef}>
         <div className="relative group">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={18} />
           <input 
             type="text" 
-            placeholder="Search projects, notes, tasks" 
+            placeholder="Search projects, notes, tasks..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => searchResults.length > 0 && setIsSearchOpen(true)}
             className="w-full bg-midnight-light border dark:border-gray-800 border-gray-200 dark:text-gray-300 text-gray-900 text-sm rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all placeholder-gray-500"
           />
+          
+          {/* Search Results Dropdown */}
+          {isSearchOpen && searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-lg shadow-xl overflow-hidden z-50">
+              {searchResults.map((result) => (
+                <button
+                  key={`${result.type}-${result.id}`}
+                  onClick={() => handleSearchResultClick(result)}
+                  className="w-full px-4 py-3 text-left hover:bg-gray-800/50 flex items-center gap-3 border-b dark:border-gray-700/50 border-gray-200/50 last:border-0"
+                >
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                    result.type === 'task' ? 'bg-blue-500/20 text-blue-400' :
+                    result.type === 'project' ? 'bg-purple-500/20 text-purple-400' :
+                    'bg-green-500/20 text-green-400'
+                  }`}>
+                    {result.type.toUpperCase()}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium dark:text-white text-gray-900 truncate">{result.title}</p>
+                    {result.subtitle && <p className="text-xs text-gray-500 truncate">{result.subtitle}</p>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

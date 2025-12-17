@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { User, Bell, Shield, Cloud, LogOut, Moon, Save, Info } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { User, Bell, Shield, Cloud, LogOut, Moon, Save, Info, Key, ExternalLink, Eye, EyeOff, Check } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
 
@@ -13,6 +13,26 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.nickname || '');
   const [editGithub, setEditGithub] = useState(user?.githubUsername || '');
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKeySaved, setApiKeySaved] = useState(false);
+
+  useEffect(() => {
+    const savedKey = localStorage.getItem('clearmind-api-key');
+    if (savedKey) {
+      setApiKey(savedKey);
+    }
+  }, []);
+
+  const handleSaveApiKey = () => {
+    if (apiKey.trim()) {
+      localStorage.setItem('clearmind-api-key', apiKey.trim());
+      setApiKeySaved(true);
+      setTimeout(() => setApiKeySaved(false), 2000);
+    } else {
+      localStorage.removeItem('clearmind-api-key');
+    }
+  };
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -101,6 +121,72 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
                 </div>
               )}
             </div>
+          </div>
+        </section>
+
+        {/* API Key Configuration */}
+        <section className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
+          <div className="flex items-center gap-3 mb-4">
+            <Key size={24} className="text-purple-500" />
+            <div>
+              <h3 className="text-lg font-bold dark:text-white text-gray-900">Iris AI Configuration</h3>
+              <p className="text-xs text-gray-500">Configure your Gemini API key to enable Iris AI companion</p>
+            </div>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-gray-500 uppercase font-semibold mb-2 block">Gemini API Key</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input 
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder="Enter your Gemini API key..."
+                    className="w-full bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg p-3 pr-10 dark:text-white text-gray-900 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                  >
+                    {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <button 
+                  onClick={handleSaveApiKey}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+                    apiKeySaved 
+                      ? 'bg-green-600 text-white' 
+                      : 'bg-purple-600 text-white hover:bg-purple-700'
+                  }`}
+                >
+                  {apiKeySaved ? <Check size={16} /> : <Save size={16} />}
+                  {apiKeySaved ? 'Saved!' : 'Save'}
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-800/50 rounded-lg">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <Shield size={16} className="text-green-500" />
+                <span>Your API key is stored locally and never sent to our servers</span>
+              </div>
+              <a 
+                href="https://ai.google.dev/gemini-api/docs/api-key"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400 font-medium"
+              >
+                Get API Key <ExternalLink size={14} />
+              </a>
+            </div>
+            
+            <p className="text-xs text-gray-500 leading-relaxed">
+              To use Iris AI companion, you need a Gemini API key from Google AI Studio. 
+              The free tier provides generous usage limits for personal use.
+            </p>
           </div>
         </section>
 

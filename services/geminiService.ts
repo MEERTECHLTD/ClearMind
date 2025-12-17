@@ -1,19 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
 
-const API_KEY = process.env.API_KEY || '';
+const getApiKey = (): string => {
+  // First try localStorage (user-configured), then fall back to env var
+  return localStorage.getItem('clearmind-api-key') || process.env.API_KEY || '';
+};
 
-let ai: GoogleGenAI | null = null;
-
-if (API_KEY) {
-  ai = new GoogleGenAI({ apiKey: API_KEY });
-}
+const getAI = (): GoogleGenAI | null => {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  return new GoogleGenAI({ apiKey });
+};
 
 export const generateIrisResponse = async (
   history: { role: string; parts: { text: string }[] }[],
   message: string
 ): Promise<string> => {
+  const ai = getAI();
+  
   if (!ai) {
-    return "Iris is offline. Please configure your API Key.";
+    return "Iris is offline. Please configure your API Key in Settings.";
   }
 
   try {
@@ -49,8 +54,10 @@ export const generateIRISResponse = async (
   history: { role: string; parts: { text: string }[] }[],
   message: string
 ): Promise<string> => {
+  const ai = getAI();
+  
   if (!ai) {
-    return "IRIS is offline. Please configure your API Key.";
+    return "IRIS is offline. Please configure your API Key in Settings.";
   }
 
   try {

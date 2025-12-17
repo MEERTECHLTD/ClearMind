@@ -1,24 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
-import ProjectsView from './components/views/ProjectsView';
-import DashboardView from './components/views/DashboardView';
-import IrisView from './components/views/IrisView';
-import RantCorner from './components/views/RantCorner';
-import TasksView from './components/views/TasksView';
-import NotesView from './components/views/NotesView';
-import HabitsView from './components/views/HabitsView';
-import GoalsView from './components/views/GoalsView';
-import MilestonesView from './components/views/MilestonesView';
-import DailyLogView from './components/views/DailyLogView';
-import AnalyticsView from './components/views/AnalyticsView';
-import SettingsView from './components/views/SettingsView';
-import OnboardingView from './components/views/OnboardingView';
 import { ViewState, UserProfile, Task } from './types';
 import { dbService, STORES } from './services/db';
 
+// Lazy load all view components for code splitting
+const ProjectsView = lazy(() => import('./components/views/ProjectsView'));
+const DashboardView = lazy(() => import('./components/views/DashboardView'));
+const IrisView = lazy(() => import('./components/views/IrisView'));
+const RantCorner = lazy(() => import('./components/views/RantCorner'));
+const TasksView = lazy(() => import('./components/views/TasksView'));
+const NotesView = lazy(() => import('./components/views/NotesView'));
+const HabitsView = lazy(() => import('./components/views/HabitsView'));
+const GoalsView = lazy(() => import('./components/views/GoalsView'));
+const MilestonesView = lazy(() => import('./components/views/MilestonesView'));
+const DailyLogView = lazy(() => import('./components/views/DailyLogView'));
+const AnalyticsView = lazy(() => import('./components/views/AnalyticsView'));
+const SettingsView = lazy(() => import('./components/views/SettingsView'));
+const OnboardingView = lazy(() => import('./components/views/OnboardingView'));
+
+// Loading fallback component
+const ViewLoader = () => (
+  <div className="flex-1 flex items-center justify-center bg-midnight">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      <p className="text-gray-400 text-sm">Loading...</p>
+    </div>
+  </div>
+);
+
+// Helper function to get view from hash
+const getViewFromHash = (): ViewState => {
+  const hash = window.location.hash.slice(1); // Remove the '#'
+  const validViews: ViewState[] = [
+    'dashboard', 'projects', 'tasks', 'notes', 'habits', 
+    'goals', 'milestones', 'iris', 'rant', 'dailylog', 
+    'analytics', 'settings'
+  ];
+  return validViews.includes(hash as ViewState) ? (hash as ViewState) : 'dashboard';
+};
+
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<ViewState>('dashboard'); 
+  const [currentView, setCurrentView] = useState<ViewState>(getViewFromHash()); 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -29,6 +52,24 @@ const App: React.FC = () => {
 
   // PWA State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  // Hash-based routing effect
+  useEffect(() => {
+    const handleHashChange = () => {
+      setCurrentView(getViewFromHash());
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    
+    // Set initial hash if not present
+    if (!window.location.hash) {
+      window.location.hash = 'dashboard';
+    }
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, []);
 
   useEffect(() => {
     // Service Worker Registration
@@ -110,7 +151,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     if (isDarkMode) {
       document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
@@ -120,9 +161,9 @@ const App: React.FC = () => {
       localStorage.setItem('theme', 'dark');
       setIsDarkMode(true);
     }
-  };
+  }, [isDarkMode]);
 
-  const handleInstallApp = () => {
+  const handleInstallApp = useCallback(() => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then((choiceResult: any) => {
@@ -132,23 +173,25 @@ const App: React.FC = () => {
         setDeferredPrompt(null);
       });
     }
-  };
+  }, [deferredPrompt]);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
       if(confirm("Are you sure you want to sign out? This will return you to the login screen.")) {
           await dbService.delete(STORES.PROFILE, 'current-user');
           setUserProfile(null);
           setCurrentView('dashboard');
       }
-  };
+  }, []);
 
-  const handleViewChange = (view: ViewState) => {
-    setCurrentView(view);
+  const handleViewChange = useCallback((view: ViewState) => {
+    // Update hash instead of direct state - state will update via hashchange listener
+    window.location.hash = view;
     // Close mobile menu on navigation
     setIsMobileMenuOpen(false);
-  };
+  }, []);
 
-  const renderContent = () => {
+  // Memoized content rendering to prevent unnecessary re-renders
+  const viewContent = useMemo(() => {
     switch (currentView) {
       case 'dashboard':
         return <DashboardView user={userProfile} />;
@@ -177,7 +220,7 @@ const App: React.FC = () => {
       default:
         return <DashboardView user={userProfile} />;
     }
-  };
+  }, [currentView, userProfile, handleLogout]);
 
   if (isCheckingAuth) {
     return (
@@ -188,7 +231,11 @@ const App: React.FC = () => {
   }
 
   if (!userProfile) {
-    return <OnboardingView onComplete={setUserProfile} />;
+    return (
+      <Suspense fallback={<ViewLoader />}>
+        <OnboardingView onComplete={setUserProfile} />
+      </Suspense>
+    );
   }
 
   return (
@@ -222,7 +269,9 @@ const App: React.FC = () => {
           onNavigate={handleViewChange}
         />
         <div className="flex-1 relative overflow-hidden">
-          {renderContent()}
+          <Suspense fallback={<ViewLoader />}>
+            {viewContent}
+          </Suspense>
         </div>
       </main>
     </div>
