@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Map as MapIcon, Github, ArrowRight, Shield, LogIn } from 'lucide-react';
+import { Map as MapIcon, Shield, LogIn } from 'lucide-react';
 
 interface OnboardingViewProps {
   onComplete: (profile: UserProfile) => void;
@@ -9,7 +9,6 @@ interface OnboardingViewProps {
 
 const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) => {
   const [nickname, setNickname] = useState('');
-  const [github, setGithub] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -18,16 +17,9 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) => {
 
     setIsSubmitting(true);
 
-    // Clean github username if full URL is provided
-    let cleanGithub = github.trim();
-    if (cleanGithub.includes('github.com/')) {
-      cleanGithub = cleanGithub.split('github.com/')[1].split('/')[0];
-    }
-
     const newProfile: UserProfile = {
       id: 'current-user',
       nickname: nickname.trim(),
-      githubUsername: cleanGithub || undefined,
       joinedAt: new Date().toISOString()
     };
 
@@ -68,21 +60,6 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) => {
               placeholder="Who are you today?"
               className="w-full bg-midnight border border-gray-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors placeholder-gray-600"
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">GitHub Username (Optional)</label>
-            <div className="relative">
-              <Github className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-              <input
-                type="text"
-                value={github}
-                onChange={(e) => setGithub(e.target.value)}
-                placeholder="github.com/username"
-                className="w-full bg-midnight border border-gray-700 text-white rounded-xl pl-11 pr-4 py-3 focus:outline-none focus:border-blue-500 transition-colors placeholder-gray-600"
-              />
-            </div>
-            <p className="text-xs text-gray-600 mt-2">Connect to display your avatar.</p>
           </div>
 
           <div className="bg-blue-900/10 border border-blue-900/30 rounded-lg p-3 flex items-start gap-3">
