@@ -21,6 +21,32 @@ const getAI = (): GoogleGenAI | null => {
   return new GoogleGenAI({ apiKey });
 };
 
+// Simple response generator for general-purpose AI requests (e.g., Mind Maps)
+export const generateResponse = async (prompt: string): Promise<string> => {
+  const ai = getAI();
+  
+  if (!ai) {
+    throw new Error("AI service is not available. Please try again later.");
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }]
+        }
+      ]
+    });
+
+    return response.text || "";
+  } catch (error) {
+    console.error("Error generating AI response:", error);
+    throw new Error("Failed to generate AI response. Please try again.");
+  }
+};
+
 // Interface for all user context data
 export interface UserContext {
   profile?: UserProfile;
@@ -133,7 +159,7 @@ export const generateIrisResponse = async (
   const ai = getAI();
   
   if (!ai) {
-    return "Iris is offline. Please configure your API Key in Settings.";
+    return "Iris is currently unavailable. The AI service is being configured. Please try again later.";
   }
 
   // Build context-aware system instruction
@@ -187,7 +213,7 @@ export const generateIRISResponse = async (
   const ai = getAI();
   
   if (!ai) {
-    return "IRIS is offline. Please configure your API Key in Settings.";
+    return "Iris is currently unavailable. The AI service is being configured. Please try again later.";
   }
 
   try {
