@@ -69,6 +69,33 @@ export interface Rant {
   mood?: 'frustrated' | 'angry' | 'overwhelmed' | 'confused';
 }
 
+export interface MindMapNode {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  isRoot?: boolean;
+  isDecision?: boolean; // For decision tree nodes
+}
+
+export interface MindMapEdge {
+  id: string;
+  from: string; // Node ID
+  to: string; // Node ID
+  label?: string; // For decision tree labels (e.g., "Yes", "No")
+}
+
+export interface MindMap {
+  id: string;
+  title: string;
+  nodes: MindMapNode[];
+  edges: MindMapEdge[];
+  type: 'mindmap' | 'decision-tree';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserProfile {
   id: string; // usually 'current-user'
   nickname: string;
@@ -88,4 +115,5 @@ export type ViewState =
   | 'rant' 
   | 'dailylog' 
   | 'analytics' 
+  | 'mindmap'
   | 'settings';

@@ -1,9 +1,18 @@
 import { GoogleGenAI } from "@google/genai";
 import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant } from '../types';
 
+// Global API key from environment variable (set in Vercel)
+const GLOBAL_API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+
 const getApiKey = (): string => {
-  // First try localStorage (user-configured), then fall back to env var
-  return localStorage.getItem('clearmind-api-key') || process.env.API_KEY || '';
+  // Use the global API key from environment variable
+  // This removes the need for users to configure their own key
+  return GLOBAL_API_KEY;
+};
+
+// Check if API is configured (for UI purposes)
+export const isApiConfigured = (): boolean => {
+  return !!GLOBAL_API_KEY;
 };
 
 const getAI = (): GoogleGenAI | null => {

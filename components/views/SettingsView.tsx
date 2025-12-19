@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { User, Bell, Shield, Cloud, LogOut, Moon, Save, Info, Key, ExternalLink, Eye, EyeOff, Check } from 'lucide-react';
+import { User, Bell, Shield, Cloud, LogOut, Moon, Save, Info, Key, Check, CheckCircle } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
+import { isApiConfigured } from '../../services/geminiService';
 
 interface SettingsProps {
   user: UserProfile | null;
@@ -13,26 +14,7 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.nickname || '');
   const [editGithub, setEditGithub] = useState(user?.githubUsername || '');
-  const [apiKey, setApiKey] = useState('');
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKeySaved, setApiKeySaved] = useState(false);
-
-  useEffect(() => {
-    const savedKey = localStorage.getItem('clearmind-api-key');
-    if (savedKey) {
-      setApiKey(savedKey);
-    }
-  }, []);
-
-  const handleSaveApiKey = () => {
-    if (apiKey.trim()) {
-      localStorage.setItem('clearmind-api-key', apiKey.trim());
-      setApiKeySaved(true);
-      setTimeout(() => setApiKeySaved(false), 2000);
-    } else {
-      localStorage.removeItem('clearmind-api-key');
-    }
-  };
+  const apiConfigured = isApiConfigured();
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -130,62 +112,41 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
             <Key size={24} className="text-purple-500" />
             <div>
               <h3 className="text-lg font-bold dark:text-white text-gray-900">Iris AI Configuration</h3>
-              <p className="text-xs text-gray-500">Configure your Gemini API key to enable Iris AI companion</p>
+              <p className="text-xs text-gray-500">Gemini AI powers Iris, your AI companion</p>
             </div>
           </div>
           
           <div className="space-y-4">
-            <div>
-              <label className="text-xs text-gray-500 uppercase font-semibold mb-2 block">Gemini API Key</label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input 
-                    type={showApiKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={e => setApiKey(e.target.value)}
-                    placeholder="Enter your Gemini API key..."
-                    className="w-full bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg p-3 pr-10 dark:text-white text-gray-900 font-mono text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
-                  >
-                    {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-                <button 
-                  onClick={handleSaveApiKey}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
-                    apiKeySaved 
-                      ? 'bg-green-600 text-white' 
-                      : 'bg-purple-600 text-white hover:bg-purple-700'
-                  }`}
-                >
-                  {apiKeySaved ? <Check size={16} /> : <Save size={16} />}
-                  {apiKeySaved ? 'Saved!' : 'Save'}
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-800/50 rounded-lg">
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                <Shield size={16} className="text-green-500" />
-                <span>Your API key is stored locally and never sent to our servers</span>
-              </div>
-              <a 
-                href="https://ai.google.dev/gemini-api/docs/api-key"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400 font-medium"
-              >
-                Get API Key <ExternalLink size={14} />
-              </a>
+            <div className={`flex items-center gap-3 p-4 rounded-lg ${
+              apiConfigured 
+                ? 'bg-green-500/10 border border-green-500/30' 
+                : 'bg-yellow-500/10 border border-yellow-500/30'
+            }`}>
+              {apiConfigured ? (
+                <>
+                  <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <Check size={20} className="text-green-500" />
+                  </div>
+                  <div>
+                    <p className="font-medium dark:text-white text-gray-900">API Connected</p>
+                    <p className="text-sm text-gray-500">Iris AI is ready to assist you</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                    <Shield size={20} className="text-yellow-500" />
+                  </div>
+                  <div>
+                    <p className="font-medium dark:text-white text-gray-900">API Not Configured</p>
+                    <p className="text-sm text-gray-500">Contact the administrator to enable Iris AI</p>
+                  </div>
+                </>
+              )}
             </div>
             
             <p className="text-xs text-gray-500 leading-relaxed">
-              To use Iris AI companion, you need a Gemini API key from Google AI Studio. 
-              The free tier provides generous usage limits for personal use.
+              Iris AI companion is powered by Google's Gemini API. The API key is securely configured by the application administrator.
             </p>
           </div>
         </section>

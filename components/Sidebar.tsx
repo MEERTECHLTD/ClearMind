@@ -14,7 +14,8 @@ import {
   Settings,
   Brain,
   ChevronLeft,
-  MoreHorizontal
+  MoreHorizontal,
+  Network
 } from 'lucide-react';
 import { ViewState, UserProfile } from '../types';
 
@@ -37,6 +38,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isCollapse
     { id: 'habits', label: 'Habits', icon: <Repeat size={20} /> },
     { id: 'goals', label: 'Goals', icon: <Target size={20} /> },
     { id: 'milestones', label: 'Milestones', icon: <Flag size={20} /> },
+    { id: 'mindmap', label: 'Mind Map', icon: <Network size={20} /> },
     { id: 'iris', label: 'AI (Iris)', icon: <Sparkles size={20} className="text-purple-400" /> },
     { id: 'rant', label: 'Rant Corner', icon: <MessageSquare size={20} /> },
     { id: 'dailylog', label: 'Daily Log', icon: <Book size={20} /> },

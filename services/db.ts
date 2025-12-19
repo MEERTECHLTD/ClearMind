@@ -1,7 +1,7 @@
-import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant } from '../types';
+import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, MindMap } from '../types';
 
 const DB_NAME = 'ClearMindDB';
-const DB_VERSION = 3; // Incremented version to add rants store
+const DB_VERSION = 4; // Incremented version to add mindmaps store
 
 export const STORES = {
   PROJECTS: 'projects',
@@ -13,6 +13,7 @@ export const STORES = {
   LOGS: 'logs',
   PROFILE: 'profile',
   RANTS: 'rants',
+  MINDMAPS: 'mindmaps',
 };
 
 class DatabaseService {
@@ -47,6 +48,7 @@ class DatabaseService {
               createStore(STORES.LOGS);
               createStore(STORES.PROFILE);
               createStore(STORES.RANTS);
+              createStore(STORES.MINDMAPS);
 
               // No seed data - Clean slate for real users
           };
