@@ -404,6 +404,105 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
     }
   };
 
+  // Touch event handlers for mobile
+  const handleCanvasTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      // Single finger - start panning
+      setIsPanning(true);
+      setDragStart({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+    } else if (e.touches.length === 2) {
+      // Two fingers - pinch to zoom (store initial distance)
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const distance = Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+      lastPinchDistance.current = distance;
+    }
+  };
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault(); // Prevent page scrolling
+
+    if (e.touches.length === 2 && lastPinchDistance.current > 0) {
+      // Pinch to zoom
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const distance = Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY);
+      const scale = distance / lastPinchDistance.current;
+      setZoom(prev => Math.min(Math.max(prev * scale, 0.25), 2));
+      lastPinchDistance.current = distance;
+      return;
+    }
+
+    if (isPanning && e.touches.length === 1) {
+      const dx = e.touches[0].clientX - dragStart.x;
+      const dy = e.touches[0].clientY - dragStart.y;
+      setPan(prev => ({ x: prev.x + dx / zoom, y: prev.y + dy / zoom }));
+      setDragStart({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+      return;
+    }
+
+    if (!isDragging.current || !draggedNode.current || !selectedMap) return;
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect || e.touches.length !== 1) return;
+
+    const x = (e.touches[0].clientX - rect.left) / zoom - pan.x - dragOffset.current.x;
+    const y = (e.touches[0].clientY - rect.top) / zoom - pan.y - dragOffset.current.y;
+
+    const updated = {
+      ...selectedMap,
+      nodes: selectedMap.nodes.map(n =>
+        n.id === draggedNode.current ? { ...n, x, y } : n
+      ),
+    };
+
+    setSelectedMap(updated);
+  }, [selectedMap, zoom, pan, isPanning, dragStart]);
+
+  const handleTouchEnd = useCallback(async () => {
+    lastPinchDistance.current = 0;
+    if (isPanning) {
+      setIsPanning(false);
+      return;
+    }
+
+    if (isDragging.current && selectedMap) {
+      await saveMap(selectedMap);
+    }
+    isDragging.current = false;
+    draggedNode.current = null;
+  }, [selectedMap, isPanning]);
+
+  const handleNodeTouchStart = (e: React.TouchEvent, nodeId: string) => {
+    if (tool === 'connect') {
+      if (connectingFrom) {
+        connectNodes(nodeId);
+      } else {
+        setConnectingFrom(nodeId);
+      }
+      return;
+    }
+
+    e.stopPropagation();
+    isDragging.current = true;
+    draggedNode.current = nodeId;
+    
+    const node = selectedMap?.nodes.find(n => n.id === nodeId);
+    if (node && e.touches.length === 1) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        dragOffset.current = {
+          x: (e.touches[0].clientX - rect.left) / zoom - pan.x - node.x,
+          y: (e.touches[0].clientY - rect.top) / zoom - pan.y - node.y,
+        };
+      }
+    }
+    setSelectedNode(nodeId);
+  };
+
+  // Ref for pinch zoom
+  const lastPinchDistance = useRef(0);
+
   const changeNodeColor = async (nodeId: string, color: string) => {
     if (!selectedMap) return;
 
@@ -423,8 +522,8 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
       <div className="h-full overflow-auto p-4 md:p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">Mind Maps</h1>
-            <p className="text-gray-400">Create mind maps and decision trees</p>
+            <h1 className="text-2xl font-bold dark:text-white text-gray-900">Mind Maps</h1>
+            <p className="dark:text-gray-400 text-gray-600">Create mind maps and decision trees</p>
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
             {isApiConfigured() && (
@@ -447,14 +546,14 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         </div>
 
         {isCreating && (
-          <div className="bg-midnight-light p-4 rounded-xl mb-6 border border-gray-700">
+          <div className="bg-midnight-light p-4 rounded-xl mb-6 border dark:border-gray-700 border-gray-300">
             <div className="flex flex-col gap-4">
               <input
                 type="text"
                 placeholder="Mind map title..."
                 value={newMapTitle}
                 onChange={(e) => setNewMapTitle(e.target.value)}
-                className="bg-midnight border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                className="bg-midnight border dark:border-gray-600 border-gray-300 rounded-lg px-4 py-2 dark:text-white text-gray-900 dark:placeholder-gray-400 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 autoFocus
               />
               <div className="flex gap-4">
@@ -466,7 +565,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                     className="text-blue-500"
                   />
                   <Network size={18} className="text-blue-400" />
-                  <span className="text-gray-300">Mind Map</span>
+                  <span className="dark:text-gray-300 text-gray-700">Mind Map</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -476,7 +575,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                     className="text-blue-500"
                   />
                   <GitBranch size={18} className="text-green-400" />
-                  <span className="text-gray-300">Decision Tree</span>
+                  <span className="dark:text-gray-300 text-gray-700">Decision Tree</span>
                 </label>
               </div>
               <div className="flex gap-2">
@@ -500,13 +599,13 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         {/* AI Generation Modal - Mobile Responsive */}
         {showAiModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
-            <div className="bg-midnight-light p-4 sm:p-6 rounded-xl border border-gray-700 w-full max-w-md mx-2">
+            <div className="bg-midnight-light p-4 sm:p-6 rounded-xl border dark:border-gray-700 border-gray-300 w-full max-w-md mx-2">
               <div className="flex items-center gap-2 mb-3 sm:mb-4">
                 <Sparkles size={20} className="text-purple-400 sm:hidden" />
                 <Sparkles size={24} className="text-purple-400 hidden sm:block" />
-                <h2 className="text-lg sm:text-xl font-bold text-white">AI Mind Map Generator</h2>
+                <h2 className="text-lg sm:text-xl font-bold dark:text-white text-gray-900">AI Mind Map Generator</h2>
               </div>
-              <p className="text-gray-400 mb-3 sm:mb-4 text-xs sm:text-sm">
+              <p className="dark:text-gray-400 text-gray-600 mb-3 sm:mb-4 text-xs sm:text-sm">
                 Enter a topic and AI will generate a mind map for you.
               </p>
               <input
@@ -514,7 +613,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                 placeholder="e.g., Learn React, Plan vacation..."
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
-                className="w-full bg-midnight border border-gray-600 rounded-lg px-3 sm:px-4 py-2 sm:py-3 text-white text-sm sm:text-base focus:outline-none focus:border-purple-500 mb-3 sm:mb-4"
+                className="w-full bg-midnight border dark:border-gray-600 border-gray-300 rounded-lg px-3 sm:px-4 py-2 sm:py-3 dark:text-white text-gray-900 dark:placeholder-gray-400 placeholder-gray-500 text-sm sm:text-base focus:outline-none focus:border-purple-500 mb-3 sm:mb-4"
                 autoFocus
                 disabled={isGenerating}
                 onKeyDown={(e) => e.key === 'Enter' && !isGenerating && generateWithAI()}
@@ -559,7 +658,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
             {mindMaps.map((map) => (
               <div
                 key={map.id}
-                className="bg-midnight-light p-4 rounded-xl border border-gray-700 hover:border-gray-600 cursor-pointer transition-colors group"
+                className="bg-midnight-light p-4 rounded-xl border dark:border-gray-700 border-gray-300 dark:hover:border-gray-600 hover:border-gray-400 cursor-pointer transition-colors group"
                 onClick={() => setSelectedMap(map)}
               >
                 <div className="flex items-start justify-between mb-2">
@@ -569,7 +668,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                     ) : (
                       <Network size={20} className="text-blue-400" />
                     )}
-                    <h3 className="font-semibold text-white">{map.title}</h3>
+                    <h3 className="font-semibold dark:text-white text-gray-900">{map.title}</h3>
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteMindMap(map.id); }}
@@ -578,10 +677,10 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                     <Trash2 size={16} />
                   </button>
                 </div>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm dark:text-gray-400 text-gray-600">
                   {map.nodes.length} nodes • {map.edges.length} connections
                 </p>
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs dark:text-gray-500 text-gray-500 mt-2">
                   Updated {new Date(map.updatedAt).toLocaleDateString()}
                 </p>
               </div>
@@ -600,7 +699,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={() => setSelectedMap(null)}
-            className="text-gray-400 hover:text-white transition-colors p-1"
+            className="dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900 transition-colors p-1"
           >
             <X size={20} />
           </button>
@@ -610,7 +709,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
             ) : (
               <Network size={18} className="text-blue-400 flex-shrink-0" />
             )}
-            <h2 className="font-semibold text-white text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">{selectedMap.title}</h2>
+            <h2 className="font-semibold dark:text-white text-gray-900 text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">{selectedMap.title}</h2>
           </div>
         </div>
 
@@ -619,14 +718,14 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
           <div className="flex bg-midnight rounded-lg p-0.5 sm:p-1 gap-0.5 sm:gap-1">
             <button
               onClick={() => { setTool('select'); setConnectingFrom(null); }}
-              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'select' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'select' ? 'bg-blue-600 text-white' : 'dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900'}`}
               title="Select & Move"
             >
               <MousePointer size={16} />
             </button>
             <button
               onClick={() => setTool('connect')}
-              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'connect' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'connect' ? 'bg-blue-600 text-white' : 'dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900'}`}
               title="Connect Nodes"
             >
               <Link2 size={16} />
@@ -637,14 +736,14 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
           <div className="hidden xs:flex items-center gap-0.5 sm:gap-1 bg-midnight rounded-lg p-0.5 sm:p-1">
             <button
               onClick={() => setZoom(z => Math.max(0.25, z - 0.25))}
-              className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 sm:p-2 dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900 transition-colors"
             >
               <ZoomOut size={16} />
             </button>
-            <span className="text-gray-400 text-xs sm:text-sm w-8 sm:w-12 text-center">{Math.round(zoom * 100)}%</span>
+            <span className="dark:text-gray-400 text-gray-600 text-xs sm:text-sm w-8 sm:w-12 text-center">{Math.round(zoom * 100)}%</span>
             <button
               onClick={() => setZoom(z => Math.min(2, z + 0.25))}
-              className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 sm:p-2 dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900 transition-colors"
             >
               <ZoomIn size={16} />
             </button>
@@ -665,11 +764,14 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
       {/* Canvas */}
       <div
         ref={canvasRef}
-        className="flex-1 overflow-hidden relative cursor-grab active:cursor-grabbing"
+        className="flex-1 overflow-hidden relative cursor-grab active:cursor-grabbing touch-none"
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onTouchStart={handleCanvasTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         {connectingFrom && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-600 px-3 py-1 rounded-full text-sm z-10">
@@ -762,6 +864,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
               } ${connectingFrom === node.id ? 'ring-2 ring-blue-500' : ''}`}
               style={{ left: node.x, top: node.y }}
               onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
+              onTouchStart={(e) => handleNodeTouchStart(e, node.id)}
               onDoubleClick={() => {
                 setEditingNode(node.id);
                 setEditingNodeText(node.text);
@@ -845,14 +948,14 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         {/* Edge Label Editor Modal - Mobile Responsive */}
         {editingEdge && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30 p-3">
-            <div className="bg-midnight-light p-3 sm:p-4 rounded-xl border border-gray-700 w-full max-w-xs sm:max-w-sm mx-2">
-              <h3 className="text-white font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Edit Connection Label</h3>
+            <div className="bg-midnight-light p-3 sm:p-4 rounded-xl border dark:border-gray-700 border-gray-300 w-full max-w-xs sm:max-w-sm mx-2">
+              <h3 className="dark:text-white text-gray-900 font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Edit Connection Label</h3>
               <input
                 type="text"
                 value={edgeLabelText}
                 onChange={(e) => setEdgeLabelText(e.target.value)}
                 placeholder="e.g., Yes, No, Maybe..."
-                className="bg-midnight border border-gray-600 rounded-lg px-3 py-2 text-white text-sm sm:text-base w-full mb-2 sm:mb-3 focus:outline-none focus:border-blue-500"
+                className="bg-midnight border dark:border-gray-600 border-gray-300 rounded-lg px-3 py-2 dark:text-white text-gray-900 dark:placeholder-gray-400 placeholder-gray-500 text-sm sm:text-base w-full mb-2 sm:mb-3 focus:outline-none focus:border-blue-500"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') updateEdgeLabel();
