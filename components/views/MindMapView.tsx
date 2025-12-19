@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Trash2, Edit3, Save, X, GitBranch, Network, MousePointer, Link2, ZoomIn, ZoomOut, Move } from 'lucide-react';
+import { Plus, Trash2, Edit3, Save, X, GitBranch, Network, MousePointer, Link2, ZoomIn, ZoomOut, Move, Sparkles, Loader2 } from 'lucide-react';
 import { MindMap, MindMapNode, MindMapEdge } from '../../types';
 import { dbService, STORES } from '../../services/db';
+import { generateResponse, isApiConfigured } from '../../services/geminiService';
 
 const NODE_COLORS = [
   '#3B82F6', // Blue
@@ -31,6 +32,9 @@ const MindMapView: React.FC = () => {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [editingEdge, setEditingEdge] = useState<string | null>(null);
   const [edgeLabelText, setEdgeLabelText] = useState('');
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   
   const canvasRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -93,6 +97,114 @@ const MindMapView: React.FC = () => {
     await dbService.put(STORES.MINDMAPS, updated);
     setMindMaps(mindMaps.map(m => m.id === updated.id ? updated : m));
     setSelectedMap(updated);
+  };
+
+  const generateWithAI = async () => {
+    if (!aiPrompt.trim() || !isApiConfigured()) return;
+    
+    setIsGenerating(true);
+    try {
+      const prompt = `Generate a mind map structure for the topic: "${aiPrompt}". 
+Return ONLY a valid JSON object with this exact structure (no markdown, no explanation):
+{
+  "title": "Topic Title",
+  "nodes": [
+    {"id": "1", "text": "Main Idea", "isRoot": true, "children": ["2", "3", "4"]},
+    {"id": "2", "text": "Subtopic 1", "children": ["5", "6"]},
+    {"id": "3", "text": "Subtopic 2", "children": []},
+    {"id": "4", "text": "Subtopic 3", "children": ["7"]},
+    {"id": "5", "text": "Detail 1", "children": []},
+    {"id": "6", "text": "Detail 2", "children": []},
+    {"id": "7", "text": "Detail 3", "children": []}
+  ]
+}
+Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`;
+
+      const response = await generateResponse(prompt);
+      
+      // Parse JSON from response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('Invalid AI response');
+      
+      const data = JSON.parse(jsonMatch[0]);
+      
+      // Convert to mindmap structure with positions
+      const centerX = 400;
+      const centerY = 300;
+      const nodes: MindMapNode[] = [];
+      const edges: MindMapEdge[] = [];
+      const nodePositions: Record<string, {x: number, y: number}> = {};
+      
+      // Calculate positions in radial layout
+      const rootNode = data.nodes.find((n: any) => n.isRoot);
+      if (rootNode) {
+        nodePositions[rootNode.id] = { x: centerX, y: centerY };
+        
+        // Position children in circles
+        const positionChildren = (parentId: string, parentX: number, parentY: number, level: number, startAngle: number, angleSpan: number) => {
+          const parent = data.nodes.find((n: any) => n.id === parentId);
+          if (!parent?.children?.length) return;
+          
+          const radius = 120 + level * 80;
+          const angleStep = angleSpan / parent.children.length;
+          
+          parent.children.forEach((childId: string, index: number) => {
+            const angle = startAngle + angleStep * (index + 0.5);
+            const x = parentX + Math.cos(angle) * radius;
+            const y = parentY + Math.sin(angle) * radius;
+            nodePositions[childId] = { x, y };
+            positionChildren(childId, x, y, level + 1, angle - angleStep / 2, angleStep);
+          });
+        };
+        
+        positionChildren(rootNode.id, centerX, centerY, 0, 0, Math.PI * 2);
+      }
+      
+      // Create nodes and edges
+      data.nodes.forEach((n: any, index: number) => {
+        const pos = nodePositions[n.id] || { x: centerX + Math.random() * 200, y: centerY + Math.random() * 200 };
+        nodes.push({
+          id: n.id,
+          x: pos.x,
+          y: pos.y,
+          text: n.text,
+          color: NODE_COLORS[index % NODE_COLORS.length],
+          isRoot: n.isRoot || false,
+          isDecision: false,
+        });
+        
+        if (n.children) {
+          n.children.forEach((childId: string) => {
+            edges.push({
+              id: crypto.randomUUID(),
+              from: n.id,
+              to: childId,
+            });
+          });
+        }
+      });
+      
+      const newMap: MindMap = {
+        id: crypto.randomUUID(),
+        title: data.title || aiPrompt,
+        nodes,
+        edges,
+        type: 'mind-map',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      await dbService.put(STORES.MINDMAPS, newMap);
+      setMindMaps([...mindMaps, newMap]);
+      setSelectedMap(newMap);
+      setShowAiModal(false);
+      setAiPrompt('');
+    } catch (error) {
+      console.error('AI generation failed:', error);
+      alert('Failed to generate mind map. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const addNode = async (parentId?: string) => {
@@ -314,13 +426,24 @@ const MindMapView: React.FC = () => {
             <h1 className="text-2xl font-bold text-white">Mind Maps</h1>
             <p className="text-gray-400">Create mind maps and decision trees</p>
           </div>
-          <button
-            onClick={() => setIsCreating(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus size={18} />
-            <span>New Map</span>
-          </button>
+          <div className="flex gap-2 w-full sm:w-auto">
+            {isApiConfigured() && (
+              <button
+                onClick={() => setShowAiModal(true)}
+                className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 px-3 sm:px-4 py-2 rounded-lg transition-colors flex-1 sm:flex-none"
+              >
+                <Sparkles size={18} />
+                <span className="hidden xs:inline">AI Generate</span>
+              </button>
+            )}
+            <button
+              onClick={() => setIsCreating(true)}
+              className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg transition-colors flex-1 sm:flex-none"
+            >
+              <Plus size={18} />
+              <span className="hidden xs:inline">New Map</span>
+            </button>
+          </div>
         </div>
 
         {isCreating && (
@@ -374,6 +497,58 @@ const MindMapView: React.FC = () => {
           </div>
         )}
 
+        {/* AI Generation Modal - Mobile Responsive */}
+        {showAiModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
+            <div className="bg-midnight-light p-4 sm:p-6 rounded-xl border border-gray-700 w-full max-w-md mx-2">
+              <div className="flex items-center gap-2 mb-3 sm:mb-4">
+                <Sparkles size={20} className="text-purple-400 sm:hidden" />
+                <Sparkles size={24} className="text-purple-400 hidden sm:block" />
+                <h2 className="text-lg sm:text-xl font-bold text-white">AI Mind Map Generator</h2>
+              </div>
+              <p className="text-gray-400 mb-3 sm:mb-4 text-xs sm:text-sm">
+                Enter a topic and AI will generate a mind map for you.
+              </p>
+              <input
+                type="text"
+                placeholder="e.g., Learn React, Plan vacation..."
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                className="w-full bg-midnight border border-gray-600 rounded-lg px-3 sm:px-4 py-2 sm:py-3 text-white text-sm sm:text-base focus:outline-none focus:border-purple-500 mb-3 sm:mb-4"
+                autoFocus
+                disabled={isGenerating}
+                onKeyDown={(e) => e.key === 'Enter' && !isGenerating && generateWithAI()}
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => { setShowAiModal(false); setAiPrompt(''); }}
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors"
+                  disabled={isGenerating}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={generateWithAI}
+                  disabled={!aiPrompt.trim() || isGenerating}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      <span>Generating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={18} />
+                      <span>Generate</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {mindMaps.length === 0 && !isCreating ? (
           <div className="text-center py-16 text-gray-500">
             <Network size={48} className="mx-auto mb-4 opacity-50" />
@@ -420,68 +595,69 @@ const MindMapView: React.FC = () => {
   // Canvas view when map is selected
   return (
     <div className="h-full flex flex-col bg-midnight">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between p-3 bg-midnight-light border-b border-gray-700">
-        <div className="flex items-center gap-3">
+      {/* Toolbar - Mobile Responsive */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3 bg-midnight-light border-b border-gray-700">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={() => setSelectedMap(null)}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-gray-400 hover:text-white transition-colors p-1"
           >
             <X size={20} />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {selectedMap.type === 'decision-tree' ? (
-              <GitBranch size={20} className="text-green-400" />
+              <GitBranch size={18} className="text-green-400 flex-shrink-0" />
             ) : (
-              <Network size={20} className="text-blue-400" />
+              <Network size={18} className="text-blue-400 flex-shrink-0" />
             )}
-            <h2 className="font-semibold text-white">{selectedMap.title}</h2>
+            <h2 className="font-semibold text-white text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">{selectedMap.title}</h2>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
           {/* Tools */}
-          <div className="flex bg-midnight rounded-lg p-1 gap-1">
+          <div className="flex bg-midnight rounded-lg p-0.5 sm:p-1 gap-0.5 sm:gap-1">
             <button
               onClick={() => { setTool('select'); setConnectingFrom(null); }}
-              className={`p-2 rounded-lg transition-colors ${tool === 'select' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'select' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
               title="Select & Move"
             >
-              <MousePointer size={18} />
+              <MousePointer size={16} />
             </button>
             <button
               onClick={() => setTool('connect')}
-              className={`p-2 rounded-lg transition-colors ${tool === 'connect' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'connect' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
               title="Connect Nodes"
             >
-              <Link2 size={18} />
+              <Link2 size={16} />
             </button>
           </div>
 
-          {/* Zoom */}
-          <div className="flex items-center gap-1 bg-midnight rounded-lg p-1">
+          {/* Zoom - Hidden on very small screens */}
+          <div className="hidden xs:flex items-center gap-0.5 sm:gap-1 bg-midnight rounded-lg p-0.5 sm:p-1">
             <button
               onClick={() => setZoom(z => Math.max(0.25, z - 0.25))}
-              className="p-2 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors"
             >
-              <ZoomOut size={18} />
+              <ZoomOut size={16} />
             </button>
-            <span className="text-gray-400 text-sm w-12 text-center">{Math.round(zoom * 100)}%</span>
+            <span className="text-gray-400 text-xs sm:text-sm w-8 sm:w-12 text-center">{Math.round(zoom * 100)}%</span>
             <button
               onClick={() => setZoom(z => Math.min(2, z + 0.25))}
-              className="p-2 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors"
             >
-              <ZoomIn size={18} />
+              <ZoomIn size={16} />
             </button>
           </div>
 
           {/* Add Node */}
           <button
             onClick={() => addNode(selectedNode || undefined)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg transition-colors text-sm"
+            className="flex items-center gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             <span className="hidden sm:inline">Add Node</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
@@ -666,17 +842,17 @@ const MindMapView: React.FC = () => {
           ))}
         </div>
 
-        {/* Edge Label Editor Modal */}
+        {/* Edge Label Editor Modal - Mobile Responsive */}
         {editingEdge && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
-            <div className="bg-midnight-light p-4 rounded-xl border border-gray-700">
-              <h3 className="text-white font-semibold mb-3">Edit Connection Label</h3>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30 p-3">
+            <div className="bg-midnight-light p-3 sm:p-4 rounded-xl border border-gray-700 w-full max-w-xs sm:max-w-sm mx-2">
+              <h3 className="text-white font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Edit Connection Label</h3>
               <input
                 type="text"
                 value={edgeLabelText}
                 onChange={(e) => setEdgeLabelText(e.target.value)}
                 placeholder="e.g., Yes, No, Maybe..."
-                className="bg-midnight border border-gray-600 rounded-lg px-3 py-2 text-white w-full mb-3 focus:outline-none focus:border-blue-500"
+                className="bg-midnight border border-gray-600 rounded-lg px-3 py-2 text-white text-sm sm:text-base w-full mb-2 sm:mb-3 focus:outline-none focus:border-blue-500"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') updateEdgeLabel();
@@ -720,9 +896,10 @@ const MindMapView: React.FC = () => {
         )}
       </div>
 
-      {/* Help text */}
+      {/* Help text - Mobile Responsive */}
       <div className="p-2 bg-midnight-light border-t border-gray-700 text-xs text-gray-500 text-center">
-        Double-click to edit • Drag to move • Alt+Drag to pan • Use Connect tool to link nodes
+        <span className="hidden sm:inline">Double-click to edit • Drag to move • Alt+Drag to pan • Use Connect tool to link nodes</span>
+        <span className="sm:hidden">Double-tap to edit • Drag to move</span>
       </div>
     </div>
   );

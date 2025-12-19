@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Bell, Shield, Cloud, LogOut, Moon, Save, Info, Key, Check, CheckCircle } from 'lucide-react';
+import { User, Bell, Cloud, LogOut, Moon, Save, Info } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { isApiConfigured } from '../../services/geminiService';
 
 interface SettingsProps {
   user: UserProfile | null;
@@ -14,7 +13,6 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.nickname || '');
   const [editGithub, setEditGithub] = useState(user?.githubUsername || '');
-  const apiConfigured = isApiConfigured();
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -103,51 +101,6 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
                 </div>
               )}
             </div>
-          </div>
-        </section>
-
-        {/* API Key Configuration */}
-        <section className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
-          <div className="flex items-center gap-3 mb-4">
-            <Key size={24} className="text-purple-500" />
-            <div>
-              <h3 className="text-lg font-bold dark:text-white text-gray-900">Iris AI Configuration</h3>
-              <p className="text-xs text-gray-500">Gemini AI powers Iris, your AI companion</p>
-            </div>
-          </div>
-          
-          <div className="space-y-4">
-            <div className={`flex items-center gap-3 p-4 rounded-lg ${
-              apiConfigured 
-                ? 'bg-green-500/10 border border-green-500/30' 
-                : 'bg-yellow-500/10 border border-yellow-500/30'
-            }`}>
-              {apiConfigured ? (
-                <>
-                  <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                    <Check size={20} className="text-green-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium dark:text-white text-gray-900">API Connected</p>
-                    <p className="text-sm text-gray-500">Iris AI is ready to assist you</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                    <Shield size={20} className="text-yellow-500" />
-                  </div>
-                  <div>
-                    <p className="font-medium dark:text-white text-gray-900">API Not Configured</p>
-                    <p className="text-sm text-gray-500">Contact the administrator to enable Iris AI</p>
-                  </div>
-                </>
-              )}
-            </div>
-            
-            <p className="text-xs text-gray-500 leading-relaxed">
-              Iris AI companion is powered by Google's Gemini API. The API key is securely configured by the application administrator.
-            </p>
           </div>
         </section>
 

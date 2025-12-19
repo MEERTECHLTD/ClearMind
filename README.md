@@ -42,6 +42,15 @@ Journal your daily experiences with mood tracking (Productive, Neutral, Frustrat
 ### 📈 **Analytics**
 Visualize your productivity trends and patterns with beautiful charts powered by Recharts.
 
+### 🧠 **Mind Maps**
+Create visual mind maps and decision trees to organize your thoughts:
+- **Mind Maps**: Brainstorm ideas with connected nodes
+- **Decision Trees**: Map out choices with Yes/No branches
+- **AI Generation**: Let Gemini AI create comprehensive mind maps from a topic
+- **Interactive Canvas**: Pan, zoom, and drag nodes freely
+- **Color-coded Nodes**: Organize visually with different colors
+- **Labeled Connections**: Add context to relationships between ideas
+
 ### 🤖 **Iris - AI Companion**
 Your personal AI assistant powered by Google Gemini. Iris helps you:
 - Break down complex tasks
@@ -144,7 +153,7 @@ ClearMind/
 │       ├── DailyLogView.tsx
 │       ├── AnalyticsView.tsx
 │       ├── IrisView.tsx       # AI Companion
-│       ├── IRISView.tsx
+│       ├── MindMapView.tsx    # Mind Maps & Decision Trees
 │       ├── RantCorner.tsx     # Vent with AI support
 │       ├── SettingsView.tsx
 │       └── OnboardingView.tsx
