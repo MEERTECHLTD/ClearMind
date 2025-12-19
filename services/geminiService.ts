@@ -21,6 +21,22 @@ const getAI = (): GoogleGenAI | null => {
   return new GoogleGenAI({ apiKey });
 };
 
+// Clean AI response to remove asterisks, dashes, and markdown formatting
+const cleanResponse = (text: string): string => {
+  return text
+    // Remove bold/italic asterisks (**, *, ***)
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+    // Remove any remaining standalone asterisks
+    .replace(/\*/g, '')
+    // Replace dash bullet points at start of lines with numbers or remove
+    .replace(/^\s*[-–—]\s+/gm, '• ')
+    // Replace markdown headers (##, ###) with plain text
+    .replace(/^#{1,6}\s+/gm, '')
+    // Clean up any double spaces
+    .replace(/  +/g, ' ')
+    .trim();
+};
+
 // Simple response generator for general-purpose AI requests (e.g., Mind Maps)
 export const generateResponse = async (prompt: string): Promise<string> => {
   const ai = getAI();
@@ -207,7 +223,7 @@ Celebrate their streaks and completed milestones.`;
       }
     });
 
-    return response.text || "I'm thinking...";
+    return cleanResponse(response.text || "I'm thinking...");
   } catch (error) {
     console.error("Error communicating with Iris:", error);
     return "Connection to the neural link failed. Try again.";
@@ -252,7 +268,7 @@ export const generateIRISResponse = async (
       }
     });
 
-    return response.text || "I'm thinking...";
+    return cleanResponse(response.text || "I'm thinking...");
   } catch (error) {
     console.error("Error communicating with IRIS:", error);
     return "Connection to the neural link failed. Try again.";
