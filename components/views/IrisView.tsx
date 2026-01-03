@@ -1,22 +1,58 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { generateIrisResponse, UserContext } from '../../services/geminiService';
+import { generateIrisResponse, UserContext, parseTaskCommands, ParsedTask } from '../../services/geminiService';
 import { dbService, STORES } from '../../services/db';
 import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant } from '../../types';
-import { Send, Sparkles, Bot, User } from 'lucide-react';
+import { Send, Sparkles, Bot, User, CheckCircle } from 'lucide-react';
 
 const IrisView: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [userContext, setUserContext] = useState<UserContext | null>(null);
+  const [createdTasks, setCreatedTasks] = useState<string[]>([]); // Track recently created task titles
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'init',
       role: 'model',
-      text: "Hello. I am Iris. I'm here to help you maintain consistency and log your journey. What are we shipping today?",
+      text: "Hello. I am Iris. I'm here to help you maintain consistency and log your journey. I can also add tasks for you, just ask! What are we shipping today?",
       timestamp: new Date()
     }
   ]);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Helper to get next task number
+  const getNextTaskNumber = async (): Promise<number> => {
+    const allTasks = await dbService.getAll<Task>(STORES.TASKS);
+    const maxNumber = allTasks.reduce((max, task) => Math.max(max, task.taskNumber || 0), 0);
+    return maxNumber + 1;
+  };
+
+  // Create tasks from Iris's parsed commands
+  const createTasksFromIris = async (parsedTasks: ParsedTask[]) => {
+    const createdTaskTitles: string[] = [];
+    
+    for (const parsedTask of parsedTasks) {
+      const taskNumber = await getNextTaskNumber();
+      const newTask: Task = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        title: parsedTask.title,
+        completed: false,
+        priority: parsedTask.priority,
+        dueDate: parsedTask.dueDate,
+        dueTime: parsedTask.dueTime,
+        taskNumber,
+        notified: false
+      };
+      
+      await dbService.put(STORES.TASKS, newTask);
+      createdTaskTitles.push(parsedTask.title);
+    }
+    
+    if (createdTaskTitles.length > 0) {
+      setCreatedTasks(createdTaskTitles);
+      // Clear the notification after 5 seconds
+      setTimeout(() => setCreatedTasks([]), 5000);
+    }
+  };
 
   // Fetch all user data for context
   const fetchUserContext = useCallback(async () => {
@@ -88,13 +124,21 @@ const IrisView: React.FC = () => {
 
       const responseText = await generateIrisResponse(history, userMsg.text, userContext || undefined);
 
+      // Parse for task creation commands
+      const { cleanedResponse, tasks } = parseTaskCommands(responseText);
+      
+      // Create any tasks that Iris requested
+      if (tasks.length > 0) {
+        await createTasksFromIris(tasks);
+      }
+
       // Refresh context after each interaction (user might have asked Iris about updates)
       fetchUserContext();
 
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: responseText,
+        text: cleanedResponse,
         timestamp: new Date()
       };
       setMessages(prev => [...prev, aiMsg]);
@@ -124,6 +168,21 @@ const IrisView: React.FC = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400">Your AI co-pilot for the journey.</p>
         </div>
       </div>
+
+      {/* Task Created Notification */}
+      {createdTasks.length > 0 && (
+        <div className="mx-6 mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl flex items-center gap-3 animate-fade-in">
+          <CheckCircle className="text-green-500" size={20} />
+          <div className="flex-1">
+            <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+              Task{createdTasks.length > 1 ? 's' : ''} added successfully!
+            </p>
+            <p className="text-xs text-green-500/70">
+              {createdTasks.join(', ')}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">

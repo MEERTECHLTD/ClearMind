@@ -195,7 +195,7 @@ const App: React.FC = () => {
   const viewContent = useMemo(() => {
     switch (currentView) {
       case 'dashboard':
-        return <DashboardView user={userProfile} />;
+        return <DashboardView user={userProfile} onNavigate={handleViewChange} />;
       case 'projects':
         return <ProjectsView />;
       case 'tasks':
@@ -221,9 +221,9 @@ const App: React.FC = () => {
       case 'mindmap':
         return <MindMapView />;
       default:
-        return <DashboardView user={userProfile} />;
+        return <DashboardView user={userProfile} onNavigate={handleViewChange} />;
     }
-  }, [currentView, userProfile, handleLogout]);
+  }, [currentView, userProfile, handleLogout, handleViewChange]);
 
   if (isCheckingAuth) {
     return (

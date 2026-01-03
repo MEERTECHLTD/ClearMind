@@ -27,6 +27,8 @@ export interface Task {
   completed: boolean;
   priority: 'High' | 'Medium' | 'Low';
   dueDate?: string;
+  dueTime?: string;
+  taskNumber?: number;
   notified?: boolean;
 }
 

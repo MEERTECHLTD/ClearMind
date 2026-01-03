@@ -37,6 +37,41 @@ const cleanResponse = (text: string): string => {
     .trim();
 };
 
+// Interface for parsed task from Iris response
+export interface ParsedTask {
+  title: string;
+  priority: 'High' | 'Medium' | 'Low';
+  dueDate?: string;
+  dueTime?: string;
+}
+
+// Parse task creation commands from Iris response
+export const parseTaskCommands = (response: string): { cleanedResponse: string; tasks: ParsedTask[] } => {
+  const taskRegex = /\[CREATE_TASK:\s*(\{[^}]+\})\]/g;
+  const tasks: ParsedTask[] = [];
+  
+  let match;
+  while ((match = taskRegex.exec(response)) !== null) {
+    try {
+      const taskData = JSON.parse(match[1]);
+      const task: ParsedTask = {
+        title: taskData.title || 'Untitled Task',
+        priority: ['High', 'Medium', 'Low'].includes(taskData.priority) ? taskData.priority : 'Medium',
+        dueDate: taskData.dueDate,
+        dueTime: taskData.dueTime
+      };
+      tasks.push(task);
+    } catch (e) {
+      console.error('Failed to parse task command:', match[1], e);
+    }
+  }
+
+  // Remove the task commands from the response for clean display
+  const cleanedResponse = response.replace(taskRegex, '').trim();
+  
+  return { cleanedResponse, tasks };
+};
+
 // Simple response generator for general-purpose AI requests (e.g., Mind Maps)
 export const generateResponse = async (prompt: string): Promise<string> => {
   const ai = getAI();
@@ -191,6 +226,26 @@ FORMATTING RULES (VERY IMPORTANT):
 - If you need to list things, use numbered lists (1, 2, 3) or just mention them naturally in sentences
 - Keep your tone warm, supportive, and conversational like talking to a friend
 - Avoid robotic or formal language
+
+TASK CREATION ABILITY:
+You can create tasks for the user! When a user asks you to add a task, create a task, or reminds you about something they need to do, you MUST include a special command in your response.
+
+To create a task, include this EXACT format somewhere in your response (can be at the end):
+[CREATE_TASK: {"title": "Task title here", "priority": "High|Medium|Low", "dueDate": "YYYY-MM-DD", "dueTime": "HH:MM"}]
+
+Rules for creating tasks:
+1. "priority" must be exactly "High", "Medium", or "Low" (default to "Medium" if unclear)
+2. "dueDate" is optional, use format YYYY-MM-DD. If user says "today", use today's date. If "tomorrow", use tomorrow's date.
+3. "dueTime" is optional, use 24-hour format HH:MM
+4. You can create multiple tasks by including multiple [CREATE_TASK: ...] blocks
+5. After the command, briefly confirm you've added the task
+
+Examples:
+- User: "Add a task to review the pull request by tomorrow"
+  Response: "I've added that to your tasks. [CREATE_TASK: {"title": "Review the pull request", "priority": "Medium", "dueDate": "2026-01-04"}] Make sure to give it a thorough review!"
+
+- User: "Remind me to call mom at 5pm today, it's important"
+  Response: "Done! I've set a high priority task for that. [CREATE_TASK: {"title": "Call mom", "priority": "High", "dueDate": "2026-01-03", "dueTime": "17:00"}]"
 
 IMPORTANT: You have full access to the user's data in ClearMind. Use this context to give personalized, relevant advice.
 Reference their specific projects, tasks, habits, goals, and even their rants when appropriate.
