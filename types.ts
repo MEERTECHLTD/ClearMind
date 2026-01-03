@@ -5,6 +5,7 @@ export interface Project {
   status: 'In Progress' | 'Completed' | 'On Hold';
   progress: number;
   tags: string[];
+  deadline?: string;
 }
 
 export interface LogEntry {
