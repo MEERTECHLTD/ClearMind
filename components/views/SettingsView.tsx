@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { User, Bell, Cloud, LogOut, Moon, Save, Info } from 'lucide-react';
+import React, { useState } from 'react';
+import { Bell, Cloud, LogOut, Moon, Save, Info } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
 
@@ -12,20 +12,13 @@ interface SettingsProps {
 const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.nickname || '');
-  const [editGithub, setEditGithub] = useState(user?.githubUsername || '');
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    
-    let cleanGithub = editGithub.trim();
-    if (cleanGithub.includes('github.com/')) {
-      cleanGithub = cleanGithub.split('github.com/')[1].split('/')[0];
-    }
 
     const updated: UserProfile = {
       ...user,
-      nickname: editName,
-      githubUsername: cleanGithub
+      nickname: editName
     };
 
     await dbService.put(STORES.PROFILE, updated);
@@ -42,11 +35,7 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
         <section className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
           <div className="flex items-start gap-6">
             <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-2xl font-bold text-white uppercase shrink-0">
-               {user?.githubUsername ? (
-                 <img src={`https://github.com/${user.githubUsername}.png`} className="w-full h-full rounded-full" />
-               ) : (
-                 editName.substring(0, 2)
-               )}
+               {editName.substring(0, 2)}
             </div>
             
             <div className="flex-1 space-y-4">
@@ -54,9 +43,6 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
                 <>
                   <div>
                     <h3 className="text-xl font-bold dark:text-white text-gray-900">{user?.nickname}</h3>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">
-                      {user?.githubUsername ? `github.com/${user.githubUsername}` : 'No GitHub Linked'}
-                    </p>
                     <p className="text-xs text-gray-500 dark:text-gray-600 mt-1">Joined: {new Date(user?.joinedAt || Date.now()).toLocaleDateString()}</p>
                   </div>
                   <button 
@@ -73,14 +59,6 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
                      <input 
                        value={editName}
                        onChange={e => setEditName(e.target.value)}
-                       className="w-full bg-midnight-light border dark:border-gray-700 border-gray-300 rounded p-2 dark:text-white text-gray-900 mt-1"
-                     />
-                   </div>
-                   <div>
-                     <label className="text-xs text-gray-500 uppercase font-semibold">GitHub Username</label>
-                     <input 
-                       value={editGithub}
-                       onChange={e => setEditGithub(e.target.value)}
                        className="w-full bg-midnight-light border dark:border-gray-700 border-gray-300 rounded p-2 dark:text-white text-gray-900 mt-1"
                      />
                    </div>
