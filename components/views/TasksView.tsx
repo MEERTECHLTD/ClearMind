@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Task } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Plus, CheckCircle, Circle, Trash2, Calendar, Bell, Clock, Edit2, X, Save } from 'lucide-react';
+import { Plus, CheckCircle, Circle, Trash2, Calendar, Bell, Clock, Edit2, X, Save, ArrowUpDown } from 'lucide-react';
 
 const TasksView: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -17,6 +17,9 @@ const TasksView: React.FC = () => {
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
   const [editPriority, setEditPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
+  
+  // Sort state
+  const [sortBy, setSortBy] = useState<'default' | 'priority-high' | 'priority-low' | 'date'>('default');
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -140,6 +143,41 @@ const TasksView: React.FC = () => {
     return `${hour12}:${minutes} ${ampm}`;
   };
 
+  const getPriorityValue = (priority: 'High' | 'Medium' | 'Low'): number => {
+    switch (priority) {
+      case 'High': return 3;
+      case 'Medium': return 2;
+      case 'Low': return 1;
+      default: return 0;
+    }
+  };
+
+  const sortedTasks = useMemo(() => {
+    const sorted = [...tasks];
+    
+    switch (sortBy) {
+      case 'priority-high':
+        return sorted.sort((a, b) => {
+          if (a.completed !== b.completed) return Number(a.completed) - Number(b.completed);
+          return getPriorityValue(b.priority) - getPriorityValue(a.priority);
+        });
+      case 'priority-low':
+        return sorted.sort((a, b) => {
+          if (a.completed !== b.completed) return Number(a.completed) - Number(b.completed);
+          return getPriorityValue(a.priority) - getPriorityValue(b.priority);
+        });
+      case 'date':
+        return sorted.sort((a, b) => {
+          if (a.completed !== b.completed) return Number(a.completed) - Number(b.completed);
+          const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+          const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+          return dateA - dateB;
+        });
+      default:
+        return sorted.sort((a, b) => Number(a.completed) - Number(b.completed));
+    }
+  }, [tasks, sortBy]);
+
   return (
     <div className="p-8 h-full overflow-y-auto animate-fade-in">
       <div className="flex justify-between items-center mb-8">
@@ -156,6 +194,23 @@ const TasksView: React.FC = () => {
               <Bell size={16} /> Enable Reminders
             </button>
           )}
+          
+          {/* Sort Dropdown */}
+          <div className="flex items-center gap-2">
+            <ArrowUpDown size={16} className="text-gray-400" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+              title="Sort tasks"
+              className="bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              <option value="default">Default</option>
+              <option value="priority-high">Priority: High to Low</option>
+              <option value="priority-low">Priority: Low to High</option>
+              <option value="date">Due Date</option>
+            </select>
+          </div>
+          
           <div className="text-sm text-gray-500 dark:text-gray-400">
             {tasks.filter(t => t.completed).length} / {tasks.length} Completed
           </div>
@@ -240,7 +295,7 @@ const TasksView: React.FC = () => {
       </form>
 
       <div className="space-y-3">
-        {tasks.map(task => (
+        {sortedTasks.map(task => (
           <div 
             key={task.id} 
             className={`group flex items-center justify-between p-4 rounded-xl border transition-all duration-200
