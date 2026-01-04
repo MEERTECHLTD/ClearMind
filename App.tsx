@@ -20,6 +20,7 @@ const SettingsView = lazy(() => import('./components/views/SettingsView'));
 const OnboardingView = lazy(() => import('./components/views/OnboardingView'));
 const MindMapView = lazy(() => import('./components/views/MindMapView'));
 const CalendarView = lazy(() => import('./components/views/CalendarView'));
+const DailyMapperView = lazy(() => import('./components/views/DailyMapperView'));
 
 // Loading fallback component
 const ViewLoader = () => (
@@ -37,7 +38,7 @@ const getViewFromHash = (): ViewState => {
   const validViews: ViewState[] = [
     'dashboard', 'projects', 'tasks', 'notes', 'habits', 
     'goals', 'milestones', 'iris', 'rant', 'dailylog', 
-    'analytics', 'settings', 'mindmap', 'calendar'
+    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper'
   ];
   return validViews.includes(hash as ViewState) ? (hash as ViewState) : 'dashboard';
 };
@@ -279,6 +280,8 @@ const App: React.FC = () => {
         return <MindMapView />;
       case 'calendar':
         return <CalendarView />;
+      case 'dailymapper':
+        return <DailyMapperView />;
       default:
         return <DashboardView user={userProfile} onNavigate={handleViewChange} />;
     }

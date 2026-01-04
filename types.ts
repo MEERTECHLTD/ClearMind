@@ -66,6 +66,18 @@ export interface CalendarEvent {
   notified?: boolean;
 }
 
+export interface DailyMapperEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:MM (e.g., "05:00")
+  endTime: string; // HH:MM (e.g., "05:30")
+  task: string;
+  completed: 'yes' | 'no' | 'partial';
+  comment?: string;
+  adjustment?: string;
+  color?: string;
+}
+
 export interface Goal {
   id: string;
   title: string;
@@ -137,4 +149,5 @@ export type ViewState =
   | 'analytics' 
   | 'mindmap'
   | 'calendar'
+  | 'dailymapper'
   | 'settings';
