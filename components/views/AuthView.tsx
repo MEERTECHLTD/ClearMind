@@ -21,7 +21,7 @@ import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
 
 interface AuthViewProps {
   onAuthSuccess: (user: any) => void;
-  onSkip: () => void;
+  onSkip: (nickname?: string) => void;
 }
 
 const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
@@ -196,7 +196,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
       setError('Please enter a nickname');
       return;
     }
-    onSkip();
+    onSkip(localNickname.trim());
   };
 
   // Choose screen - Local vs Cloud

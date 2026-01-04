@@ -57,6 +57,28 @@ if (isFirebaseConfigured()) {
 const googleProvider = new GoogleAuthProvider();
 const githubProvider = new GithubAuthProvider();
 
+// Helper function to remove undefined values from objects (Firestore doesn't accept undefined)
+const sanitizeForFirestore = <T extends object>(obj: T): T => {
+  const sanitized: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) {
+      // Convert undefined to null (Firestore accepts null)
+      sanitized[key] = null;
+    } else if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+      // Recursively sanitize nested objects
+      sanitized[key] = sanitizeForFirestore(value);
+    } else if (Array.isArray(value)) {
+      // Sanitize array items
+      sanitized[key] = value.map(item => 
+        item !== null && typeof item === 'object' ? sanitizeForFirestore(item) : (item === undefined ? null : item)
+      );
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized as T;
+};
+
 export interface FirebaseUser {
   uid: string;
   email: string | null;
@@ -248,7 +270,8 @@ export const firebaseService = {
     
     items.forEach(item => {
       const docRef = doc(collectionRef, item.id);
-      batch.set(docRef, { ...item, syncedAt: new Date().toISOString() });
+      const sanitizedItem = sanitizeForFirestore({ ...item, syncedAt: new Date().toISOString() });
+      batch.set(docRef, sanitizedItem);
     });
     
     await batch.commit();
@@ -359,7 +382,8 @@ export const firebaseService = {
     if (!user) throw new Error('Not authenticated');
 
     const docRef = doc(db, `users/${user.uid}/${storeName}`, item.id);
-    await setDoc(docRef, { ...item, syncedAt: new Date().toISOString() });
+    const sanitizedItem = sanitizeForFirestore({ ...item, syncedAt: new Date().toISOString() });
+    await setDoc(docRef, sanitizedItem);
   },
 
   // Delete a single item from cloud

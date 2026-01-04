@@ -26,10 +26,10 @@ const AuthView = lazy(() => import('./components/views/AuthView'));
 
 // Loading fallback component
 const ViewLoader = () => (
-  <div className="flex-1 flex items-center justify-center bg-midnight">
+  <div className="flex-1 flex items-center justify-center bg-slate-100 dark:bg-midnight">
     <div className="flex flex-col items-center gap-3">
       <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-      <p className="text-gray-400 text-sm">Loading...</p>
+      <p className="text-slate-500 dark:text-gray-400 text-sm">Loading...</p>
     </div>
   </div>
 );
@@ -51,7 +51,6 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [showAuthView, setShowAuthView] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected'>('idle');
   
   // Theme State
@@ -306,7 +305,6 @@ const App: React.FC = () => {
           await dbService.delete(STORES.PROFILE, 'current-user');
           setUserProfile(null);
           setCurrentView('dashboard');
-          setShowAuthView(false);
       }
   }, []);
 
@@ -456,31 +454,34 @@ const App: React.FC = () => {
 
   if (isCheckingAuth) {
     return (
-      <div className="h-screen bg-midnight flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="h-screen bg-gradient-to-br from-slate-100 via-gray-200 to-slate-300 dark:from-slate-900 dark:via-gray-900 dark:to-slate-800 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-800 shadow-lg flex items-center justify-center overflow-hidden">
+            <img src="/clearmindlogo.png" alt="ClearMind" className="w-12 h-12 object-contain" />
+          </div>
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
       </div>
     );
   }
 
+  // Show AuthView (Welcome/Choose screen) when no user is logged in
   if (!userProfile) {
-    // Show AuthView if Firebase is configured and showAuthView is true
-    if (showAuthView) {
-      return (
-        <Suspense fallback={<ViewLoader />}>
-          <AuthView 
-            onAuthSuccess={handleAuthSuccess} 
-            onSkip={() => {
-              setShowAuthView(false);
-            }} 
-          />
-        </Suspense>
-      );
-    }
     return (
       <Suspense fallback={<ViewLoader />}>
-        <OnboardingView 
-          onComplete={setUserProfile} 
-          onSwitchToCloudLogin={() => setShowAuthView(true)}
+        <AuthView 
+          onAuthSuccess={handleAuthSuccess} 
+          onSkip={(nickname?: string) => {
+            // Create local user profile
+            const localProfile: UserProfile = {
+              id: 'current-user',
+              nickname: nickname || 'User',
+              joinedAt: new Date().toISOString(),
+              provider: 'local'
+            };
+            dbService.put(STORES.PROFILE, localProfile);
+            setUserProfile(localProfile);
+          }} 
         />
       </Suspense>
     );
