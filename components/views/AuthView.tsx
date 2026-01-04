@@ -18,7 +18,41 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
-import { validatePassword, isValidEmail, isValidNickname, sanitizeInput } from '../../utils/security';
+
+// Simple inline validation functions (temporary - will use utils/security.ts later)
+const isValidEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email) && email.length <= 320;
+};
+
+const isValidNickname = (nickname: string): boolean => {
+  if (!nickname || nickname.length < 2 || nickname.length > 50) return false;
+  const regex = /^[a-zA-Z0-9 _-]+$/;
+  return regex.test(nickname);
+};
+
+const sanitizeInput = (input: string, maxLength: number = 10000): string => {
+  if (!input) return '';
+  let sanitized = input.trim();
+  if (sanitized.length > maxLength) sanitized = sanitized.substring(0, maxLength);
+  sanitized = sanitized.replace(/\0/g, '');
+  return sanitized;
+};
+
+interface PasswordValidation {
+  isValid: boolean;
+  errors: string[];
+}
+
+const validatePassword = (password: string): PasswordValidation => {
+  const errors: string[] = [];
+  if (password.length < 8) errors.push('Password must be at least 8 characters long');
+  if (!/[a-z]/.test(password)) errors.push('Password must contain at least one lowercase letter');
+  if (!/[A-Z]/.test(password)) errors.push('Password must contain at least one uppercase letter');
+  if (!/[0-9]/.test(password)) errors.push('Password must contain at least one number');
+  if (password.length > 128) errors.push('Password is too long (maximum 128 characters)');
+  return { isValid: errors.length === 0, errors };
+};
 
 interface AuthViewProps {
   onAuthSuccess: (user: any) => void;
