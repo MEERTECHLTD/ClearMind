@@ -19,41 +19,6 @@ import {
 } from 'lucide-react';
 import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
 
-// Simple inline validation functions (temporary - will use utils/security.ts later)
-const isValidEmail = (email: string): boolean => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email) && email.length <= 320;
-};
-
-const isValidNickname = (nickname: string): boolean => {
-  if (!nickname || nickname.length < 2 || nickname.length > 50) return false;
-  const regex = /^[a-zA-Z0-9 _-]+$/;
-  return regex.test(nickname);
-};
-
-const sanitizeInput = (input: string, maxLength: number = 10000): string => {
-  if (!input) return '';
-  let sanitized = input.trim();
-  if (sanitized.length > maxLength) sanitized = sanitized.substring(0, maxLength);
-  sanitized = sanitized.replace(/\0/g, '');
-  return sanitized;
-};
-
-interface PasswordValidation {
-  isValid: boolean;
-  errors: string[];
-}
-
-const validatePassword = (password: string): PasswordValidation => {
-  const errors: string[] = [];
-  if (password.length < 8) errors.push('Password must be at least 8 characters long');
-  if (!/[a-z]/.test(password)) errors.push('Password must contain at least one lowercase letter');
-  if (!/[A-Z]/.test(password)) errors.push('Password must contain at least one uppercase letter');
-  if (!/[0-9]/.test(password)) errors.push('Password must contain at least one number');
-  if (password.length > 128) errors.push('Password is too long (maximum 128 characters)');
-  return { isValid: errors.length === 0, errors };
-};
-
 interface AuthViewProps {
   onAuthSuccess: (user: any) => void;
   onSkip: (nickname?: string) => void;
@@ -85,37 +50,25 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
     setIsLoading(true);
 
     try {
-      // Validate and sanitize email
-      const sanitizedEmail = sanitizeInput(email, 320).trim().toLowerCase();
-      if (!isValidEmail(sanitizedEmail)) {
-        throw new Error('Please enter a valid email address');
-      }
-
       if (mode === 'signup') {
-        // Validate password
-        const passwordValidation = validatePassword(password);
-        if (!passwordValidation.isValid) {
-          throw new Error(passwordValidation.errors[0]);
+        if (password.length < 6) {
+          throw new Error('Password must be at least 6 characters');
         }
-        
-        // Validate and sanitize nickname
-        const sanitizedNickname = sanitizeInput(nickname, 50).trim();
-        if (!isValidNickname(sanitizedNickname)) {
-          throw new Error('Nickname must be 2-50 characters and contain only letters, numbers, spaces, hyphens, or underscores');
+        if (!nickname.trim()) {
+          throw new Error('Please enter a nickname');
         }
-        
-        const user = await firebaseService.signUpWithEmail(sanitizedEmail, password, sanitizedNickname);
+        const user = await firebaseService.signUpWithEmail(email, password, nickname);
         setMessage('Account created! Please check your email to verify.');
         setTimeout(() => onAuthSuccess({
           id: user.uid,
-          nickname: user.displayName || sanitizedNickname,
+          nickname: user.displayName || nickname,
           email: user.email,
           photoURL: user.photoURL,
           provider: 'email',
           joinedAt: new Date().toISOString()
         }), 1500);
       } else if (mode === 'login') {
-        const user = await firebaseService.signInWithEmail(sanitizedEmail, password);
+        const user = await firebaseService.signInWithEmail(email, password);
         onAuthSuccess({
           id: user.uid,
           nickname: user.displayName || 'User',
@@ -125,7 +78,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
           joinedAt: new Date().toISOString()
         });
       } else if (mode === 'reset') {
-        await firebaseService.resetPassword(sanitizedEmail);
+        await firebaseService.resetPassword(email);
         setMessage('Password reset email sent! Check your inbox.');
         setTimeout(() => setMode('login'), 3000);
       }
@@ -239,14 +192,11 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
 
   // Handle local storage login
   const handleLocalLogin = () => {
-    const sanitizedNickname = sanitizeInput(localNickname, 50).trim();
-    
-    if (!isValidNickname(sanitizedNickname)) {
-      setError('Nickname must be 2-50 characters and contain only letters, numbers, spaces, hyphens, or underscores');
+    if (!localNickname.trim()) {
+      setError('Please enter a nickname');
       return;
     }
-    
-    onSkip(sanitizedNickname);
+    onSkip(localNickname.trim());
   };
 
   // Choose screen - Local vs Cloud

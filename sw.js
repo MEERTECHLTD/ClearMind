@@ -1,4 +1,4 @@
-const CACHE_NAME = 'clearmind-v5-secure';
+const CACHE_NAME = 'clearmind-v4';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -12,11 +12,6 @@ const urlsToCache = [
   'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];
 
-// Security: Only allow HTTPS requests in production
-const isSecureContext = () => {
-  return self.location.protocol === 'https:' || self.location.hostname === 'localhost';
-};
-
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
@@ -26,14 +21,6 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Security: Block non-HTTPS requests in production
-  if (!isSecureContext() && event.request.url.startsWith('http:') && !event.request.url.includes('localhost')) {
-    event.respondWith(
-      new Response('HTTPS required', { status: 400, statusText: 'HTTPS Required' })
-    );
-    return;
-  }
-
   // Handle navigation requests (SPA fallback)
   if (event.request.mode === 'navigate') {
     event.respondWith(
@@ -64,10 +51,7 @@ self.addEventListener('fetch', (event) => {
         const responseToCache = response.clone();
 
         caches.open(CACHE_NAME).then((cache) => {
-          // Only cache GET requests
-          if (event.request.method === 'GET') {
-            cache.put(event.request, responseToCache);
-          }
+          cache.put(event.request, responseToCache);
         });
 
         return response;

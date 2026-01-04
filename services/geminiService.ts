@@ -1,8 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant } from '../types';
 
-// Global API key from environment variable (Vite uses import.meta.env)
-const GLOBAL_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+// Global API key from environment variable (set in Vercel)
+const GLOBAL_API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
 
 const getApiKey = (): string => {
   // Use the global API key from environment variable
@@ -213,16 +213,6 @@ export const generateIrisResponse = async (
     return "Iris is currently unavailable. The AI service is being configured. Please try again later.";
   }
 
-  // Input validation
-  if (!message || message.trim().length === 0) {
-    return "I didn't receive a message. What would you like to talk about?";
-  }
-  
-  // Prevent excessively long messages that could cause issues
-  if (message.length > 10000) {
-    return "That message is too long. Please try to keep your messages under 10,000 characters.";
-  }
-
   // Build context-aware system instruction
   let systemInstruction = `You are Iris, the AI companion inside the productivity tool "ClearMind". 
 You were created by a developer who struggled with consistency but turned it around. 
@@ -289,20 +279,9 @@ Celebrate their streaks and completed milestones.`;
     });
 
     return cleanResponse(response.text || "I'm thinking...");
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error communicating with Iris:", error);
-    
-    // Handle rate limiting
-    if (error?.message?.includes('429') || error?.message?.includes('quota')) {
-      return "I'm receiving too many requests right now. Please wait a moment and try again.";
-    }
-    
-    // Handle authentication errors
-    if (error?.message?.includes('API key') || error?.message?.includes('401')) {
-      return "There's an issue with the AI service configuration. Please contact support.";
-    }
-    
-    return "Connection to the neural link failed. Please try again.";
+    return "Connection to the neural link failed. Try again.";
   }
 };
 
