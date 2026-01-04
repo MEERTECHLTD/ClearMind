@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Map as MapIcon, Shield, LogIn } from 'lucide-react';
+import { Map as MapIcon, Shield, LogIn, Cloud } from 'lucide-react';
+import { isFirebaseConfigured } from '../../services/firebase';
 
 interface OnboardingViewProps {
   onComplete: (profile: UserProfile) => void;
+  onSwitchToCloudLogin?: () => void;
 }
 
-const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) => {
+const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete, onSwitchToCloudLogin }) => {
   const [nickname, setNickname] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const firebaseReady = isFirebaseConfigured();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,6 +23,7 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) => {
     const newProfile: UserProfile = {
       id: 'current-user',
       nickname: nickname.trim(),
+      provider: 'local',
       joinedAt: new Date().toISOString()
     };
 
@@ -39,8 +43,8 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) => {
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-purple-600 to-blue-600 animate-gradient"></div>
         
         <div className="flex flex-col items-center mb-8">
-          <div className="p-4 bg-blue-500/10 rounded-full mb-4">
-            <MapIcon size={48} className="text-blue-500" />
+          <div className="w-20 h-20 rounded-2xl mb-4 overflow-hidden">
+            <img src="/clearmindlogo.png" alt="ClearMind" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">ClearMind</h1>
           <p className="text-gray-400 text-center">
@@ -78,6 +82,22 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete }) => {
             {!isSubmitting && <LogIn size={18} />}
           </button>
         </form>
+
+        {/* Cloud Login Option */}
+        {firebaseReady && onSwitchToCloudLogin && (
+          <div className="mt-6 pt-6 border-t border-gray-800">
+            <button
+              onClick={onSwitchToCloudLogin}
+              className="w-full text-gray-400 hover:text-white py-3 px-4 rounded-xl border border-gray-700 hover:border-gray-600 flex items-center justify-center gap-2 transition-colors"
+            >
+              <Cloud size={18} />
+              Sign in with Cloud Account
+            </button>
+            <p className="text-xs text-gray-500 text-center mt-2">
+              Sync your data across devices
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

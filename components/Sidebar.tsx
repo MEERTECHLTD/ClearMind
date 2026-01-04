@@ -63,9 +63,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isCollapse
       <div className="p-4 flex items-center justify-between h-16 border-b dark:border-gray-800 border-gray-200">
         {(!isCollapsed || isMobileOpen) && (
           <div className="flex items-center gap-2 text-blue-500 font-bold text-lg animate-fade-in">
-            <Brain size={24} />
+            <img src="/clearmindlogo.png" alt="ClearMind" className="w-8 h-8 object-contain" />
             <span className="whitespace-nowrap truncate">ClearMind</span>
           </div>
+        )}
+        {isCollapsed && !isMobileOpen && (
+          <img src="/clearmindlogo.png" alt="ClearMind" className="w-8 h-8 object-contain mx-auto" />
         )}
         <button onClick={toggleCollapse} className="hidden md:block text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
           <ChevronLeft size={20} className={`transform transition-transform ${isCollapsed ? 'rotate-180' : ''}`} />

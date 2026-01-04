@@ -1,4 +1,5 @@
 import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, MindMap, CalendarEvent, DailyMapperEntry } from '../types';
+import { firebaseService, isFirebaseConfigured } from './firebase';
 
 const DB_NAME = 'ClearMindDB';
 const DB_VERSION = 6; // Incremented version to add daily mapper store
@@ -88,13 +89,50 @@ class DatabaseService {
     });
   }
 
-  async put<T>(storeName: string, item: T): Promise<void> {
+  // Map store names to Firestore collection names
+  private getFirestoreStoreName(storeName: string): string {
+    const mapping: Record<string, string> = {
+      [STORES.TASKS]: 'tasks',
+      [STORES.PROJECTS]: 'projects',
+      [STORES.NOTES]: 'notes',
+      [STORES.HABITS]: 'habits',
+      [STORES.GOALS]: 'goals',
+      [STORES.MILESTONES]: 'milestones',
+      [STORES.LOGS]: 'dailyLogs',
+      [STORES.RANTS]: 'rants',
+      [STORES.EVENTS]: 'events',
+      [STORES.DAILY_MAPPER]: 'timeblocks',
+      [STORES.MINDMAPS]: 'mindmaps'
+    };
+    return mapping[storeName] || storeName;
+  }
+
+  async put<T extends { id: string }>(storeName: string, item: T): Promise<void> {
       const db = await this.getDB();
+      
+      // Add timestamp for sync
+      const itemWithTimestamp = {
+        ...item,
+        updatedAt: new Date().toISOString()
+      };
+      
       return new Promise((resolve, reject) => {
           const transaction = db.transaction(storeName, 'readwrite');
           const store = transaction.objectStore(storeName);
-          const request = store.put(item);
-          request.onsuccess = () => resolve();
+          const request = store.put(itemWithTimestamp);
+          request.onsuccess = async () => {
+            // Auto-sync to cloud if Firebase is configured and user is authenticated
+            if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
+              try {
+                const firestoreStore = this.getFirestoreStoreName(storeName);
+                await firebaseService.pushItemToCloud(firestoreStore, itemWithTimestamp);
+              } catch (e) {
+                // Silently fail cloud sync - local is still saved
+                console.warn('Cloud sync failed:', e);
+              }
+            }
+            resolve();
+          };
           request.onerror = () => reject(request.error);
       });
   }
@@ -105,7 +143,18 @@ class DatabaseService {
           const transaction = db.transaction(storeName, 'readwrite');
           const store = transaction.objectStore(storeName);
           const request = store.delete(id);
-          request.onsuccess = () => resolve();
+          request.onsuccess = async () => {
+            // Also delete from cloud if Firebase is configured
+            if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
+              try {
+                const firestoreStore = this.getFirestoreStoreName(storeName);
+                await firebaseService.deleteItemFromCloud(firestoreStore, id);
+              } catch (e) {
+                console.warn('Cloud delete failed:', e);
+              }
+            }
+            resolve();
+          };
           request.onerror = () => reject(request.error);
       });
   }

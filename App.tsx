@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import { ViewState, UserProfile, Task, CalendarEvent } from './types';
 import { dbService, STORES } from './services/db';
+import { firebaseService, isFirebaseConfigured, FirebaseUser } from './services/firebase';
 
 // Lazy load all view components for code splitting
 const ProjectsView = lazy(() => import('./components/views/ProjectsView'));
@@ -21,6 +22,7 @@ const OnboardingView = lazy(() => import('./components/views/OnboardingView'));
 const MindMapView = lazy(() => import('./components/views/MindMapView'));
 const CalendarView = lazy(() => import('./components/views/CalendarView'));
 const DailyMapperView = lazy(() => import('./components/views/DailyMapperView'));
+const AuthView = lazy(() => import('./components/views/AuthView'));
 
 // Loading fallback component
 const ViewLoader = () => (
@@ -49,12 +51,17 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [showAuthView, setShowAuthView] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected'>('idle');
   
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
 
   // PWA State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  // Real-time sync cleanup ref
+  const syncCleanupRef = React.useRef<(() => void) | null>(null);
 
   // Hash-based routing effect
   useEffect(() => {
@@ -89,16 +96,61 @@ const App: React.FC = () => {
       });
     }
 
-    // Auth Check
+    // Auth Check - Check both local and Firebase
     const checkUser = async () => {
       try {
+        // First check local profile
         const profile = await dbService.get<UserProfile>(STORES.PROFILE, 'current-user');
         if (profile) {
           setUserProfile(profile);
+          setIsCheckingAuth(false);
+          
+          // Start real-time sync if cloud user
+          if (profile.cloudUserId && isFirebaseConfigured()) {
+            // Wait for Firebase auth to be ready
+            const unsubscribe = firebaseService.onAuthChange((firebaseUser) => {
+              if (firebaseUser) {
+                startRealTimeSync();
+              }
+              unsubscribe();
+            });
+          }
+          return;
+        }
+
+        // If Firebase is configured, listen for auth state
+        if (isFirebaseConfigured()) {
+          // Wait a moment for Firebase auth state
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const unsubscribe = firebaseService.onAuthChange(async (firebaseUser: FirebaseUser | null) => {
+            if (firebaseUser) {
+              // Firebase user found, create/update local profile
+              const cloudProfile: UserProfile = {
+                id: 'current-user',
+                nickname: firebaseUser.displayName || 'User',
+                email: firebaseUser.email || undefined,
+                photoURL: firebaseUser.photoURL || undefined,
+                provider: 'google', // Will be updated based on provider
+                cloudUserId: firebaseUser.uid,
+                joinedAt: new Date().toISOString()
+              };
+              await dbService.put(STORES.PROFILE, cloudProfile);
+              setUserProfile(cloudProfile);
+              
+              // Start real-time sync
+              startRealTimeSync();
+            }
+            setIsCheckingAuth(false);
+          });
+          
+          // Cleanup on unmount
+          return () => unsubscribe();
+        } else {
+          setIsCheckingAuth(false);
         }
       } catch (e) {
         console.error("Error loading profile", e);
-      } finally {
         setIsCheckingAuth(false);
       }
     };
@@ -145,7 +197,7 @@ const App: React.FC = () => {
             if (taskMinutes - nowMinutes <= 5 && taskMinutes - nowMinutes >= 0) {
               new Notification('ClearMind Task Reminder', {
                 body: `Coming up: ${task.title} at ${task.dueTime}`,
-                icon: '/icon.png',
+                icon: '/clearmindlogo.png',
                 tag: `task-${task.id}`
               });
               const updatedTask = { ...task, notified: true };
@@ -155,7 +207,7 @@ const App: React.FC = () => {
             // No specific time, notify once for today
             new Notification('ClearMind Task Reminder', {
               body: `Today: ${task.title}`,
-              icon: '/icon.png',
+              icon: '/clearmindlogo.png',
               tag: `task-${task.id}`
             });
             const updatedTask = { ...task, notified: true };
@@ -177,7 +229,7 @@ const App: React.FC = () => {
             if (eventMinutes - nowMinutes <= 15 && eventMinutes - nowMinutes >= 0) {
               new Notification('ClearMind Event Reminder', {
                 body: `${event.title} starts at ${event.startTime}${event.location ? ` - ${event.location}` : ''}`,
-                icon: '/icon.png',
+                icon: '/clearmindlogo.png',
                 tag: `event-${event.id}`
               });
               const updatedEvent = { ...event, notified: true };
@@ -188,7 +240,7 @@ const App: React.FC = () => {
             if (now.getHours() >= 8 && now.getHours() < 9) {
               new Notification('ClearMind Event Today', {
                 body: `${event.title}${event.location ? ` - ${event.location}` : ''}`,
-                icon: '/icon.png',
+                icon: '/clearmindlogo.png',
                 tag: `event-${event.id}`
               });
               const updatedEvent = { ...event, notified: true };
@@ -236,10 +288,125 @@ const App: React.FC = () => {
 
   const handleLogout = useCallback(async () => {
       if(confirm("Are you sure you want to sign out? This will return you to the login screen.")) {
+          // Cleanup real-time sync
+          if (syncCleanupRef.current) {
+            syncCleanupRef.current();
+            syncCleanupRef.current = null;
+          }
+          setSyncStatus('idle');
+          
+          // Sign out from Firebase if configured
+          if (isFirebaseConfigured()) {
+            try {
+              await firebaseService.logout();
+            } catch (e) {
+              console.error("Firebase logout error", e);
+            }
+          }
           await dbService.delete(STORES.PROFILE, 'current-user');
           setUserProfile(null);
           setCurrentView('dashboard');
+          setShowAuthView(false);
       }
+  }, []);
+
+  const handleAuthSuccess = useCallback(async (cloudUser: any) => {
+    const profile: UserProfile = {
+      id: 'current-user',
+      nickname: cloudUser.nickname || 'User',
+      email: cloudUser.email,
+      photoURL: cloudUser.photoURL,
+      provider: cloudUser.provider,
+      cloudUserId: cloudUser.id,
+      joinedAt: cloudUser.joinedAt || new Date().toISOString()
+    };
+    await dbService.put(STORES.PROFILE, profile);
+    setUserProfile(profile);
+    setShowAuthView(false);
+    
+    // Start real-time sync after auth
+    startRealTimeSync();
+  }, []);
+
+  // Real-time sync setup
+  const startRealTimeSync = useCallback(() => {
+    if (!isFirebaseConfigured()) return;
+    
+    // Clean up existing listeners
+    if (syncCleanupRef.current) {
+      syncCleanupRef.current();
+    }
+
+    const storeNames = [
+      'tasks', 'projects', 'notes', 'habits', 'goals', 
+      'milestones', 'dailyLogs', 'rants', 'events', 'timeblocks', 'mindmaps'
+    ];
+
+    setSyncStatus('syncing');
+
+    const cleanup = firebaseService.subscribeToAllCollections(
+      storeNames,
+      async (storeName: string, cloudItems: any[]) => {
+        try {
+          // Get local items
+          const localItems = await dbService.getAll(storeName as any);
+          
+          // Create a map for quick lookup
+          const localMap = new Map(localItems.map((item: any) => [item.id, item]));
+          const cloudMap = new Map(cloudItems.map((item: any) => [item.id, item]));
+          
+          // Merge: cloud wins for newer items, update local DB
+          for (const cloudItem of cloudItems) {
+            const localItem = localMap.get(cloudItem.id);
+            
+            if (!localItem) {
+              // New item from cloud - add to local
+              await dbService.put(storeName as any, cloudItem);
+            } else {
+              // Compare timestamps
+              const localTime = localItem.updatedAt || localItem.lastEdited || localItem.syncedAt || '0';
+              const cloudTime = cloudItem.updatedAt || cloudItem.lastEdited || cloudItem.syncedAt || '0';
+              
+              if (new Date(cloudTime) > new Date(localTime)) {
+                // Cloud is newer - update local
+                await dbService.put(storeName as any, cloudItem);
+              }
+            }
+          }
+          
+          // Check for items deleted in cloud (not in cloud but in local with syncedAt)
+          for (const localItem of localItems as any[]) {
+            if (!cloudMap.has(localItem.id) && localItem.syncedAt) {
+              // Item was synced before but now not in cloud - might be deleted
+              // Keep local item for safety (user can delete manually)
+            }
+          }
+          
+          setSyncStatus('connected');
+          
+          // Trigger a re-render by dispatching a custom event
+          window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: storeName } }));
+        } catch (error) {
+          console.error(`Sync error for ${storeName}:`, error);
+        }
+      }
+    );
+
+    syncCleanupRef.current = cleanup;
+  }, []);
+
+  // Cleanup real-time sync on unmount or logout
+  useEffect(() => {
+    return () => {
+      if (syncCleanupRef.current) {
+        syncCleanupRef.current();
+      }
+    };
+  }, []);
+
+  const handleSkipAuth = useCallback(() => {
+    // Show local onboarding
+    setShowAuthView(false);
   }, []);
 
   const handleViewChange = useCallback((view: ViewState) => {
@@ -296,9 +463,25 @@ const App: React.FC = () => {
   }
 
   if (!userProfile) {
+    // Show AuthView if Firebase is configured and showAuthView is true
+    if (showAuthView) {
+      return (
+        <Suspense fallback={<ViewLoader />}>
+          <AuthView 
+            onAuthSuccess={handleAuthSuccess} 
+            onSkip={() => {
+              setShowAuthView(false);
+            }} 
+          />
+        </Suspense>
+      );
+    }
     return (
       <Suspense fallback={<ViewLoader />}>
-        <OnboardingView onComplete={setUserProfile} />
+        <OnboardingView 
+          onComplete={setUserProfile} 
+          onSwitchToCloudLogin={() => setShowAuthView(true)}
+        />
       </Suspense>
     );
   }
