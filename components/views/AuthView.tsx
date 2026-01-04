@@ -18,6 +18,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
+import { validatePassword, isValidEmail, isValidNickname, sanitizeInput } from '../../utils/security';
 
 interface AuthViewProps {
   onAuthSuccess: (user: any) => void;
@@ -50,25 +51,37 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
     setIsLoading(true);
 
     try {
+      // Validate and sanitize email
+      const sanitizedEmail = sanitizeInput(email, 320).trim().toLowerCase();
+      if (!isValidEmail(sanitizedEmail)) {
+        throw new Error('Please enter a valid email address');
+      }
+
       if (mode === 'signup') {
-        if (password.length < 6) {
-          throw new Error('Password must be at least 6 characters');
+        // Validate password
+        const passwordValidation = validatePassword(password);
+        if (!passwordValidation.isValid) {
+          throw new Error(passwordValidation.errors[0]);
         }
-        if (!nickname.trim()) {
-          throw new Error('Please enter a nickname');
+        
+        // Validate and sanitize nickname
+        const sanitizedNickname = sanitizeInput(nickname, 50).trim();
+        if (!isValidNickname(sanitizedNickname)) {
+          throw new Error('Nickname must be 2-50 characters and contain only letters, numbers, spaces, hyphens, or underscores');
         }
-        const user = await firebaseService.signUpWithEmail(email, password, nickname);
+        
+        const user = await firebaseService.signUpWithEmail(sanitizedEmail, password, sanitizedNickname);
         setMessage('Account created! Please check your email to verify.');
         setTimeout(() => onAuthSuccess({
           id: user.uid,
-          nickname: user.displayName || nickname,
+          nickname: user.displayName || sanitizedNickname,
           email: user.email,
           photoURL: user.photoURL,
           provider: 'email',
           joinedAt: new Date().toISOString()
         }), 1500);
       } else if (mode === 'login') {
-        const user = await firebaseService.signInWithEmail(email, password);
+        const user = await firebaseService.signInWithEmail(sanitizedEmail, password);
         onAuthSuccess({
           id: user.uid,
           nickname: user.displayName || 'User',
@@ -78,7 +91,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
           joinedAt: new Date().toISOString()
         });
       } else if (mode === 'reset') {
-        await firebaseService.resetPassword(email);
+        await firebaseService.resetPassword(sanitizedEmail);
         setMessage('Password reset email sent! Check your inbox.');
         setTimeout(() => setMode('login'), 3000);
       }
@@ -192,11 +205,14 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
 
   // Handle local storage login
   const handleLocalLogin = () => {
-    if (!localNickname.trim()) {
-      setError('Please enter a nickname');
+    const sanitizedNickname = sanitizeInput(localNickname, 50).trim();
+    
+    if (!isValidNickname(sanitizedNickname)) {
+      setError('Nickname must be 2-50 characters and contain only letters, numbers, spaces, hyphens, or underscores');
       return;
     }
-    onSkip(localNickname.trim());
+    
+    onSkip(sanitizedNickname);
   };
 
   // Choose screen - Local vs Cloud

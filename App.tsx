@@ -58,6 +58,16 @@ const App: React.FC = () => {
 
   // PWA State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isAppInstalled, setIsAppInstalled] = useState(() => {
+    // Check if already installed via localStorage or standalone mode
+    if (typeof window !== 'undefined') {
+      const installed = localStorage.getItem('pwa-installed') === 'true';
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                           (window.navigator as any).standalone === true;
+      return installed || isStandalone;
+    }
+    return false;
+  });
 
   // Real-time sync cleanup ref
   const syncCleanupRef = React.useRef<(() => void) | null>(null);
@@ -168,9 +178,32 @@ const App: React.FC = () => {
     // PWA Install Event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      // Only show if not already installed
+      if (localStorage.getItem('pwa-installed') !== 'true') {
+        setDeferredPrompt(e);
+      }
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // Track when app is installed
+    const handleAppInstalled = () => {
+      console.log('PWA was installed');
+      localStorage.setItem('pwa-installed', 'true');
+      setIsAppInstalled(true);
+      setDeferredPrompt(null);
+    };
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    // Check if running in standalone mode (already installed)
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const handleDisplayModeChange = (e: MediaQueryListEvent) => {
+      if (e.matches) {
+        localStorage.setItem('pwa-installed', 'true');
+        setIsAppInstalled(true);
+        setDeferredPrompt(null);
+      }
+    };
+    mediaQuery.addEventListener('change', handleDisplayModeChange);
 
     // Notification Logic Loop
     const checkNotifications = async () => {
@@ -257,6 +290,7 @@ const App: React.FC = () => {
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
       clearInterval(notificationInterval);
     };
   }, []);
@@ -279,6 +313,8 @@ const App: React.FC = () => {
       deferredPrompt.userChoice.then((choiceResult: any) => {
         if (choiceResult.outcome === 'accepted') {
           console.log('User accepted the install prompt');
+          localStorage.setItem('pwa-installed', 'true');
+          setIsAppInstalled(true);
         }
         setDeferredPrompt(null);
       });
@@ -512,7 +548,7 @@ const App: React.FC = () => {
           toggleTheme={toggleTheme} 
           isDarkMode={isDarkMode}
           onInstallApp={handleInstallApp}
-          canInstall={!!deferredPrompt}
+          canInstall={!!deferredPrompt && !isAppInstalled}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onLogout={handleLogout}
           onNavigate={handleViewChange}

@@ -202,6 +202,17 @@ const TopBar: React.FC<TopBarProps> = ({
 
         <div className="h-6 w-px dark:bg-gray-800 bg-gray-300 mx-1"></div>
 
+        {/* Install Button (Mobile/Desktop icon) - Next to notifications */}
+        {canInstall && (
+          <button 
+            onClick={onInstallApp}
+            className="sm:hidden relative text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors p-1 animate-pulse hover:animate-none"
+            title="Install App"
+          >
+            <Download size={20} />
+          </button>
+        )}
+
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
             <button 

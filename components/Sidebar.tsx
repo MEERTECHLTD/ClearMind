@@ -117,7 +117,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isCollapse
             {(!isCollapsed || isMobileOpen) && (
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium dark:text-white text-gray-900 truncate">{user.nickname}</p>
-                <p className="text-xs text-gray-500 truncate">{user.githubUsername ? '@' + user.githubUsername : 'Anonymous'}</p>
+                <p className="text-xs text-gray-500 truncate">
+                  {user.provider === 'google' ? 'Google User' : 
+                   user.provider === 'github' ? 'GitHub User' : 
+                   user.provider === 'email' ? 'Email User' :
+                   user.provider === 'anonymous' ? 'Guest User' :
+                   user.provider === 'local' ? 'Local Workspace' : 
+                   user.cloudUserId ? 'Cloud User' : 'Local Workspace'}
+                </p>
               </div>
             )}
             {(!isCollapsed || isMobileOpen) && <MoreHorizontal size={16} className="text-gray-500" />}
