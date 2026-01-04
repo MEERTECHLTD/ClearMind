@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
-import { ViewState, UserProfile, Task } from './types';
+import { ViewState, UserProfile, Task, CalendarEvent } from './types';
 import { dbService, STORES } from './services/db';
 
 // Lazy load all view components for code splitting
@@ -19,6 +19,7 @@ const AnalyticsView = lazy(() => import('./components/views/AnalyticsView'));
 const SettingsView = lazy(() => import('./components/views/SettingsView'));
 const OnboardingView = lazy(() => import('./components/views/OnboardingView'));
 const MindMapView = lazy(() => import('./components/views/MindMapView'));
+const CalendarView = lazy(() => import('./components/views/CalendarView'));
 
 // Loading fallback component
 const ViewLoader = () => (
@@ -36,7 +37,7 @@ const getViewFromHash = (): ViewState => {
   const validViews: ViewState[] = [
     'dashboard', 'projects', 'tasks', 'notes', 'habits', 
     'goals', 'milestones', 'iris', 'rant', 'dailylog', 
-    'analytics', 'settings', 'mindmap'
+    'analytics', 'settings', 'mindmap', 'calendar'
   ];
   return validViews.includes(hash as ViewState) ? (hash as ViewState) : 'dashboard';
 };
@@ -124,19 +125,75 @@ const App: React.FC = () => {
       if (Notification.permission !== 'granted') return;
 
       const tasks = await dbService.getAll<Task>(STORES.TASKS);
+      const events = await dbService.getAll<CalendarEvent>(STORES.EVENTS);
       const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
+      // Check tasks
       for (const task of tasks) {
         if (!task.completed && !task.notified && task.dueDate === today) {
-          // Send Notification
-          new Notification('ClearMind Task Reminder', {
-            body: `Today: ${task.title}`,
-            icon: '/icon.png' // Fallback to whatever icon is cached or served
-          });
+          // Check if task has a specific time and it's within 5 minutes
+          if (task.dueTime) {
+            const [taskHour, taskMin] = task.dueTime.split(':').map(Number);
+            const [nowHour, nowMin] = currentTime.split(':').map(Number);
+            const taskMinutes = taskHour * 60 + taskMin;
+            const nowMinutes = nowHour * 60 + nowMin;
+            
+            // Notify 5 minutes before or at the time
+            if (taskMinutes - nowMinutes <= 5 && taskMinutes - nowMinutes >= 0) {
+              new Notification('ClearMind Task Reminder', {
+                body: `Coming up: ${task.title} at ${task.dueTime}`,
+                icon: '/icon.png',
+                tag: `task-${task.id}`
+              });
+              const updatedTask = { ...task, notified: true };
+              await dbService.put(STORES.TASKS, updatedTask);
+            }
+          } else {
+            // No specific time, notify once for today
+            new Notification('ClearMind Task Reminder', {
+              body: `Today: ${task.title}`,
+              icon: '/icon.png',
+              tag: `task-${task.id}`
+            });
+            const updatedTask = { ...task, notified: true };
+            await dbService.put(STORES.TASKS, updatedTask);
+          }
+        }
+      }
 
-          // Mark as notified
-          const updatedTask = { ...task, notified: true };
-          await dbService.put(STORES.TASKS, updatedTask);
+      // Check calendar events
+      for (const event of events) {
+        if (!event.notified && event.reminder && event.date === today) {
+          if (event.startTime) {
+            const [eventHour, eventMin] = event.startTime.split(':').map(Number);
+            const [nowHour, nowMin] = currentTime.split(':').map(Number);
+            const eventMinutes = eventHour * 60 + eventMin;
+            const nowMinutes = nowHour * 60 + nowMin;
+            
+            // Notify 15 minutes before
+            if (eventMinutes - nowMinutes <= 15 && eventMinutes - nowMinutes >= 0) {
+              new Notification('ClearMind Event Reminder', {
+                body: `${event.title} starts at ${event.startTime}${event.location ? ` - ${event.location}` : ''}`,
+                icon: '/icon.png',
+                tag: `event-${event.id}`
+              });
+              const updatedEvent = { ...event, notified: true };
+              await dbService.put(STORES.EVENTS, updatedEvent);
+            }
+          } else {
+            // All-day event, notify in the morning
+            if (now.getHours() >= 8 && now.getHours() < 9) {
+              new Notification('ClearMind Event Today', {
+                body: `${event.title}${event.location ? ` - ${event.location}` : ''}`,
+                icon: '/icon.png',
+                tag: `event-${event.id}`
+              });
+              const updatedEvent = { ...event, notified: true };
+              await dbService.put(STORES.EVENTS, updatedEvent);
+            }
+          }
         }
       }
     };
@@ -220,6 +277,8 @@ const App: React.FC = () => {
         return <SettingsView user={userProfile} onUpdateUser={setUserProfile} onLogout={handleLogout} />;
       case 'mindmap':
         return <MindMapView />;
+      case 'calendar':
+        return <CalendarView />;
       default:
         return <DashboardView user={userProfile} onNavigate={handleViewChange} />;
     }

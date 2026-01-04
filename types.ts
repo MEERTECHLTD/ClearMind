@@ -47,6 +47,23 @@ export interface Habit {
   streak: number;
   completedToday: boolean;
   history: boolean[]; // Last 7 days
+  monthlyHistory?: { [date: string]: boolean }; // Monthly tracking: { "2026-01-04": true }
+  description?: string;
+  color?: string;
+  createdAt?: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description?: string;
+  date: string; // YYYY-MM-DD
+  startTime?: string; // HH:MM
+  endTime?: string; // HH:MM
+  location?: string;
+  color: string;
+  reminder: boolean;
+  notified?: boolean;
 }
 
 export interface Goal {
@@ -119,4 +136,5 @@ export type ViewState =
   | 'dailylog' 
   | 'analytics' 
   | 'mindmap'
+  | 'calendar'
   | 'settings';
