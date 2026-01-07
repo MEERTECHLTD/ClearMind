@@ -1,16 +1,32 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { generateIrisResponse, UserContext, parseTaskCommands, ParsedTask } from '../../services/geminiService';
+import { generateIrisResponse, UserContext, parseActionCommands, ParsedActions } from '../../services/geminiService';
 import { dbService, STORES } from '../../services/db';
-import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, IrisConversation } from '../../types';
-import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare } from 'lucide-react';
+import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation } from '../../types';
+import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare, FileText, Target, Calendar, Briefcase, Activity, Flag, BookOpen, Zap } from 'lucide-react';
 
 const CURRENT_CONVERSATION_ID = 'current-iris-conversation';
+
+// Track what actions were performed for notification
+interface ActionsSummary {
+  tasksCreated: string[];
+  notesCreated: string[];
+  habitsCreated: string[];
+  goalsCreated: string[];
+  projectsCreated: string[];
+  milestonesCreated: string[];
+  eventsCreated: string[];
+  applicationsCreated: string[];
+  logsCreated: string[];
+  rantsCreated: string[];
+  habitsCompleted: string[];
+  tasksCompleted: string[];
+}
 
 const IrisView: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [userContext, setUserContext] = useState<UserContext | null>(null);
-  const [createdTasks, setCreatedTasks] = useState<string[]>([]);
+  const [actionsSummary, setActionsSummary] = useState<ActionsSummary | null>(null);
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
   
   const defaultMessage: ChatMessage = {
@@ -67,6 +83,9 @@ const IrisView: React.FC = () => {
     await saveConversation(freshMessages);
   };
 
+  // Helper to generate unique ID
+  const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9);
+
   // Helper to get next task number
   const getNextTaskNumber = async (): Promise<number> => {
     const allTasks = await dbService.getAll<Task>(STORES.TASKS);
@@ -74,37 +93,230 @@ const IrisView: React.FC = () => {
     return maxNumber + 1;
   };
 
-  // Create tasks from Iris's parsed commands
-  const createTasksFromIris = async (parsedTasks: ParsedTask[]) => {
-    const createdTaskTitles: string[] = [];
-    
-    for (const parsedTask of parsedTasks) {
+  // Execute all actions from Iris's response
+  const executeActions = async (actions: ParsedActions): Promise<ActionsSummary> => {
+    const summary: ActionsSummary = {
+      tasksCreated: [],
+      notesCreated: [],
+      habitsCreated: [],
+      goalsCreated: [],
+      projectsCreated: [],
+      milestonesCreated: [],
+      eventsCreated: [],
+      applicationsCreated: [],
+      logsCreated: [],
+      rantsCreated: [],
+      habitsCompleted: [],
+      tasksCompleted: [],
+    };
+
+    // Create Tasks
+    for (const task of actions.tasks) {
       const taskNumber = await getNextTaskNumber();
       const newTask: Task = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        title: parsedTask.title,
+        id: generateId(),
+        title: task.title,
         completed: false,
-        priority: parsedTask.priority,
-        dueDate: parsedTask.dueDate,
-        dueTime: parsedTask.dueTime,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        dueTime: task.dueTime,
+        description: task.description,
         taskNumber,
-        notified: false
+        notified: false,
       };
-      
       await dbService.put(STORES.TASKS, newTask);
-      createdTaskTitles.push(parsedTask.title);
+      summary.tasksCreated.push(task.title);
     }
-    
-    if (createdTaskTitles.length > 0) {
-      setCreatedTasks(createdTaskTitles);
-      setTimeout(() => setCreatedTasks([]), 5000);
+
+    // Create Notes
+    for (const note of actions.notes) {
+      const newNote: Note = {
+        id: generateId(),
+        title: note.title,
+        content: note.content,
+        tags: note.tags || [],
+        lastEdited: new Date().toISOString(),
+      };
+      await dbService.put(STORES.NOTES, newNote);
+      summary.notesCreated.push(note.title);
     }
+
+    // Create Habits
+    for (const habit of actions.habits) {
+      const newHabit: Habit = {
+        id: generateId(),
+        name: habit.name,
+        description: habit.description,
+        color: habit.color || '#3b82f6',
+        streak: 0,
+        completedToday: false,
+        history: [false, false, false, false, false, false, false],
+        monthlyHistory: {},
+        createdAt: new Date().toISOString(),
+      };
+      await dbService.put(STORES.HABITS, newHabit);
+      summary.habitsCreated.push(habit.name);
+    }
+
+    // Create Goals
+    for (const goal of actions.goals) {
+      const newGoal: Goal = {
+        id: generateId(),
+        title: goal.title,
+        category: goal.category,
+        targetDate: goal.targetDate,
+        progress: goal.progress || 0,
+      };
+      await dbService.put(STORES.GOALS, newGoal);
+      summary.goalsCreated.push(goal.title);
+    }
+
+    // Create Projects
+    for (const project of actions.projects) {
+      const newProject: Project = {
+        id: generateId(),
+        title: project.title,
+        description: project.description,
+        status: project.status || 'In Progress',
+        progress: 0,
+        priority: project.priority || 'Medium',
+        deadline: project.deadline,
+        tags: project.tags || [],
+        category: project.category,
+      };
+      await dbService.put(STORES.PROJECTS, newProject);
+      summary.projectsCreated.push(project.title);
+    }
+
+    // Create Milestones
+    for (const milestone of actions.milestones) {
+      const newMilestone: Milestone = {
+        id: generateId(),
+        title: milestone.title,
+        date: milestone.date,
+        description: milestone.description,
+        completed: milestone.completed || false,
+      };
+      await dbService.put(STORES.MILESTONES, newMilestone);
+      summary.milestonesCreated.push(milestone.title);
+    }
+
+    // Create Events
+    for (const event of actions.events) {
+      const newEvent: CalendarEvent = {
+        id: generateId(),
+        title: event.title,
+        date: event.date,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        description: event.description,
+        location: event.location,
+        color: event.color || '#3b82f6',
+        reminder: event.reminder !== false,
+        notified: false,
+      };
+      await dbService.put(STORES.EVENTS, newEvent);
+      summary.eventsCreated.push(event.title);
+    }
+
+    // Create Applications
+    for (const app of actions.applications) {
+      const newApplication: Application = {
+        id: generateId(),
+        name: app.name,
+        organization: app.organization,
+        type: app.type,
+        status: 'open',
+        link: app.link,
+        submissionDeadline: app.submissionDeadline,
+        openingDate: app.openingDate,
+        closingDate: app.closingDate,
+        priority: app.priority || 'Medium',
+        notes: app.notes,
+        createdAt: new Date().toISOString(),
+      };
+      await dbService.put(STORES.APPLICATIONS, newApplication);
+      summary.applicationsCreated.push(app.name);
+    }
+
+    // Create Daily Logs
+    for (const log of actions.logs) {
+      const newLog: LogEntry = {
+        id: generateId(),
+        date: log.date || new Date().toISOString().split('T')[0],
+        content: log.content,
+        mood: log.mood,
+      };
+      await dbService.put(STORES.LOGS, newLog);
+      summary.logsCreated.push(log.content.slice(0, 30) + '...');
+    }
+
+    // Create Rants
+    for (const rant of actions.rants) {
+      const newRant: Rant = {
+        id: generateId(),
+        content: rant.content,
+        mood: rant.mood,
+        createdAt: new Date().toISOString(),
+      };
+      await dbService.put(STORES.RANTS, newRant);
+      summary.rantsCreated.push(rant.content.slice(0, 30) + '...');
+    }
+
+    // Complete Habits
+    const allHabits = await dbService.getAll<Habit>(STORES.HABITS);
+    for (const habitName of actions.completedHabits) {
+      const habit = allHabits.find(h => h.name.toLowerCase() === habitName.toLowerCase());
+      if (habit && !habit.completedToday) {
+        const today = new Date().toISOString().split('T')[0];
+        const updatedHabit: Habit = {
+          ...habit,
+          completedToday: true,
+          streak: habit.streak + 1,
+          history: [true, ...habit.history.slice(0, 6)],
+          monthlyHistory: { ...habit.monthlyHistory, [today]: true },
+        };
+        await dbService.put(STORES.HABITS, updatedHabit);
+        summary.habitsCompleted.push(habit.name);
+      }
+    }
+
+    // Complete Tasks
+    const allTasks = await dbService.getAll<Task>(STORES.TASKS);
+    for (const taskTitle of actions.completedTasks) {
+      const task = allTasks.find(t => t.title.toLowerCase() === taskTitle.toLowerCase() && !t.completed);
+      if (task) {
+        const updatedTask: Task = { ...task, completed: true };
+        await dbService.put(STORES.TASKS, updatedTask);
+        summary.tasksCompleted.push(task.title);
+      }
+    }
+
+    return summary;
+  };
+
+  // Check if any actions were performed
+  const hasAnyActions = (summary: ActionsSummary): boolean => {
+    return (
+      summary.tasksCreated.length > 0 ||
+      summary.notesCreated.length > 0 ||
+      summary.habitsCreated.length > 0 ||
+      summary.goalsCreated.length > 0 ||
+      summary.projectsCreated.length > 0 ||
+      summary.milestonesCreated.length > 0 ||
+      summary.eventsCreated.length > 0 ||
+      summary.applicationsCreated.length > 0 ||
+      summary.logsCreated.length > 0 ||
+      summary.rantsCreated.length > 0 ||
+      summary.habitsCompleted.length > 0 ||
+      summary.tasksCompleted.length > 0
+    );
   };
 
   // Fetch all user data for context
   const fetchUserContext = useCallback(async () => {
     try {
-      const [projects, tasks, notes, habits, goals, milestones, logs, rants] = await Promise.all([
+      const [projects, tasks, notes, habits, goals, milestones, logs, rants, events, applications] = await Promise.all([
         dbService.getAll<Project>(STORES.PROJECTS),
         dbService.getAll<Task>(STORES.TASKS),
         dbService.getAll<Note>(STORES.NOTES),
@@ -113,6 +325,8 @@ const IrisView: React.FC = () => {
         dbService.getAll<Milestone>(STORES.MILESTONES),
         dbService.getAll<LogEntry>(STORES.LOGS),
         dbService.getAll<Rant>(STORES.RANTS),
+        dbService.getAll<CalendarEvent>(STORES.EVENTS),
+        dbService.getAll<Application>(STORES.APPLICATIONS),
       ]);
       
       let profile: UserProfile | undefined;
@@ -132,6 +346,8 @@ const IrisView: React.FC = () => {
         milestones,
         logs,
         rants,
+        events,
+        applications,
       });
     } catch (error) {
       console.error('Failed to fetch user context:', error);
@@ -161,6 +377,7 @@ const IrisView: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
+    setActionsSummary(null);
 
     try {
       // Format history for Gemini
@@ -171,21 +388,25 @@ const IrisView: React.FC = () => {
 
       const responseText = await generateIrisResponse(history, userMsg.text, userContext || undefined);
 
-      // Parse for task creation commands
-      const { cleanedResponse, tasks } = parseTaskCommands(responseText);
+      // Parse for all action commands
+      const actions = parseActionCommands(responseText);
       
-      // Create any tasks that Iris requested
-      if (tasks.length > 0) {
-        await createTasksFromIris(tasks);
+      // Execute all actions that Iris requested
+      const summary = await executeActions(actions);
+      
+      // Show notification if any actions were performed
+      if (hasAnyActions(summary)) {
+        setActionsSummary(summary);
+        setTimeout(() => setActionsSummary(null), 8000);
       }
 
-      // Refresh context after each interaction (user might have asked Iris about updates)
+      // Refresh context after each interaction
       fetchUserContext();
 
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: cleanedResponse,
+        text: actions.cleanedResponse,
         timestamp: new Date()
       };
       
@@ -243,17 +464,76 @@ const IrisView: React.FC = () => {
         </div>
       </div>
 
-      {/* Task Created Notification */}
-      {createdTasks.length > 0 && (
-        <div className="mx-6 mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl flex items-center gap-3 animate-fade-in">
-          <CheckCircle className="text-green-500" size={20} />
-          <div className="flex-1">
-            <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-              Task{createdTasks.length > 1 ? 's' : ''} added successfully!
+      {/* Actions Performed Notification */}
+      {actionsSummary && hasAnyActions(actionsSummary) && (
+        <div className="mx-6 mt-4 p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-xl animate-fade-in">
+          <div className="flex items-center gap-2 mb-2">
+            <Zap className="text-green-500" size={18} />
+            <p className="text-sm text-green-600 dark:text-green-400 font-semibold">
+              Iris performed actions:
             </p>
-            <p className="text-xs text-green-500/70">
-              {createdTasks.join(', ')}
-            </p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+            {actionsSummary.tasksCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-blue-400">
+                <CheckCircle size={12} />
+                <span>{actionsSummary.tasksCreated.length} task(s) created</span>
+              </div>
+            )}
+            {actionsSummary.notesCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-yellow-400">
+                <FileText size={12} />
+                <span>{actionsSummary.notesCreated.length} note(s) saved</span>
+              </div>
+            )}
+            {actionsSummary.habitsCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-purple-400">
+                <Activity size={12} />
+                <span>{actionsSummary.habitsCreated.length} habit(s) added</span>
+              </div>
+            )}
+            {actionsSummary.goalsCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-orange-400">
+                <Target size={12} />
+                <span>{actionsSummary.goalsCreated.length} goal(s) set</span>
+              </div>
+            )}
+            {actionsSummary.projectsCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-cyan-400">
+                <BookOpen size={12} />
+                <span>{actionsSummary.projectsCreated.length} project(s) created</span>
+              </div>
+            )}
+            {actionsSummary.milestonesCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-pink-400">
+                <Flag size={12} />
+                <span>{actionsSummary.milestonesCreated.length} milestone(s) added</span>
+              </div>
+            )}
+            {actionsSummary.eventsCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-green-400">
+                <Calendar size={12} />
+                <span>{actionsSummary.eventsCreated.length} event(s) scheduled</span>
+              </div>
+            )}
+            {actionsSummary.applicationsCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-indigo-400">
+                <Briefcase size={12} />
+                <span>{actionsSummary.applicationsCreated.length} application(s) tracked</span>
+              </div>
+            )}
+            {actionsSummary.habitsCompleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-emerald-400">
+                <CheckCircle size={12} />
+                <span>{actionsSummary.habitsCompleted.length} habit(s) completed</span>
+              </div>
+            )}
+            {actionsSummary.tasksCompleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-teal-400">
+                <CheckCircle size={12} />
+                <span>{actionsSummary.tasksCompleted.length} task(s) completed</span>
+              </div>
+            )}
           </div>
         </div>
       )}
