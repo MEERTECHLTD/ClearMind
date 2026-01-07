@@ -1,21 +1,40 @@
-import React, { useState, useEffect } from 'react';
-import { Application } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Application, ApplicationPreferences } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Plus, ExternalLink, Edit2, Trash2, X, Save, Calendar, Briefcase, GraduationCap, FileText, Check, Clock, XCircle, Send, FolderOpen } from 'lucide-react';
+import { Plus, ExternalLink, Edit2, Trash2, X, Save, Calendar, Briefcase, GraduationCap, FileText, Check, Clock, XCircle, Send, FolderOpen, ArrowUpDown, Layers, Award } from 'lucide-react';
+
+const PREFS_KEY = 'application-preferences';
 
 const ApplicationsView: React.FC = () => {
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingApplication, setEditingApplication] = useState<Application | null>(null);
-  const [filter, setFilter] = useState<'all' | 'job' | 'grant' | 'other'>('all');
+  const [filter, setFilter] = useState<'all' | Application['type']>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | Application['status']>('all');
+  
+  // Sorting and Grouping preferences (saved to localStorage)
+  const [sortBy, setSortBy] = useState<'deadline' | 'priority' | 'created' | 'name'>(() => {
+    const saved = localStorage.getItem(PREFS_KEY);
+    if (saved) {
+      try { return JSON.parse(saved).sortBy || 'deadline'; } catch { return 'deadline'; }
+    }
+    return 'deadline';
+  });
+  const [groupBy, setGroupBy] = useState<'none' | 'type' | 'status' | 'priority'>(() => {
+    const saved = localStorage.getItem(PREFS_KEY);
+    if (saved) {
+      try { return JSON.parse(saved).groupBy || 'none'; } catch { return 'none'; }
+    }
+    return 'none';
+  });
   
   const [formData, setFormData] = useState({
     name: '',
     link: '',
     type: 'job' as Application['type'],
     status: 'draft' as Application['status'],
+    priority: 'Medium' as Application['priority'],
     openingDate: '',
     closingDate: '',
     submissionDeadline: '',
@@ -24,11 +43,16 @@ const ApplicationsView: React.FC = () => {
     organization: ''
   });
 
+  // Save preferences to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ sortBy, groupBy }));
+  }, [sortBy, groupBy]);
+
   useEffect(() => {
     const loadApplications = async () => {
       try {
         const data = await dbService.getAll<Application>(STORES.APPLICATIONS);
-        setApplications(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+        setApplications(data);
       } catch (err) {
         console.error("Failed to load applications", err);
       } finally {
@@ -44,6 +68,7 @@ const ApplicationsView: React.FC = () => {
       link: '',
       type: 'job',
       status: 'draft',
+      priority: 'Medium',
       openingDate: '',
       closingDate: '',
       submissionDeadline: '',
@@ -65,6 +90,7 @@ const ApplicationsView: React.FC = () => {
       link: app.link || '',
       type: app.type,
       status: app.status,
+      priority: app.priority || 'Medium',
       openingDate: app.openingDate || '',
       closingDate: app.closingDate || '',
       submissionDeadline: app.submissionDeadline || '',
@@ -112,7 +138,30 @@ const ApplicationsView: React.FC = () => {
     switch (type) {
       case 'job': return <Briefcase size={16} className="text-blue-500" />;
       case 'grant': return <GraduationCap size={16} className="text-green-500" />;
+      case 'scholarship': return <Award size={16} className="text-purple-500" />;
       default: return <FileText size={16} className="text-gray-500" />;
+    }
+  };
+
+  const getPriorityBadge = (priority: Application['priority']) => {
+    const styles: Record<Application['priority'], string> = {
+      High: 'bg-red-500/20 text-red-400 border-red-500/30',
+      Medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+      Low: 'bg-green-500/20 text-green-400 border-green-500/30'
+    };
+    return (
+      <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded border ${styles[priority]}`}>
+        {priority}
+      </span>
+    );
+  };
+
+  const getPriorityValue = (priority: Application['priority']): number => {
+    switch (priority) {
+      case 'High': return 3;
+      case 'Medium': return 2;
+      case 'Low': return 1;
+      default: return 0;
     }
   };
 
@@ -160,11 +209,62 @@ const ApplicationsView: React.FC = () => {
     return diffDays >= 0 && diffDays <= 7;
   };
 
-  const filteredApplications = applications.filter(app => {
-    if (filter !== 'all' && app.type !== filter) return false;
-    if (statusFilter !== 'all' && app.status !== statusFilter) return false;
-    return true;
-  });
+  // Filter, sort, and group applications
+  const processedApplications = useMemo(() => {
+    // First filter
+    let filtered = applications.filter(app => {
+      if (filter !== 'all' && app.type !== filter) return false;
+      if (statusFilter !== 'all' && app.status !== statusFilter) return false;
+      return true;
+    });
+
+    // Then sort
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'deadline':
+          const dateA = a.submissionDeadline ? new Date(a.submissionDeadline).getTime() : Infinity;
+          const dateB = b.submissionDeadline ? new Date(b.submissionDeadline).getTime() : Infinity;
+          return dateA - dateB;
+        case 'priority':
+          return getPriorityValue(b.priority || 'Medium') - getPriorityValue(a.priority || 'Medium');
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'created':
+        default:
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+    });
+
+    return filtered;
+  }, [applications, filter, statusFilter, sortBy]);
+
+  // Group applications if grouping is enabled
+  const groupedApplications = useMemo(() => {
+    if (groupBy === 'none') return null;
+
+    const groups: Record<string, Application[]> = {};
+    
+    processedApplications.forEach(app => {
+      let key: string;
+      switch (groupBy) {
+        case 'type':
+          key = app.type.charAt(0).toUpperCase() + app.type.slice(1);
+          break;
+        case 'status':
+          key = app.status.charAt(0).toUpperCase() + app.status.slice(1);
+          break;
+        case 'priority':
+          key = (app.priority || 'Medium') + ' Priority';
+          break;
+        default:
+          key = 'Other';
+      }
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(app);
+    });
+
+    return groups;
+  }, [processedApplications, groupBy]);
 
   if (isLoading) {
     return (
@@ -183,7 +283,7 @@ const ApplicationsView: React.FC = () => {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Applications</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Track your job and grant applications.</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Track your job, grant, and scholarship applications.</p>
         </div>
         <button 
           onClick={openAddModal}
@@ -194,7 +294,7 @@ const ApplicationsView: React.FC = () => {
         </button>
       </div>
 
-      {/* Filters */}
+      {/* Filters and Sorting */}
       <div className="flex flex-wrap gap-4 mb-6">
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">Type:</span>
@@ -206,6 +306,7 @@ const ApplicationsView: React.FC = () => {
             <option value="all">All Types</option>
             <option value="job">Jobs</option>
             <option value="grant">Grants</option>
+            <option value="scholarship">Scholarships</option>
             <option value="other">Other</option>
           </select>
         </div>
@@ -225,104 +326,64 @@ const ApplicationsView: React.FC = () => {
             <option value="rejected">Rejected</option>
           </select>
         </div>
+        <div className="flex items-center gap-2">
+          <ArrowUpDown size={14} className="text-gray-400" />
+          <span className="text-sm text-gray-500">Sort:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
+          >
+            <option value="deadline">Deadline</option>
+            <option value="priority">Priority</option>
+            <option value="created">Created Date</option>
+            <option value="name">Name</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Layers size={14} className="text-gray-400" />
+          <span className="text-sm text-gray-500">Group:</span>
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
+            className="bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
+          >
+            <option value="none">No Grouping</option>
+            <option value="type">By Type</option>
+            <option value="status">By Status</option>
+            <option value="priority">By Priority</option>
+          </select>
+        </div>
         <div className="text-sm text-gray-500 ml-auto">
-          {filteredApplications.length} application{filteredApplications.length !== 1 ? 's' : ''}
+          {processedApplications.length} application{processedApplications.length !== 1 ? 's' : ''}
         </div>
       </div>
 
-      {/* Applications Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredApplications.map((app) => (
-          <div 
-            key={app.id} 
-            className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 hover:border-gray-400 dark:hover:border-gray-700 transition-all group shadow-sm dark:shadow-none"
-          >
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center gap-2">
-                {getTypeIcon(app.type)}
-                <span className="text-xs uppercase tracking-wider text-gray-500">{app.type}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => openEditModal(app)}
-                  className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Edit application"
-                >
-                  <Edit2 size={14} />
-                </button>
-                <button
-                  onClick={() => handleDelete(app.id)}
-                  className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Delete application"
-                >
-                  <Trash2 size={14} />
-                </button>
+      {/* Applications Grid - Grouped or Ungrouped */}
+      {groupedApplications ? (
+        // Grouped view
+        <div className="space-y-8">
+          {Object.entries(groupedApplications).map(([groupName, apps]: [string, Application[]]) => (
+            <div key={groupName}>
+              <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-4 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                {groupName}
+                <span className="text-sm font-normal text-gray-500">({apps.length})</span>
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {apps.map((app) => renderApplicationCard(app))}
               </div>
             </div>
+          ))}
+        </div>
+      ) : (
+        // Ungrouped view
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {processedApplications.map((app) => renderApplicationCard(app))}
+        </div>
+      )}
 
-            <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-              {app.name}
-            </h3>
-            
-            {app.organization && (
-              <p className="text-sm text-gray-500 mb-3">{app.organization}</p>
-            )}
-
-            <div className="mb-4">
-              {getStatusBadge(app.status)}
-            </div>
-
-            {/* Dates */}
-            <div className="space-y-2 text-xs text-gray-500 mb-4">
-              {app.submissionDeadline && (
-                <div className={`flex items-center gap-2 ${isDeadlineSoon(app.submissionDeadline) ? 'text-orange-500' : ''}`}>
-                  <Calendar size={12} />
-                  <span>Deadline: {formatDate(app.submissionDeadline)}</span>
-                  {isDeadlineSoon(app.submissionDeadline) && <span className="text-orange-500 font-medium">Soon!</span>}
-                </div>
-              )}
-              {app.openingDate && (
-                <div className="flex items-center gap-2">
-                  <Clock size={12} />
-                  <span>Opens: {formatDate(app.openingDate)}</span>
-                </div>
-              )}
-              {app.closingDate && (
-                <div className="flex items-center gap-2">
-                  <Clock size={12} />
-                  <span>Closes: {formatDate(app.closingDate)}</span>
-                </div>
-              )}
-              {app.submittedDate && (
-                <div className="flex items-center gap-2 text-green-500">
-                  <Send size={12} />
-                  <span>Submitted: {formatDate(app.submittedDate)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Notes preview */}
-            {app.notes && (
-              <p className="text-sm text-gray-400 line-clamp-2 mb-4">{app.notes}</p>
-            )}
-
-            {/* Link */}
-            {app.link && (
-              <a
-                href={app.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-400 transition-colors"
-              >
-                <ExternalLink size={14} />
-                Open Application
-              </a>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {filteredApplications.length === 0 && (
+      {processedApplications.length === 0 && (
         <div className="text-center py-12 text-gray-500">
           <Briefcase size={48} className="mx-auto mb-4 opacity-50" />
           <p>No applications yet. Add your first application to track!</p>
@@ -379,7 +440,7 @@ const ApplicationsView: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm text-gray-500 mb-1">Type</label>
                   <select
@@ -389,6 +450,7 @@ const ApplicationsView: React.FC = () => {
                   >
                     <option value="job">Job</option>
                     <option value="grant">Grant</option>
+                    <option value="scholarship">Scholarship</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
@@ -405,6 +467,18 @@ const ApplicationsView: React.FC = () => {
                     <option value="closed">Closed</option>
                     <option value="accepted">Accepted</option>
                     <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Priority</label>
+                  <select
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as Application['priority'] })}
+                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
                   </select>
                 </div>
               </div>
@@ -484,6 +558,99 @@ const ApplicationsView: React.FC = () => {
       )}
     </div>
   );
+
+  // Render individual application card
+  function renderApplicationCard(app: Application) {
+    return (
+      <div 
+        key={app.id} 
+        className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 hover:border-gray-400 dark:hover:border-gray-700 transition-all group shadow-sm dark:shadow-none"
+      >
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex items-center gap-2">
+            {getTypeIcon(app.type)}
+            <span className="text-xs uppercase tracking-wider text-gray-500">{app.type}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => openEditModal(app)}
+              className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100"
+              title="Edit application"
+            >
+              <Edit2 size={14} />
+            </button>
+            <button
+              onClick={() => handleDelete(app.id)}
+              className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+              title="Delete application"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+
+        <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+          {app.name}
+        </h3>
+        
+        {app.organization && (
+          <p className="text-sm text-gray-500 mb-3">{app.organization}</p>
+        )}
+
+        <div className="flex items-center gap-2 mb-4">
+          {getStatusBadge(app.status)}
+          {app.priority && getPriorityBadge(app.priority)}
+        </div>
+
+        {/* Dates */}
+        <div className="space-y-2 text-xs text-gray-500 mb-4">
+          {app.submissionDeadline && (
+            <div className={`flex items-center gap-2 ${isDeadlineSoon(app.submissionDeadline) ? 'text-orange-500' : ''}`}>
+              <Calendar size={12} />
+              <span>Deadline: {formatDate(app.submissionDeadline)}</span>
+              {isDeadlineSoon(app.submissionDeadline) && <span className="text-orange-500 font-medium">Soon!</span>}
+            </div>
+          )}
+          {app.openingDate && (
+            <div className="flex items-center gap-2">
+              <Clock size={12} />
+              <span>Opens: {formatDate(app.openingDate)}</span>
+            </div>
+          )}
+          {app.closingDate && (
+            <div className="flex items-center gap-2">
+              <Clock size={12} />
+              <span>Closes: {formatDate(app.closingDate)}</span>
+            </div>
+          )}
+          {app.submittedDate && (
+            <div className="flex items-center gap-2 text-green-500">
+              <Send size={12} />
+              <span>Submitted: {formatDate(app.submittedDate)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Notes preview */}
+        {app.notes && (
+          <p className="text-sm text-gray-400 line-clamp-2 mb-4">{app.notes}</p>
+        )}
+
+        {/* Link */}
+        {app.link && (
+          <a
+            href={app.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-400 transition-colors"
+          >
+            <ExternalLink size={14} />
+            Open Application
+          </a>
+        )}
+      </div>
+    );
+  }
 };
 
 export default ApplicationsView;

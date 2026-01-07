@@ -121,8 +121,9 @@ export interface Application {
   id: string;
   name: string;
   link?: string;
-  type: 'job' | 'grant' | 'other';
+  type: 'job' | 'grant' | 'scholarship' | 'other';
   status: 'draft' | 'open' | 'submitted' | 'closed' | 'accepted' | 'rejected';
+  priority: 'High' | 'Medium' | 'Low';
   openingDate?: string;
   closingDate?: string;
   submissionDeadline?: string;
@@ -131,6 +132,12 @@ export interface Application {
   organization?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ApplicationPreferences {
+  id: string;
+  sortBy: 'deadline' | 'priority' | 'created' | 'name';
+  groupBy: 'none' | 'type' | 'status' | 'priority';
 }
 
 export interface IrisConversation {
