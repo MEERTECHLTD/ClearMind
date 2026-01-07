@@ -5,11 +5,103 @@ export interface ProjectMilestone {
   completed: boolean;
 }
 
+// Project Implementation Plan Phase
+export interface ProjectPhase {
+  id: string;
+  name: string;
+  description?: string;
+  status: 'Not Started' | 'In Progress' | 'Completed' | 'Blocked';
+  startDate?: string;
+  endDate?: string;
+  progress: number;
+  deliverables: string[];
+  dependencies?: string[]; // Phase IDs this depends on
+  order: number;
+}
+
+// Team Check-in Entry
+export interface TeamCheckIn {
+  id: string;
+  date: string;
+  attendees: string[];
+  notes: string;
+  blockers?: string[];
+  nextSteps?: string[];
+  mood?: 'Positive' | 'Neutral' | 'Concerned';
+}
+
+// Project Risk
+export interface ProjectRisk {
+  id: string;
+  title: string;
+  description?: string;
+  severity: 'Low' | 'Medium' | 'High' | 'Critical';
+  likelihood: 'Low' | 'Medium' | 'High';
+  mitigation?: string;
+  status: 'Open' | 'Mitigated' | 'Closed';
+}
+
+// Resource/Budget Item
+export interface ProjectResource {
+  id: string;
+  name: string;
+  type: 'Budget' | 'Personnel' | 'Equipment' | 'Software' | 'Other';
+  allocated: number;
+  used: number;
+  unit?: string; // e.g., "$", "hours", "units"
+}
+
+// Performance Metric
+export interface PerformanceMetric {
+  id: string;
+  name: string;
+  target: number;
+  current: number;
+  unit: string;
+  trend?: 'Up' | 'Down' | 'Stable';
+}
+
+// Implementation Plan Template
+export interface ImplementationPlanTemplate {
+  id: string;
+  name: string;
+  category: ProjectCategory;
+  phases: Omit<ProjectPhase, 'id' | 'status' | 'progress'>[];
+  defaultRisks?: Omit<ProjectRisk, 'id' | 'status'>[];
+  defaultMetrics?: Omit<PerformanceMetric, 'id' | 'current' | 'trend'>[];
+}
+
+// Project Categories
+export type ProjectCategory = 
+  | 'Energy'
+  | 'Green Energy'
+  | 'Finance'
+  | 'Health'
+  | 'IT'
+  | 'Education'
+  | 'Construction'
+  | 'Manufacturing'
+  | 'Retail'
+  | 'Marketing'
+  | 'Research'
+  | 'Government'
+  | 'Non-Profit'
+  | 'Startup'
+  | 'Personal'
+  | 'Other';
+
+// Alignment/Goals Connection
+export interface ProjectAlignment {
+  strategicGoal: string;
+  alignmentScore: number; // 0-100
+  notes?: string;
+}
+
 export interface Project {
   id: string;
   title: string;
   description: string;
-  status: 'In Progress' | 'Completed' | 'On Hold';
+  status: 'Not Started' | 'Planning' | 'In Progress' | 'On Hold' | 'Completed' | 'Cancelled';
   progress: number;
   tags: string[];
   deadline?: string;
@@ -18,9 +110,44 @@ export interface Project {
   projectMilestones?: ProjectMilestone[];
   reportingStructure?: string; // e.g., "Reports to: Manager Name"
   team?: string[]; // Team members
-  priority?: 'High' | 'Medium' | 'Low';
-  category?: string;
+  priority?: 'Critical' | 'High' | 'Medium' | 'Low';
+  category?: ProjectCategory;
   notes?: string;
+  
+  // Implementation Plan
+  implementationPlan?: {
+    templateId?: string;
+    phases: ProjectPhase[];
+    objectives?: string[];
+    scope?: string;
+    outOfScope?: string[];
+    assumptions?: string[];
+    constraints?: string[];
+  };
+  
+  // Team Management
+  projectManager?: string;
+  stakeholders?: string[];
+  teamCheckIns?: TeamCheckIn[];
+  nextCheckInDate?: string;
+  
+  // Risk Management
+  risks?: ProjectRisk[];
+  
+  // Resources & Budget
+  resources?: ProjectResource[];
+  totalBudget?: number;
+  budgetUsed?: number;
+  
+  // Performance & Alignment
+  performanceMetrics?: PerformanceMetric[];
+  alignments?: ProjectAlignment[];
+  healthStatus?: 'On Track' | 'At Risk' | 'Off Track';
+  
+  // Audit Trail
+  createdAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
 }
 
 export interface LogEntry {
