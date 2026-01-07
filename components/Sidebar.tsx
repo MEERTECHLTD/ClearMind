@@ -17,7 +17,8 @@ import {
   MoreHorizontal,
   Network,
   Calendar,
-  ClipboardList
+  ClipboardList,
+  Briefcase
 } from 'lucide-react';
 import { ViewState, UserProfile } from '../types';
 
@@ -36,6 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isCollapse
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
     { id: 'projects', label: 'Projects', icon: <Folder size={20} /> },
     { id: 'tasks', label: 'Tasks', icon: <CheckSquare size={20} /> },
+    { id: 'applications', label: 'Applications', icon: <Briefcase size={20} /> },
     { id: 'calendar', label: 'Calendar', icon: <Calendar size={20} /> },
     { id: 'dailymapper', label: 'Daily Mapper', icon: <ClipboardList size={20} /> },
     { id: 'notes', label: 'Notes', icon: <FileText size={20} /> },

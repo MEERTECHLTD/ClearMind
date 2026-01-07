@@ -1,3 +1,10 @@
+export interface ProjectMilestone {
+  id: string;
+  title: string;
+  dueDate?: string;
+  completed: boolean;
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -6,6 +13,14 @@ export interface Project {
   progress: number;
   tags: string[];
   deadline?: string;
+  // Enhanced project fields
+  startDate?: string;
+  projectMilestones?: ProjectMilestone[];
+  reportingStructure?: string; // e.g., "Reports to: Manager Name"
+  team?: string[]; // Team members
+  priority?: 'High' | 'Medium' | 'Low';
+  category?: string;
+  notes?: string;
 }
 
 export interface LogEntry {
@@ -31,6 +46,7 @@ export interface Task {
   dueTime?: string;
   taskNumber?: number;
   notified?: boolean;
+  description?: string;
 }
 
 export interface Note {
@@ -101,6 +117,30 @@ export interface Rant {
   mood?: 'frustrated' | 'angry' | 'overwhelmed' | 'confused';
 }
 
+export interface Application {
+  id: string;
+  name: string;
+  link?: string;
+  type: 'job' | 'grant' | 'other';
+  status: 'draft' | 'open' | 'submitted' | 'closed' | 'accepted' | 'rejected';
+  openingDate?: string;
+  closingDate?: string;
+  submissionDeadline?: string;
+  submittedDate?: string;
+  notes?: string;
+  organization?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface IrisConversation {
+  id: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+  title?: string;
+}
+
 export interface MindMapNode {
   id: string;
   x: number;
@@ -156,4 +196,5 @@ export type ViewState =
   | 'mindmap'
   | 'calendar'
   | 'dailymapper'
+  | 'applications'
   | 'settings';

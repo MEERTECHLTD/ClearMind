@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Project } from '../../types';
+import { Project, ProjectMilestone } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Plus, Calendar, Code, ExternalLink, Edit3, Trash2, Check, X, Clock } from 'lucide-react';
+import { Plus, Calendar, Code, ExternalLink, Edit3, Trash2, Check, X, Clock, Users, Flag, ChevronDown, ChevronUp } from 'lucide-react';
 
 const ProjectsView: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -9,12 +9,19 @@ const ProjectsView: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Project | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [newProject, setNewProject] = useState({
     title: '',
     description: '',
     status: 'In Progress' as Project['status'],
     tags: '',
-    deadline: ''
+    deadline: '',
+    startDate: '',
+    reportingStructure: '',
+    team: '',
+    priority: 'Medium' as Project['priority'],
+    category: '',
+    notes: ''
   });
 
   useEffect(() => {
@@ -41,12 +48,31 @@ const ProjectsView: React.FC = () => {
       status: newProject.status,
       progress: 0,
       tags: newProject.tags.split(',').map(t => t.trim()).filter(t => t),
-      deadline: newProject.deadline || undefined
+      deadline: newProject.deadline || undefined,
+      startDate: newProject.startDate || undefined,
+      reportingStructure: newProject.reportingStructure || undefined,
+      team: newProject.team ? newProject.team.split(',').map(t => t.trim()).filter(t => t) : undefined,
+      priority: newProject.priority || 'Medium',
+      category: newProject.category || undefined,
+      notes: newProject.notes || undefined,
+      projectMilestones: []
     };
 
     await dbService.put(STORES.PROJECTS, project);
     setProjects(prev => [...prev, project]);
-    setNewProject({ title: '', description: '', status: 'In Progress', tags: '', deadline: '' });
+    setNewProject({ 
+      title: '', 
+      description: '', 
+      status: 'In Progress', 
+      tags: '', 
+      deadline: '',
+      startDate: '',
+      reportingStructure: '',
+      team: '',
+      priority: 'Medium',
+      category: '',
+      notes: ''
+    });
     setShowAddModal(false);
   };
 
@@ -285,12 +311,12 @@ const ProjectsView: React.FC = () => {
       {/* Add Project Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
+          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
             <h3 className="text-xl font-bold dark:text-white text-gray-900 mb-6">Create New Project</h3>
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-500 mb-1">Project Title</label>
+                <label className="block text-sm text-gray-500 mb-1">Project Title *</label>
                 <input
                   type="text"
                   value={newProject.title}
@@ -326,6 +352,32 @@ const ProjectsView: React.FC = () => {
                   </select>
                 </div>
                 <div>
+                  <label className="block text-sm text-gray-500 mb-1">Priority</label>
+                  <select
+                    value={newProject.priority}
+                    onChange={(e) => setNewProject({ ...newProject, priority: e.target.value as Project['priority'] })}
+                    title="Project priority"
+                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={newProject.startDate}
+                    onChange={(e) => setNewProject({ ...newProject, startDate: e.target.value })}
+                    title="Project start date"
+                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm text-gray-500 mb-1">Deadline</label>
                   <input
                     type="date"
@@ -338,6 +390,39 @@ const ProjectsView: React.FC = () => {
               </div>
 
               <div>
+                <label className="block text-sm text-gray-500 mb-1">Category</label>
+                <input
+                  type="text"
+                  value={newProject.category}
+                  onChange={(e) => setNewProject({ ...newProject, category: e.target.value })}
+                  placeholder="e.g., Development, Research, Marketing"
+                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-500 mb-1">Reporting Structure</label>
+                <input
+                  type="text"
+                  value={newProject.reportingStructure}
+                  onChange={(e) => setNewProject({ ...newProject, reportingStructure: e.target.value })}
+                  placeholder="e.g., Reports to: John Smith (Project Manager)"
+                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-500 mb-1">Team Members (comma-separated)</label>
+                <input
+                  type="text"
+                  value={newProject.team}
+                  onChange={(e) => setNewProject({ ...newProject, team: e.target.value })}
+                  placeholder="Alice, Bob, Charlie"
+                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
                 <label className="block text-sm text-gray-500 mb-1">Tags (comma-separated)</label>
                 <input
                   type="text"
@@ -345,6 +430,17 @@ const ProjectsView: React.FC = () => {
                   onChange={(e) => setNewProject({ ...newProject, tags: e.target.value })}
                   placeholder="react, typescript, frontend"
                   className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-500 mb-1">Notes</label>
+                <textarea
+                  value={newProject.notes}
+                  onChange={(e) => setNewProject({ ...newProject, notes: e.target.value })}
+                  placeholder="Additional notes about this project..."
+                  rows={2}
+                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
             </div>
@@ -360,7 +456,19 @@ const ProjectsView: React.FC = () => {
               <button
                 onClick={() => {
                   setShowAddModal(false);
-                  setNewProject({ title: '', description: '', status: 'In Progress', tags: '', deadline: '' });
+                  setNewProject({ 
+                    title: '', 
+                    description: '', 
+                    status: 'In Progress', 
+                    tags: '', 
+                    deadline: '',
+                    startDate: '',
+                    reportingStructure: '',
+                    team: '',
+                    priority: 'Medium',
+                    category: '',
+                    notes: ''
+                  });
                 }}
                 className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
               >

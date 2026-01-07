@@ -1,23 +1,71 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { generateIrisResponse, UserContext, parseTaskCommands, ParsedTask } from '../../services/geminiService';
 import { dbService, STORES } from '../../services/db';
-import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant } from '../../types';
-import { Send, Sparkles, Bot, User, CheckCircle } from 'lucide-react';
+import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, IrisConversation } from '../../types';
+import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare } from 'lucide-react';
+
+const CURRENT_CONVERSATION_ID = 'current-iris-conversation';
 
 const IrisView: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [userContext, setUserContext] = useState<UserContext | null>(null);
-  const [createdTasks, setCreatedTasks] = useState<string[]>([]); // Track recently created task titles
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'init',
-      role: 'model',
-      text: "Hello. I am Iris. I'm here to help you maintain consistency and log your journey. I can also add tasks for you, just ask! What are we shipping today?",
-      timestamp: new Date()
-    }
-  ]);
+  const [createdTasks, setCreatedTasks] = useState<string[]>([]);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(true);
+  
+  const defaultMessage: ChatMessage = {
+    id: 'init',
+    role: 'model',
+    text: "Hello. I am Iris. I'm here to help you maintain consistency and log your journey. I can also add tasks for you, just ask! What are we shipping today?",
+    timestamp: new Date()
+  };
+  
+  const [messages, setMessages] = useState<ChatMessage[]>([defaultMessage]);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load conversation from storage
+  const loadConversation = useCallback(async () => {
+    try {
+      const savedConversation = await dbService.get<IrisConversation>(STORES.IRIS_CONVERSATIONS, CURRENT_CONVERSATION_ID);
+      if (savedConversation && savedConversation.messages.length > 0) {
+        // Parse dates back from strings
+        const messagesWithDates = savedConversation.messages.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+        setMessages(messagesWithDates);
+      }
+    } catch (error) {
+      console.error('Failed to load conversation:', error);
+    } finally {
+      setIsLoadingConversation(false);
+    }
+  }, []);
+
+  // Save conversation to storage
+  const saveConversation = useCallback(async (newMessages: ChatMessage[]) => {
+    try {
+      const conversation: IrisConversation = {
+        id: CURRENT_CONVERSATION_ID,
+        messages: newMessages,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        title: newMessages.length > 1 ? newMessages[1]?.text?.slice(0, 50) : 'New Conversation'
+      };
+      await dbService.put(STORES.IRIS_CONVERSATIONS, conversation);
+    } catch (error) {
+      console.error('Failed to save conversation:', error);
+    }
+  }, []);
+
+  // Clear conversation history
+  const clearConversation = async () => {
+    if (!confirm('Are you sure you want to clear the conversation history? Iris will forget everything discussed.')) return;
+    
+    const freshMessages = [defaultMessage];
+    setMessages(freshMessages);
+    await saveConversation(freshMessages);
+  };
 
   // Helper to get next task number
   const getNextTaskNumber = async (): Promise<number> => {
@@ -49,7 +97,6 @@ const IrisView: React.FC = () => {
     
     if (createdTaskTitles.length > 0) {
       setCreatedTasks(createdTaskTitles);
-      // Clear the notification after 5 seconds
       setTimeout(() => setCreatedTasks([]), 5000);
     }
   };
@@ -68,7 +115,6 @@ const IrisView: React.FC = () => {
         dbService.getAll<Rant>(STORES.RANTS),
       ]);
       
-      // Try to get user profile (single item)
       let profile: UserProfile | undefined;
       try {
         profile = await dbService.get<UserProfile>(STORES.PROFILE, 'user');
@@ -92,10 +138,11 @@ const IrisView: React.FC = () => {
     }
   }, []);
 
-  // Load user context on mount
+  // Load conversation and user context on mount
   useEffect(() => {
+    loadConversation();
     fetchUserContext();
-  }, [fetchUserContext]);
+  }, [loadConversation, fetchUserContext]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -141,9 +188,21 @@ const IrisView: React.FC = () => {
         text: cleanedResponse,
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, aiMsg]);
+      
+      // Update messages and save to storage
+      setMessages(prev => {
+        const newMessages = [...prev, userMsg, aiMsg];
+        saveConversation(newMessages);
+        return newMessages;
+      });
     } catch (error) {
       console.error(error);
+      // Still save the user message even if AI fails
+      setMessages(prev => {
+        const newMessages = [...prev];
+        saveConversation(newMessages);
+        return newMessages;
+      });
     } finally {
       setIsTyping(false);
     }
@@ -159,13 +218,28 @@ const IrisView: React.FC = () => {
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col bg-midnight transition-colors duration-300">
       {/* Header Area */}
-      <div className="p-6 border-b dark:border-gray-800 border-gray-200 flex items-center gap-3">
-        <div className="p-2 bg-purple-500/10 rounded-lg">
-           <Sparkles className="text-purple-500" size={24} />
+      <div className="p-6 border-b dark:border-gray-800 border-gray-200 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-purple-500/10 rounded-lg">
+             <Sparkles className="text-purple-500" size={24} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold dark:text-white text-gray-900">Iris</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Your AI co-pilot for the journey.</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-xl font-bold dark:text-white text-gray-900">Iris</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Your AI co-pilot for the journey.</p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 flex items-center gap-1">
+            <MessageSquare size={12} />
+            {messages.length - 1} messages
+          </span>
+          <button
+            onClick={clearConversation}
+            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+            title="Clear conversation history"
+          >
+            <Trash2 size={18} />
+          </button>
         </div>
       </div>
 
@@ -186,7 +260,15 @@ const IrisView: React.FC = () => {
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {messages.map((msg) => (
+        {isLoadingConversation ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm text-gray-500">Loading conversation...</p>
+            </div>
+          </div>
+        ) : (
+          messages.map((msg) => (
           <div 
             key={msg.id} 
             className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
@@ -206,7 +288,8 @@ const IrisView: React.FC = () => {
               {msg.text}
             </div>
           </div>
-        ))}
+        ))
+        )}
         {isTyping && (
            <div className="flex gap-4">
              <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center justify-center">

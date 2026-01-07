@@ -9,6 +9,7 @@ const TasksView: React.FC = () => {
   const [newTaskDate, setNewTaskDate] = useState('');
   const [newTaskTime, setNewTaskTime] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
   const [permission, setPermission] = useState<NotificationPermission>(Notification.permission);
   
   // Edit state
@@ -17,6 +18,7 @@ const TasksView: React.FC = () => {
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
   const [editPriority, setEditPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
+  const [editDescription, setEditDescription] = useState('');
   
   // Sort state
   const [sortBy, setSortBy] = useState<'default' | 'priority-high' | 'priority-low' | 'date'>('default');
@@ -56,7 +58,8 @@ const TasksView: React.FC = () => {
       dueDate: dateToUse,
       dueTime: newTaskTime || undefined,
       taskNumber,
-      notified: false
+      notified: false,
+      description: newTaskDescription || undefined
     };
     
     await dbService.put(STORES.TASKS, newTask);
@@ -65,6 +68,7 @@ const TasksView: React.FC = () => {
     setNewTaskDate('');
     setNewTaskTime('');
     setNewTaskPriority('Medium');
+    setNewTaskDescription('');
   };
 
   const startEditing = (task: Task) => {
@@ -73,6 +77,7 @@ const TasksView: React.FC = () => {
     setEditDate(task.dueDate || '');
     setEditTime(task.dueTime || '');
     setEditPriority(task.priority);
+    setEditDescription(task.description || '');
   };
 
   const cancelEditing = () => {
@@ -81,6 +86,7 @@ const TasksView: React.FC = () => {
     setEditDate('');
     setEditTime('');
     setEditPriority('Medium');
+    setEditDescription('');
   };
 
   const saveEdit = async () => {
@@ -94,7 +100,8 @@ const TasksView: React.FC = () => {
       title: editTitle,
       dueDate: editDate || undefined,
       dueTime: editTime || undefined,
-      priority: editPriority
+      priority: editPriority,
+      description: editDescription || undefined
     };
 
     await dbService.put(STORES.TASKS, updatedTask);
@@ -231,6 +238,15 @@ const TasksView: React.FC = () => {
           </button>
         </div>
         
+        {/* Description input */}
+        <textarea
+          value={newTaskDescription}
+          onChange={(e) => setNewTaskDescription(e.target.value)}
+          placeholder="Add a description (optional)..."
+          rows={2}
+          className="w-full bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl py-3 px-4 dark:text-white text-gray-900 focus:outline-none focus:border-blue-500 transition-colors placeholder-gray-500 resize-none"
+        />
+        
         <div className="flex flex-wrap gap-3">
           {/* Priority Selector */}
           <div className="flex items-center gap-2 bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl px-4 py-2">
@@ -315,6 +331,14 @@ const TasksView: React.FC = () => {
                     className="flex-1 bg-midnight border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-2 dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
                   />
                 </div>
+                {/* Description input for edit */}
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Add a description (optional)..."
+                  rows={2}
+                  className="w-full bg-midnight border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-2 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500 resize-none"
+                />
                 <div className="flex flex-wrap items-center gap-3">
                   {/* Priority Selector for Edit */}
                   <div className="flex items-center gap-2">
@@ -381,28 +405,36 @@ const TasksView: React.FC = () => {
             ) : (
               // View Mode
               <>
-                <div className="flex items-center gap-4 flex-1">
-                  <button 
-                    onClick={() => toggleTask(task.id)}
-                    title={task.completed ? "Mark incomplete" : "Mark complete"}
-                    className={`transition-colors ${task.completed ? 'text-green-500' : 'text-gray-400 hover:text-blue-500'}`}
-                  >
-                    {task.completed ? <CheckCircle size={24} /> : <Circle size={24} />}
-                  </button>
-                  
-                  {/* Task Number Badge */}
-                  {task.taskNumber && (
-                    <span className="text-xs font-mono bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">
-                      #{task.taskNumber}
+                <div className="flex-1">
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => toggleTask(task.id)}
+                      title={task.completed ? "Mark incomplete" : "Mark complete"}
+                      className={`transition-colors ${task.completed ? 'text-green-500' : 'text-gray-400 hover:text-blue-500'}`}
+                    >
+                      {task.completed ? <CheckCircle size={24} /> : <Circle size={24} />}
+                    </button>
+                    
+                    {/* Task Number Badge */}
+                    {task.taskNumber && (
+                      <span className="text-xs font-mono bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">
+                        #{task.taskNumber}
+                      </span>
+                    )}
+                    
+                    {/* Priority Dot */}
+                    <span className={`w-2.5 h-2.5 rounded-full ${getPriorityDot(task.priority)}`} title={`${task.priority} priority`} />
+                    
+                    <span className={`text-lg ${task.completed ? 'line-through text-gray-400' : 'dark:text-white text-gray-800'}`}>
+                      {task.title}
                     </span>
+                  </div>
+                  {/* Task Description */}
+                  {task.description && (
+                    <p className="ml-14 mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                      {task.description}
+                    </p>
                   )}
-                  
-                  {/* Priority Dot */}
-                  <span className={`w-2.5 h-2.5 rounded-full ${getPriorityDot(task.priority)}`} title={`${task.priority} priority`} />
-                  
-                  <span className={`text-lg ${task.completed ? 'line-through text-gray-400' : 'dark:text-white text-gray-800'}`}>
-                    {task.title}
-                  </span>
                 </div>
 
                 <div className="flex items-center gap-3">

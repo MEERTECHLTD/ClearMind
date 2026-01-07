@@ -23,6 +23,7 @@ const MindMapView = lazy(() => import('./components/views/MindMapView'));
 const CalendarView = lazy(() => import('./components/views/CalendarView'));
 const DailyMapperView = lazy(() => import('./components/views/DailyMapperView'));
 const AuthView = lazy(() => import('./components/views/AuthView'));
+const ApplicationsView = lazy(() => import('./components/views/ApplicationsView'));
 
 // Loading fallback component
 const ViewLoader = () => (
@@ -40,7 +41,7 @@ const getViewFromHash = (): ViewState => {
   const validViews: ViewState[] = [
     'dashboard', 'projects', 'tasks', 'notes', 'habits', 
     'goals', 'milestones', 'iris', 'rant', 'dailylog', 
-    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper'
+    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications'
   ];
   return validViews.includes(hash as ViewState) ? (hash as ViewState) : 'dashboard';
 };
@@ -459,6 +460,8 @@ const App: React.FC = () => {
         return <ProjectsView />;
       case 'tasks':
         return <TasksView />;
+      case 'applications':
+        return <ApplicationsView />;
       case 'notes':
         return <NotesView />;
       case 'habits':

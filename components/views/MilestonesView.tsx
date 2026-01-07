@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Milestone } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { CheckCircle2, Circle, Plus, Edit2, Trash2, X, Save, Calendar } from 'lucide-react';
+import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
+import { CheckCircle2, Circle, Plus, Edit2, Trash2, X, Save, Calendar, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 const MilestonesView: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -12,14 +13,96 @@ const MilestonesView: React.FC = () => {
     description: '',
     date: new Date().toISOString().split('T')[0]
   });
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'offline'>('idle');
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // Load milestones from local database
+  const loadMilestones = useCallback(async () => {
+    const data = await dbService.getAll<Milestone>(STORES.MILESTONES);
+    setMilestones(data);
+  }, []);
+
+  // Handle real-time updates from Firebase
+  const handleRealtimeUpdate = useCallback((items: Milestone[]) => {
+    setMilestones(items);
+    setSyncStatus('synced');
+    setLastSyncTime(new Date());
+  }, []);
+
+  // Manual sync function
+  const manualSync = async () => {
+    if (!isOnline) {
+      setSyncStatus('offline');
+      return;
+    }
+    
+    setSyncStatus('syncing');
+    try {
+      // Reload from local DB first
+      await loadMilestones();
+      
+      // If Firebase is configured, trigger a sync
+      if (isFirebaseConfigured()) {
+        const localData = await dbService.getAll<Milestone>(STORES.MILESTONES);
+        // Re-save all items to trigger cloud sync
+        for (const item of localData) {
+          await dbService.put(STORES.MILESTONES, item);
+        }
+      }
+      
+      setSyncStatus('synced');
+      setLastSyncTime(new Date());
+    } catch (error) {
+      console.error('Manual sync failed:', error);
+      setSyncStatus('offline');
+    }
+  };
 
   useEffect(() => {
-    const loadMilestones = async () => {
-      const data = await dbService.getAll<Milestone>(STORES.MILESTONES);
-      setMilestones(data);
-    };
     loadMilestones();
-  }, []);
+    
+    // Track online/offline status
+    const handleOnline = () => {
+      setIsOnline(true);
+      setSyncStatus('idle');
+      // Auto-sync when coming back online
+      manualSync();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncStatus('offline');
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Set up real-time sync if Firebase is configured
+    let unsubscribe: (() => void) | null = null;
+    
+    if (isFirebaseConfigured()) {
+      // Subscribe to real-time updates
+      unsubscribe = firebaseService.subscribeToCollection<Milestone>(
+        'milestones',
+        handleRealtimeUpdate
+      );
+      setSyncStatus('synced');
+    }
+
+    // Auto-sync every 30 seconds when online
+    const autoSyncInterval = setInterval(() => {
+      if (isOnline && isFirebaseConfigured()) {
+        loadMilestones();
+      }
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (unsubscribe) unsubscribe();
+      clearInterval(autoSyncInterval);
+    };
+  }, [loadMilestones, handleRealtimeUpdate, isOnline]);
 
   const openAddModal = () => {
     setFormData({
@@ -96,13 +179,45 @@ const MilestonesView: React.FC = () => {
           <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Journey Milestones</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm">Visualize how far you have come.</p>
         </div>
-        <button 
-          onClick={openAddModal}
-          className="bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm transition-colors"
-        >
-          <Plus size={14} />
-          Add Event
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Sync Status Indicator */}
+          <div className="flex items-center gap-2">
+            {syncStatus === 'syncing' && (
+              <span className="flex items-center gap-1 text-xs text-blue-500">
+                <RefreshCw size={14} className="animate-spin" />
+                Syncing...
+              </span>
+            )}
+            {syncStatus === 'synced' && (
+              <span className="flex items-center gap-1 text-xs text-green-500">
+                <Wifi size={14} />
+                Synced
+              </span>
+            )}
+            {syncStatus === 'offline' && (
+              <span className="flex items-center gap-1 text-xs text-orange-500">
+                <WifiOff size={14} />
+                Offline
+              </span>
+            )}
+            {/* Manual sync button */}
+            <button
+              onClick={manualSync}
+              disabled={syncStatus === 'syncing'}
+              className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-50"
+              title={lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleTimeString()}` : 'Sync now'}
+            >
+              <RefreshCw size={14} className={syncStatus === 'syncing' ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <button 
+            onClick={openAddModal}
+            className="bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm transition-colors"
+          >
+            <Plus size={14} />
+            Add Event
+          </button>
+        </div>
       </div>
 
       <div className="relative max-w-3xl mx-auto pl-8 border-l-2 dark:border-gray-800 border-gray-300 space-y-12">
