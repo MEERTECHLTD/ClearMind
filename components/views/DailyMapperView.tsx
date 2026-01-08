@@ -393,13 +393,20 @@ const DailyMapperView: React.FC = () => {
               key={entry.id} 
               className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-4 hover:border-gray-400 dark:hover:border-gray-600 transition-colors group"
             >
-              <div className="flex items-start gap-4">
-                {/* Time Column */}
-                <div 
-                  className="w-1 h-full min-h-[60px] rounded-full"
-                  style={{ backgroundColor: entry.color || '#3B82F6' }}
-                />
-                <div className="flex-shrink-0 text-center min-w-[100px]">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
+                {/* Time Column - horizontal on mobile, vertical on desktop */}
+                <div className="flex sm:flex-col items-center sm:items-start gap-2 sm:gap-0">
+                  <div 
+                    className="w-1 h-8 sm:h-full sm:min-h-[60px] rounded-full hidden sm:block"
+                    style={{ backgroundColor: entry.color || '#3B82F6' }}
+                  />
+                  <div 
+                    className="w-full h-1 sm:hidden rounded-full"
+                    style={{ backgroundColor: entry.color || '#3B82F6' }}
+                  />
+                </div>
+                
+                <div className="flex items-center sm:flex-col sm:items-center gap-2 sm:gap-0 flex-shrink-0 sm:text-center sm:min-w-[100px]">
                   <p className="text-sm font-bold dark:text-white text-gray-900">
                     {formatTime(entry.startTime)}
                   </p>
@@ -424,8 +431,8 @@ const DailyMapperView: React.FC = () => {
                   )}
                 </div>
 
-                {/* Status & Actions */}
-                <div className="flex items-center gap-2">
+                {/* Status & Actions - always visible on mobile, hover on desktop */}
+                <div className="flex items-center justify-between sm:justify-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-200 dark:border-gray-700">
                   <button
                     onClick={() => toggleCompletion(entry)}
                     title={`Status: ${getCompletionLabel(entry.completed)} - Click to change`}
@@ -438,10 +445,10 @@ const DailyMapperView: React.FC = () => {
                     }`}
                   >
                     {getCompletionIcon(entry.completed)}
-                    {getCompletionLabel(entry.completed)}
+                    <span className="hidden xs:inline">{getCompletionLabel(entry.completed)}</span>
                   </button>
 
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => {
                         setShowMoveModal(entry.id);
