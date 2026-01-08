@@ -159,40 +159,50 @@ const LearningVaultView: React.FC = () => {
     return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
-  // Handle URL input and auto-detect metadata
-  const handleUrlChange = useCallback(async (url: string) => {
+  // Handle URL input - just update the URL without auto-detecting
+  const handleUrlChange = useCallback((url: string) => {
     setFormData(prev => ({ ...prev, url }));
-    
-    if (url.trim()) {
-      const platform = detectPlatform(url);
-      const contentType = detectContentType(url);
-      setFormData(prev => ({
-        ...prev,
-        sourcePlatform: platform,
-        contentType: contentType
-      }));
-    }
   }, []);
 
-  // Preview resource before saving
+  // Detect metadata from URL when button is clicked
   const handlePreview = useCallback(async () => {
     if (!formData.url.trim()) return;
     
     setIsPreviewLoading(true);
-    // Auto-detect platform and content type
-    const platform = detectPlatform(formData.url);
-    const contentType = detectContentType(formData.url);
     
-    // For YouTube, we could potentially extract more metadata
-    // For now, set sensible defaults
-    setFormData(prev => ({
-      ...prev,
-      sourcePlatform: platform,
-      contentType: contentType,
-      title: prev.title || `Resource from ${platform}`,
-    }));
-    
-    setTimeout(() => setIsPreviewLoading(false), 500);
+    try {
+      // Auto-detect platform and content type
+      const platform = detectPlatform(formData.url);
+      const contentType = detectContentType(formData.url);
+      
+      // Generate a more descriptive default title based on platform
+      let defaultTitle = '';
+      if (platform !== 'other') {
+        const platformNames: Record<LearningSourcePlatform, string> = {
+          'youtube': 'YouTube',
+          'vimeo': 'Vimeo',
+          'spotify': 'Spotify',
+          'apple-podcasts': 'Apple Podcasts',
+          'soundcloud': 'SoundCloud',
+          'coursera': 'Coursera',
+          'udemy': 'Udemy',
+          'khan-academy': 'Khan Academy',
+          'mit-ocw': 'MIT OpenCourseWare',
+          'ted': 'TED',
+          'other': 'Other'
+        };
+        defaultTitle = `${contentType === 'audio' ? 'Audio' : 'Video'} from ${platformNames[platform]}`;
+      }
+      
+      setFormData(prev => ({
+        ...prev,
+        sourcePlatform: platform,
+        contentType: contentType,
+        title: prev.title || defaultTitle,
+      }));
+    } finally {
+      setTimeout(() => setIsPreviewLoading(false), 300);
+    }
   }, [formData.url]);
 
   const resetForm = () => {
@@ -897,13 +907,13 @@ const LearningVaultView: React.FC = () => {
       {/* Add/Edit Resource Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-lg font-bold dark:text-white text-gray-900">
                   {editingResource ? 'Edit Resource' : 'Add Learning Resource'}
                 </h3>
-                <button onClick={() => { setShowAddModal(false); resetForm(); }} className="text-gray-400 hover:text-white">
+                <button onClick={() => { setShowAddModal(false); resetForm(); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
                   <X size={20} />
                 </button>
               </div>
@@ -911,14 +921,14 @@ const LearningVaultView: React.FC = () => {
               <div className="space-y-4">
                 {/* URL Input */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">URL *</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">URL *</label>
                   <div className="flex gap-2">
                     <input
                       type="url"
                       value={formData.url}
                       onChange={(e) => handleUrlChange(e.target.value)}
                       placeholder="https://youtube.com/watch?v=..."
-                      className="flex-1 px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                      className="flex-1 px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                     />
                     <button
                       onClick={handlePreview}
@@ -932,48 +942,48 @@ const LearningVaultView: React.FC = () => {
                 
                 {/* Title */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Title *</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Title *</label>
                   <input
                     type="text"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     placeholder="Resource title"
-                    className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 
                 {/* Description */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Description</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Description</label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="Brief description of the content"
                     rows={2}
-                    className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
                   />
                 </div>
                 
                 {/* Thumbnail */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Thumbnail URL</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Thumbnail URL</label>
                   <input
                     type="url"
                     value={formData.thumbnail}
                     onChange={(e) => setFormData({ ...formData, thumbnail: e.target.value })}
                     placeholder="https://..."
-                    className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 
                 {/* Two columns */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Content Type</label>
+                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Content Type</label>
                     <select
                       value={formData.contentType}
                       onChange={(e) => setFormData({ ...formData, contentType: e.target.value as LearningContentType })}
-                      className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
                     >
                       <option value="video">Video</option>
                       <option value="audio">Audio</option>
@@ -981,25 +991,25 @@ const LearningVaultView: React.FC = () => {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Duration (minutes)</label>
+                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Duration (minutes)</label>
                     <input
                       type="number"
                       value={formData.duration}
                       onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
                       placeholder="60"
                       min="0"
-                      className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                     />
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Platform</label>
+                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Platform</label>
                     <select
                       value={formData.sourcePlatform}
                       onChange={(e) => setFormData({ ...formData, sourcePlatform: e.target.value as LearningSourcePlatform })}
-                      className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
                     >
                       <option value="youtube">YouTube</option>
                       <option value="vimeo">Vimeo</option>
@@ -1016,11 +1026,11 @@ const LearningVaultView: React.FC = () => {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Folder</label>
+                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Folder</label>
                     <select
                       value={formData.folder}
                       onChange={(e) => setFormData({ ...formData, folder: e.target.value })}
-                      className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
                     >
                       <option value="">No Folder</option>
                       {folders.map(f => (
@@ -1032,25 +1042,25 @@ const LearningVaultView: React.FC = () => {
                 
                 {/* Author */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Author / Channel</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Author / Channel</label>
                   <input
                     type="text"
                     value={formData.author}
                     onChange={(e) => setFormData({ ...formData, author: e.target.value })}
                     placeholder="Channel name or author"
-                    className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 
                 {/* Tags */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Tags (comma-separated)</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Tags (comma-separated)</label>
                   <input
                     type="text"
                     value={formData.tags}
                     onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
                     placeholder="Machine Learning, Python, Tutorial"
-                    className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -1058,7 +1068,7 @@ const LearningVaultView: React.FC = () => {
               <div className="flex justify-end gap-3 mt-6">
                 <button
                   onClick={() => { setShowAddModal(false); resetForm(); }}
-                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                  className="px-4 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
                 >
                   Cancel
                 </button>
@@ -1079,29 +1089,29 @@ const LearningVaultView: React.FC = () => {
       {/* Folder Modal */}
       {showFolderModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-md">
+          <div className="dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-white">Create Folder</h3>
-                <button onClick={() => setShowFolderModal(false)} className="text-gray-400 hover:text-white">
+                <h3 className="text-lg font-bold dark:text-white text-gray-900">Create Folder</h3>
+                <button onClick={() => setShowFolderModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
                   <X size={20} />
                 </button>
               </div>
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Folder Name</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Folder Name</label>
                   <input
                     type="text"
                     value={folderFormData.name}
                     onChange={(e) => setFolderFormData({ ...folderFormData, name: e.target.value })}
                     placeholder="e.g., Machine Learning, Backend"
-                    className="w-full px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Color</label>
+                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Color</label>
                   <div className="flex gap-2">
                     {['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'].map(color => (
                       <button
@@ -1118,13 +1128,13 @@ const LearningVaultView: React.FC = () => {
               {/* Existing folders */}
               {folders.length > 0 && (
                 <div className="mt-6 pt-4 border-t dark:border-gray-700 border-gray-200">
-                  <p className="text-sm text-gray-400 mb-2">Existing Folders</p>
+                  <p className="text-sm dark:text-gray-400 text-gray-600 mb-2">Existing Folders</p>
                   <div className="space-y-2">
                     {folders.map(folder => (
-                      <div key={folder.id} className="flex items-center justify-between p-2 bg-midnight rounded-lg">
+                      <div key={folder.id} className="flex items-center justify-between p-2 dark:bg-midnight bg-gray-100 rounded-lg">
                         <div className="flex items-center gap-2">
                           <Folder size={16} style={{ color: folder.color }} />
-                          <span className="text-sm text-white">{folder.name}</span>
+                          <span className="text-sm dark:text-white text-gray-900">{folder.name}</span>
                         </div>
                         <button
                           onClick={() => handleDeleteFolder(folder.id)}
@@ -1141,7 +1151,7 @@ const LearningVaultView: React.FC = () => {
               <div className="flex justify-end gap-3 mt-6">
                 <button
                   onClick={() => setShowFolderModal(false)}
-                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                  className="px-4 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
                 >
                   Cancel
                 </button>
@@ -1162,14 +1172,14 @@ const LearningVaultView: React.FC = () => {
       {/* Notes Modal */}
       {showNotesModal && selectedResource && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
             <div className="p-6 border-b dark:border-gray-700 border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-white">Notes</h3>
-                  <p className="text-sm text-gray-400 truncate">{selectedResource.title}</p>
+                  <h3 className="text-lg font-bold dark:text-white text-gray-900">Notes</h3>
+                  <p className="text-sm dark:text-gray-400 text-gray-600 truncate">{selectedResource.title}</p>
                 </div>
-                <button onClick={() => { setShowNotesModal(false); setSelectedResource(null); }} className="text-gray-400 hover:text-white">
+                <button onClick={() => { setShowNotesModal(false); setSelectedResource(null); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
                   <X size={20} />
                 </button>
               </div>
@@ -1184,14 +1194,14 @@ const LearningVaultView: React.FC = () => {
                     value={noteTimestamp}
                     onChange={(e) => setNoteTimestamp(e.target.value)}
                     placeholder="0:00 (optional)"
-                    className="w-24 px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
+                    className="w-24 px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
                   />
                   <input
                     type="text"
                     value={noteContent}
                     onChange={(e) => setNoteContent(e.target.value)}
                     placeholder="Add a note..."
-                    className="flex-1 px-3 py-2 bg-midnight border dark:border-gray-700 border-gray-200 rounded-lg text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
+                    className="flex-1 px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
                     onKeyPress={(e) => e.key === 'Enter' && addNote()}
                   />
                   <button
@@ -1207,14 +1217,14 @@ const LearningVaultView: React.FC = () => {
               
               {/* Notes list */}
               {selectedResource.notes.length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
+                <div className="text-center py-8 dark:text-gray-400 text-gray-500">
                   <StickyNote size={32} className="mx-auto mb-2 opacity-50" />
                   <p>No notes yet</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {selectedResource.notes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).map(note => (
-                    <div key={note.id} className="p-3 bg-midnight rounded-lg group">
+                    <div key={note.id} className="p-3 dark:bg-midnight bg-gray-100 rounded-lg group">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           {note.timestamp !== undefined && (
@@ -1222,7 +1232,7 @@ const LearningVaultView: React.FC = () => {
                               {formatDuration(note.timestamp)}
                             </span>
                           )}
-                          <p className="text-sm text-gray-300 mt-1">{note.content}</p>
+                          <p className="text-sm dark:text-gray-300 text-gray-700 mt-1">{note.content}</p>
                           <p className="text-xs text-gray-500 mt-1">{formatDate(note.createdAt)}</p>
                         </div>
                         <button
