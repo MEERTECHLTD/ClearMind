@@ -63,6 +63,140 @@ const detectContentType = (url: string): LearningContentType => {
   return 'video';
 };
 
+// Interface for fetched metadata
+interface FetchedMetadata {
+  title?: string;
+  description?: string;
+  thumbnail?: string;
+  author?: string;
+  duration?: number; // in seconds
+  platform?: LearningSourcePlatform;
+  contentType?: LearningContentType;
+}
+
+// Extract YouTube video ID from various URL formats
+const extractYouTubeVideoId = (url: string): string | null => {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+};
+
+// Extract Vimeo video ID
+const extractVimeoVideoId = (url: string): string | null => {
+  const match = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  return match ? match[1] : null;
+};
+
+// Fetch metadata from URL using multiple strategies
+const fetchMetadataFromUrl = async (url: string): Promise<FetchedMetadata> => {
+  const platform = detectPlatform(url);
+  const contentType = detectContentType(url);
+  const metadata: FetchedMetadata = { platform, contentType };
+
+  try {
+    // Strategy 1: Try noembed.com (supports YouTube, Vimeo, SoundCloud, etc.)
+    const noembedResponse = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
+    if (noembedResponse.ok) {
+      const data = await noembedResponse.json();
+      if (data && !data.error) {
+        metadata.title = data.title;
+        metadata.author = data.author_name;
+        metadata.thumbnail = data.thumbnail_url;
+        
+        // noembed doesn't always return duration, so we'll try other methods
+        if (data.duration) {
+          metadata.duration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration);
+        }
+      }
+    }
+  } catch (e) {
+    console.log('noembed fetch failed, trying alternatives');
+  }
+
+  // Strategy 2: Platform-specific fallbacks for thumbnail and additional data
+  try {
+    if (platform === 'youtube') {
+      const videoId = extractYouTubeVideoId(url);
+      if (videoId) {
+        // Get high quality thumbnail
+        if (!metadata.thumbnail) {
+          metadata.thumbnail = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+        } else {
+          // Upgrade to higher quality thumbnail
+          metadata.thumbnail = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+        }
+        
+        // Try to get duration via youtube-nocookie embed page scraping
+        // Note: This is a best-effort approach
+        try {
+          const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+          const oembedResponse = await fetch(oembedUrl);
+          if (oembedResponse.ok) {
+            const oembedData = await oembedResponse.json();
+            if (oembedData.title && !metadata.title) metadata.title = oembedData.title;
+            if (oembedData.author_name && !metadata.author) metadata.author = oembedData.author_name;
+          }
+        } catch (e) {
+          console.log('YouTube oEmbed fallback failed');
+        }
+      }
+    } else if (platform === 'vimeo') {
+      const videoId = extractVimeoVideoId(url);
+      if (videoId) {
+        try {
+          const vimeoOembed = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}`);
+          if (vimeoOembed.ok) {
+            const vimeoData = await vimeoOembed.json();
+            if (vimeoData.title && !metadata.title) metadata.title = vimeoData.title;
+            if (vimeoData.author_name && !metadata.author) metadata.author = vimeoData.author_name;
+            if (vimeoData.thumbnail_url) metadata.thumbnail = vimeoData.thumbnail_url;
+            if (vimeoData.duration) metadata.duration = vimeoData.duration;
+          }
+        } catch (e) {
+          console.log('Vimeo oEmbed fallback failed');
+        }
+      }
+    } else if (platform === 'ted') {
+      try {
+        const tedOembed = await fetch(`https://www.ted.com/services/v1/oembed.json?url=${encodeURIComponent(url)}`);
+        if (tedOembed.ok) {
+          const tedData = await tedOembed.json();
+          if (tedData.title && !metadata.title) metadata.title = tedData.title;
+          if (tedData.author_name && !metadata.author) metadata.author = tedData.author_name;
+          if (tedData.thumbnail_url) metadata.thumbnail = tedData.thumbnail_url;
+        }
+      } catch (e) {
+        console.log('TED oEmbed fallback failed');
+      }
+    }
+  } catch (e) {
+    console.log('Platform-specific fetch failed:', e);
+  }
+
+  // Strategy 3: If still no thumbnail for YouTube, try fallback thumbnails
+  if (platform === 'youtube' && !metadata.thumbnail) {
+    const videoId = extractYouTubeVideoId(url);
+    if (videoId) {
+      // Try different thumbnail qualities
+      const thumbnailUrls = [
+        `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/sddefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
+      ];
+      metadata.thumbnail = thumbnailUrls[0]; // Use maxres by default
+    }
+  }
+
+  return metadata;
+};
+
 // Platform icon component
 const PlatformIcon: React.FC<{ platform: LearningSourcePlatform; className?: string }> = ({ platform, className = '' }) => {
   const iconClass = `${className}`;
@@ -171,37 +305,58 @@ const LearningVaultView: React.FC = () => {
     setIsPreviewLoading(true);
     
     try {
-      // Auto-detect platform and content type
+      // Fetch real metadata from the URL
+      const metadata = await fetchMetadataFromUrl(formData.url);
+      
+      // Fallback platform names for title generation
+      const platformNames: Record<LearningSourcePlatform, string> = {
+        'youtube': 'YouTube',
+        'vimeo': 'Vimeo',
+        'spotify': 'Spotify',
+        'apple-podcasts': 'Apple Podcasts',
+        'soundcloud': 'SoundCloud',
+        'coursera': 'Coursera',
+        'udemy': 'Udemy',
+        'khan-academy': 'Khan Academy',
+        'mit-ocw': 'MIT OpenCourseWare',
+        'ted': 'TED',
+        'other': 'Other'
+      };
+      
+      // Generate fallback title if metadata didn't return one
+      const platform = metadata.platform || detectPlatform(formData.url);
+      const contentType = metadata.contentType || detectContentType(formData.url);
+      const fallbackTitle = platform !== 'other' 
+        ? `${contentType === 'audio' ? 'Audio' : 'Video'} from ${platformNames[platform]}`
+        : '';
+      
+      // Convert duration from seconds to minutes for the form
+      const durationMinutes = metadata.duration 
+        ? Math.ceil(metadata.duration / 60).toString()
+        : '';
+      
+      setFormData(prev => ({
+        ...prev,
+        sourcePlatform: metadata.platform || prev.sourcePlatform,
+        contentType: metadata.contentType || prev.contentType,
+        title: metadata.title || prev.title || fallbackTitle,
+        description: metadata.description || prev.description,
+        thumbnail: metadata.thumbnail || prev.thumbnail,
+        author: metadata.author || prev.author,
+        duration: durationMinutes || prev.duration,
+      }));
+    } catch (error) {
+      console.error('Failed to fetch metadata:', error);
+      // Fallback to basic detection
       const platform = detectPlatform(formData.url);
       const contentType = detectContentType(formData.url);
-      
-      // Generate a more descriptive default title based on platform
-      let defaultTitle = '';
-      if (platform !== 'other') {
-        const platformNames: Record<LearningSourcePlatform, string> = {
-          'youtube': 'YouTube',
-          'vimeo': 'Vimeo',
-          'spotify': 'Spotify',
-          'apple-podcasts': 'Apple Podcasts',
-          'soundcloud': 'SoundCloud',
-          'coursera': 'Coursera',
-          'udemy': 'Udemy',
-          'khan-academy': 'Khan Academy',
-          'mit-ocw': 'MIT OpenCourseWare',
-          'ted': 'TED',
-          'other': 'Other'
-        };
-        defaultTitle = `${contentType === 'audio' ? 'Audio' : 'Video'} from ${platformNames[platform]}`;
-      }
-      
       setFormData(prev => ({
         ...prev,
         sourcePlatform: platform,
         contentType: contentType,
-        title: prev.title || defaultTitle,
       }));
     } finally {
-      setTimeout(() => setIsPreviewLoading(false), 300);
+      setIsPreviewLoading(false);
     }
   }, [formData.url]);
 
