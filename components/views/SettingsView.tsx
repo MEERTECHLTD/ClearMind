@@ -55,8 +55,10 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
       ];
 
       for (const storeName of stores) {
-        const localItems = await dbService.getAll<{ id: string }>(storeName);
+        // Get all items including deleted ones for proper sync comparison
+        const localItems = await (dbService as any).getAllIncludingDeleted<{ id: string }>(storeName);
         const syncedItems = await firebaseService.fullSync(storeName, localItems);
+        // Only put back non-deleted items (fullSync already filters these)
         for (const item of syncedItems) {
           await dbService.put(storeName, item);
         }

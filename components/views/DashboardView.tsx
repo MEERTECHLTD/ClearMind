@@ -113,7 +113,17 @@ const DashboardView: React.FC<DashboardProps> = ({ user, onNavigate }) => {
     loadData();
     // Refresh data every 30 seconds
     const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
+    
+    // Listen for sync events to reload data immediately
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('clearmind-sync', handleSync as EventListener);
+    };
   }, []);
 
   const handleQuickTaskSubmit = async (e: React.FormEvent) => {

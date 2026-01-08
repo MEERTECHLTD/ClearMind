@@ -77,7 +77,11 @@ class DatabaseService {
           const transaction = db.transaction(storeName, 'readonly');
           const store = transaction.objectStore(storeName);
           const request = store.getAll();
-          request.onsuccess = () => resolve(request.result);
+          request.onsuccess = () => {
+            // Filter out soft-deleted items
+            const items = request.result.filter((item: any) => !item.deleted);
+            resolve(items);
+          };
           request.onerror = () => reject(request.error);
       });
   }
@@ -145,6 +149,49 @@ class DatabaseService {
 
   async delete(storeName: string, id: string): Promise<void> {
       const db = await this.getDB();
+      
+      // Use soft-delete: mark as deleted instead of removing
+      // This prevents sync from restoring deleted items
+      const deletedItem = {
+        id,
+        deleted: true,
+        deletedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(storeName, 'readwrite');
+          const store = transaction.objectStore(storeName);
+          // First get the existing item to preserve some data for sync
+          const getRequest = store.get(id);
+          getRequest.onsuccess = async () => {
+            const existingItem = getRequest.result;
+            const softDeletedItem = existingItem 
+              ? { ...existingItem, ...deletedItem }
+              : deletedItem;
+            
+            const putRequest = store.put(softDeletedItem);
+            putRequest.onsuccess = async () => {
+              // Also sync soft-delete to cloud if Firebase is configured
+              if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
+                try {
+                  const firestoreStore = this.getFirestoreStoreName(storeName);
+                  await firebaseService.pushItemToCloud(firestoreStore, softDeletedItem);
+                } catch (e) {
+                  console.warn('Cloud soft-delete sync failed:', e);
+                }
+              }
+              resolve();
+            };
+            putRequest.onerror = () => reject(putRequest.error);
+          };
+          getRequest.onerror = () => reject(getRequest.error);
+      });
+  }
+
+  // Hard delete - completely removes the item (use for cleanup)
+  async hardDelete(storeName: string, id: string): Promise<void> {
+      const db = await this.getDB();
       return new Promise((resolve, reject) => {
           const transaction = db.transaction(storeName, 'readwrite');
           const store = transaction.objectStore(storeName);
@@ -163,6 +210,34 @@ class DatabaseService {
           };
           request.onerror = () => reject(request.error);
       });
+  }
+
+  // Get all items including soft-deleted ones (for sync purposes)
+  async getAllIncludingDeleted<T>(storeName: string): Promise<T[]> {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(storeName, 'readonly');
+          const store = transaction.objectStore(storeName);
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+      });
+  }
+
+  // Cleanup old soft-deleted items (older than 30 days)
+  async cleanupDeletedItems(storeName: string): Promise<void> {
+      const db = await this.getDB();
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const allItems = await this.getAllIncludingDeleted<any>(storeName);
+      const itemsToRemove = allItems.filter(item => 
+        item.deleted && item.deletedAt && new Date(item.deletedAt) < thirtyDaysAgo
+      );
+      
+      for (const item of itemsToRemove) {
+        await this.hardDelete(storeName, item.id);
+      }
   }
 }
 

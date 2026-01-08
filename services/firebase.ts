@@ -290,11 +290,11 @@ export const firebaseService = {
   },
 
   // Full sync (merge local and cloud)
-  async fullSync<T extends { id: string; updatedAt?: string; lastEdited?: string }>(
+  async fullSync<T extends { id: string; updatedAt?: string; lastEdited?: string; deleted?: boolean }>(
     storeName: string, 
     localItems: T[]
   ): Promise<T[]> {
-    const cloudItems = await this.fetchFromCloud(storeName) as (T & { syncedAt?: string })[];
+    const cloudItems = await this.fetchFromCloud(storeName) as (T & { syncedAt?: string; deleted?: boolean })[];
     
     const merged = new Map<string, T>();
     
@@ -322,11 +322,69 @@ export const firebaseService = {
     // Push merged result back to cloud
     await this.syncToCloud(storeName, finalItems);
     
-    return finalItems;
+    // Return only non-deleted items for the UI
+    return finalItems.filter(item => !(item as any).deleted);
   },
 
   // Subscribe to real-time updates from Firestore
+  // Note: This filters out soft-deleted items (deleted: true) before calling onUpdate
   subscribeToCollection<T>(
+    storeName: string,
+    onUpdate: (items: T[]) => void
+  ): Unsubscribe {
+    if (!auth || !db) {
+      console.warn('Firebase not configured - real-time sync disabled');
+      return () => {};
+    }
+    
+    const user = auth.currentUser;
+    if (!user) {
+      console.warn('Not authenticated - real-time sync disabled');
+      return () => {};
+    }
+
+    const collectionRef = collection(db, `users/${user.uid}/${storeName}`);
+    const q = query(collectionRef);
+    
+    return onSnapshot(q, (snapshot) => {
+      const items: T[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data() as any;
+        // Filter out soft-deleted items
+        if (!data.deleted) {
+          items.push(data as T);
+        }
+      });
+      onUpdate(items);
+    }, (error) => {
+      console.error(`Real-time sync error for ${storeName}:`, error);
+    });
+  },
+
+  // Subscribe to all collections for full real-time sync
+  // Note: This returns ALL items INCLUDING deleted ones for proper sync logic
+  subscribeToAllCollections(
+    storeNames: string[],
+    onUpdate: (storeName: string, items: any[]) => void
+  ): () => void {
+    const unsubscribers: Unsubscribe[] = [];
+    
+    storeNames.forEach((storeName) => {
+      // Use raw subscription that includes deleted items for sync
+      const unsubscribe = this.subscribeToCollectionRaw(storeName, (items) => {
+        onUpdate(storeName, items);
+      });
+      unsubscribers.push(unsubscribe);
+    });
+    
+    // Return cleanup function
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  },
+
+  // Subscribe to real-time updates INCLUDING deleted items (for sync purposes)
+  subscribeToCollectionRaw<T>(
     storeName: string,
     onUpdate: (items: T[]) => void
   ): Unsubscribe {
@@ -353,26 +411,6 @@ export const firebaseService = {
     }, (error) => {
       console.error(`Real-time sync error for ${storeName}:`, error);
     });
-  },
-
-  // Subscribe to all collections for full real-time sync
-  subscribeToAllCollections(
-    storeNames: string[],
-    onUpdate: (storeName: string, items: any[]) => void
-  ): () => void {
-    const unsubscribers: Unsubscribe[] = [];
-    
-    storeNames.forEach((storeName) => {
-      const unsubscribe = this.subscribeToCollection(storeName, (items) => {
-        onUpdate(storeName, items);
-      });
-      unsubscribers.push(unsubscribe);
-    });
-    
-    // Return cleanup function
-    return () => {
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
-    };
   },
 
   // Push a single item to cloud (for instant sync)

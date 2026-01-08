@@ -404,37 +404,47 @@ const App: React.FC = () => {
           // Convert Firestore collection name to IndexedDB store name
           const localStoreName = firestoreToLocalMap[storeName] || storeName;
           
-          // Get local items using the correct IndexedDB store name
-          const localItems = await dbService.getAll(localStoreName as any);
+          // Get all local items INCLUDING deleted ones for proper sync comparison
+          const localItems = await (dbService as any).getAllIncludingDeleted(localStoreName);
           
           // Create a map for quick lookup
           const localMap = new Map(localItems.map((item: any) => [item.id, item]));
           const cloudMap = new Map(cloudItems.map((item: any) => [item.id, item]));
           
-          // Merge: cloud wins for newer items, update local DB
+          // Merge: newest wins based on updatedAt timestamp
           for (const cloudItem of cloudItems) {
             const localItem = localMap.get(cloudItem.id);
             
             if (!localItem) {
-              // New item from cloud - add to local (use localStoreName for IndexedDB)
-              await dbService.put(localStoreName as any, cloudItem);
+              // New item from cloud - add to local only if not deleted
+              if (!cloudItem.deleted) {
+                await dbService.put(localStoreName as any, cloudItem);
+              }
             } else {
-              // Compare timestamps
+              // Compare timestamps - newest wins
               const localTime = localItem.updatedAt || localItem.lastEdited || localItem.syncedAt || '0';
               const cloudTime = cloudItem.updatedAt || cloudItem.lastEdited || cloudItem.syncedAt || '0';
               
               if (new Date(cloudTime) > new Date(localTime)) {
-                // Cloud is newer - update local (use localStoreName for IndexedDB)
+                // Cloud is newer - update local (this respects soft-delete flags)
                 await dbService.put(localStoreName as any, cloudItem);
               }
+              // If local is newer (e.g., local delete is newer than cloud update), local wins - no action needed
             }
           }
           
-          // Check for items deleted in cloud (not in cloud but in local with syncedAt)
+          // Push locally deleted items to cloud if they don't exist in cloud or cloud version is older
           for (const localItem of localItems as any[]) {
-            if (!cloudMap.has(localItem.id) && localItem.syncedAt) {
-              // Item was synced before but now not in cloud - might be deleted
-              // Keep local item for safety (user can delete manually)
+            if (localItem.deleted) {
+              const cloudItem = cloudMap.get(localItem.id);
+              if (!cloudItem || new Date(localItem.updatedAt || '0') > new Date(cloudItem.updatedAt || cloudItem.syncedAt || '0')) {
+                // Local soft-delete is newer - push to cloud
+                try {
+                  await firebaseService.pushItemToCloud(storeName, localItem);
+                } catch (e) {
+                  console.warn('Failed to sync deleted item to cloud:', e);
+                }
+              }
             }
           }
           

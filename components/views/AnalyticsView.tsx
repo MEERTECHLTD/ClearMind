@@ -176,6 +176,16 @@ const AnalyticsView: React.FC = () => {
       });
     };
     processData();
+    
+    // Listen for sync events to reload data immediately
+    const handleSync = () => {
+      processData();
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    
+    return () => {
+      window.removeEventListener('clearmind-sync', handleSync as EventListener);
+    };
   }, []);
 
   return (

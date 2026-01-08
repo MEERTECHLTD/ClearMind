@@ -24,6 +24,7 @@ const MilestonesView: React.FC = () => {
   }, []);
 
   // Handle real-time updates from Firebase
+  // Note: subscribeToCollection already filters out deleted items
   const handleRealtimeUpdate = useCallback((items: Milestone[]) => {
     setMilestones(items);
     setSyncStatus('synced');
