@@ -14,13 +14,16 @@ import {
   XCircle,
   AlertCircle,
   Copy,
-  Calendar
+  Calendar,
+  ArrowRight
 } from 'lucide-react';
 
 const DailyMapperView: React.FC = () => {
   const [entries, setEntries] = useState<DailyMapperEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showModal, setShowModal] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState<string | null>(null);
+  const [moveToDate, setMoveToDate] = useState('');
   const [editingEntry, setEditingEntry] = useState<DailyMapperEntry | null>(null);
   const [formData, setFormData] = useState({
     startTime: '08:00',
@@ -49,8 +52,42 @@ const DailyMapperView: React.FC = () => {
   ];
 
   useEffect(() => {
-    loadEntries();
+    loadEntriesAndAutoMove();
   }, []);
+
+  const loadEntriesAndAutoMove = async () => {
+    const data = await dbService.getAll<DailyMapperEntry>(STORES.DAILY_MAPPER);
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Auto-move incomplete entries from previous days to today
+    const updatedEntries: DailyMapperEntry[] = [];
+    let movedCount = 0;
+    
+    for (const entry of data) {
+      if (entry.date < today && entry.completed !== 'yes') {
+        // Move incomplete entry to today
+        const updated: DailyMapperEntry = {
+          ...entry,
+          date: today,
+          adjustment: entry.adjustment 
+            ? `${entry.adjustment} | Auto-moved from ${entry.date}` 
+            : `Auto-moved from ${entry.date}`
+        };
+        await dbService.put(STORES.DAILY_MAPPER, updated);
+        updatedEntries.push(updated);
+        movedCount++;
+      } else {
+        updatedEntries.push(entry);
+      }
+    }
+    
+    setEntries(updatedEntries);
+    
+    // Show notification if entries were moved
+    if (movedCount > 0) {
+      console.log(`Auto-moved ${movedCount} incomplete entries to today`);
+    }
+  };
 
   const loadEntries = async () => {
     const data = await dbService.getAll<DailyMapperEntry>(STORES.DAILY_MAPPER);
@@ -179,6 +216,27 @@ const DailyMapperView: React.FC = () => {
     alert(`Copied ${todayEntries.length} entries to ${targetDate}`);
   };
 
+  // Move an entry to a different date
+  const handleMoveToDate = async (entryId: string) => {
+    if (!moveToDate) return;
+    
+    const entry = entries.find(e => e.id === entryId);
+    if (!entry) return;
+
+    const updated: DailyMapperEntry = {
+      ...entry,
+      date: moveToDate,
+      adjustment: entry.adjustment 
+        ? `${entry.adjustment} | Moved from ${entry.date}` 
+        : `Moved from ${entry.date}`
+    };
+    
+    await dbService.put(STORES.DAILY_MAPPER, updated);
+    setEntries(entries.map(e => e.id === entryId ? updated : e));
+    setShowMoveModal(null);
+    setMoveToDate('');
+  };
+
   const getCompletionIcon = (status: 'yes' | 'no' | 'partial') => {
     switch (status) {
       case 'yes': return <Check size={16} className="text-green-500" />;
@@ -284,6 +342,16 @@ const DailyMapperView: React.FC = () => {
         </div>
       )}
 
+      {/* Auto-moved entries indicator */}
+      {isToday && todayEntries.some(e => e.adjustment?.includes('Auto-moved')) && (
+        <div className="mb-4 p-3 bg-purple-100 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg flex items-center gap-2">
+          <ArrowRight size={16} className="text-purple-500" />
+          <p className="text-sm text-purple-600 dark:text-purple-400">
+            Some entries were automatically moved from previous days. Look for the "Auto-moved" note.
+          </p>
+        </div>
+      )}
+
       {/* Quick Add Presets */}
       {todayEntries.length === 0 && (
         <div className="mb-6 p-4 bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl">
@@ -365,6 +433,16 @@ const DailyMapperView: React.FC = () => {
                   </button>
 
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => {
+                        setShowMoveModal(entry.id);
+                        setMoveToDate(new Date().toISOString().split('T')[0]);
+                      }}
+                      title="Move to another date"
+                      className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-purple-500 transition-colors"
+                    >
+                      <ArrowRight size={14} />
+                    </button>
                     <button
                       onClick={() => openEditModal(entry)}
                       title="Edit time block"
@@ -520,6 +598,64 @@ const DailyMapperView: React.FC = () => {
               <button
                 onClick={() => setShowModal(false)}
                 className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move to Date Modal */}
+      {showMoveModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold dark:text-white text-gray-900 flex items-center gap-2">
+                <ArrowRight size={20} className="text-purple-500" />
+                Move to Date
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowMoveModal(null);
+                  setMoveToDate('');
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <p className="text-sm text-gray-500 mb-4">
+              Select a new date for this time block. The entry will be moved and marked with an adjustment note.
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-sm text-gray-500 mb-1">New Date</label>
+              <input
+                type="date"
+                value={moveToDate}
+                onChange={(e) => setMoveToDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleMoveToDate(showMoveModal)}
+                disabled={!moveToDate}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <ArrowRight size={16} />
+                Move Entry
+              </button>
+              <button
+                onClick={() => {
+                  setShowMoveModal(null);
+                  setMoveToDate('');
+                }}
+                className="px-4 py-2.5 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
               >
                 Cancel
               </button>
