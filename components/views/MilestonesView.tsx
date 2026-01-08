@@ -96,9 +96,18 @@ const MilestonesView: React.FC = () => {
       }
     }, 30000);
 
+    // Listen for global sync events
+    const handleGlobalSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'milestones') {
+        loadMilestones();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleGlobalSync as EventListener);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('clearmind-sync', handleGlobalSync as EventListener);
       if (unsubscribe) unsubscribe();
       clearInterval(autoSyncInterval);
     };

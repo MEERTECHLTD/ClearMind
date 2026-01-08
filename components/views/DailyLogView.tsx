@@ -14,6 +14,15 @@ const DailyLogView: React.FC = () => {
       setEntries(data.reverse()); // Newest first
     };
     loadLogs();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'logs') {
+        loadLogs();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const saveLog = async () => {

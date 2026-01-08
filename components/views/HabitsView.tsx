@@ -28,6 +28,15 @@ const HabitsView: React.FC = () => {
       setHabits(data);
     };
     loadHabits();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'habits') {
+        loadHabits();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const toggleToday = async (id: string) => {

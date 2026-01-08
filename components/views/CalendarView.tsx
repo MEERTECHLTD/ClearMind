@@ -50,6 +50,15 @@ const CalendarView: React.FC = () => {
       setEvents(data);
     };
     loadEvents();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'events') {
+        loadEvents();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const daysInMonth = useMemo(() => {

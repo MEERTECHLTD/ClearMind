@@ -21,6 +21,15 @@ const GoalsView: React.FC = () => {
       setGoals(data);
     };
     loadGoals();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'goals') {
+        loadGoals();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const handleAddGoal = async () => {

@@ -148,6 +148,26 @@
         transition: background-color 0.3s, color 0.3s;
       }
       
+      /* Mobile Touch Scrolling */
+      html, body {
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-x pan-y;
+        overscroll-behavior: contain;
+      }
+      
+      /* Enable smooth scrolling on all scrollable containers */
+      [class*="overflow-y-auto"],
+      [class*="overflow-auto"],
+      [class*="overflow-x-auto"] {
+        -webkit-overflow-scrolling: touch;
+        scroll-behavior: smooth;
+      }
+      
+      /* Prevent pull-to-refresh on mobile */
+      body {
+        overscroll-behavior-y: contain;
+      }
+      
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
         width: 8px;
@@ -172,7 +192,8 @@
     "recharts": "https://esm.sh/recharts@^3.6.0",
     "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0"
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
+    "xlsx": "https://esm.sh/xlsx@^0.18.5"
   }
 }
 </script>

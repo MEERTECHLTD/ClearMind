@@ -21,6 +21,15 @@ const NotesView: React.FC = () => {
       setNotes(sorted);
     };
     loadNotes();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'notes') {
+        loadNotes();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const handleSave = async () => {

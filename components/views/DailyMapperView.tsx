@@ -53,6 +53,15 @@ const DailyMapperView: React.FC = () => {
 
   useEffect(() => {
     loadEntriesAndAutoMove();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'dailymapper') {
+        loadEntriesAndAutoMove();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const loadEntriesAndAutoMove = async () => {

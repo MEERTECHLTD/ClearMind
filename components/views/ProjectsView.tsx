@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Project, ProjectMilestone, ProjectCategory, TeamCheckIn, ProjectAlignment, PerformanceMetric, ProjectPhase, ProjectRisk, ProjectResource } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Plus, Calendar, Code, ExternalLink, Edit3, Trash2, Check, X, Clock, Users, Flag, ChevronDown, ChevronUp, Zap, DollarSign, Leaf, Heart, Monitor, GraduationCap, Building, Factory, ShoppingBag, Megaphone, FlaskConical, Landmark, HandHeart, Rocket, User, FolderOpen, MessageSquare, UserCheck, AlertCircle, Target, TrendingUp, TrendingDown, Minus, BarChart3, Compass, Layers, FileText, AlertTriangle, Wallet, PlayCircle, PauseCircle, CheckCircle2, XCircle, CircleDot, ChevronRight, Copy } from 'lucide-react';
+import { Plus, Calendar, Code, ExternalLink, Edit3, Trash2, Check, X, Clock, Users, Flag, ChevronDown, ChevronUp, Zap, DollarSign, Leaf, Heart, Monitor, GraduationCap, Building, Factory, ShoppingBag, Megaphone, FlaskConical, Landmark, HandHeart, Rocket, User, FolderOpen, MessageSquare, UserCheck, AlertCircle, Target, TrendingUp, TrendingDown, Minus, BarChart3, Compass, Layers, FileText, AlertTriangle, Wallet, PlayCircle, PauseCircle, CheckCircle2, XCircle, CircleDot, ChevronRight, Copy, Download, Upload } from 'lucide-react';
 import { PROJECT_TEMPLATES, ProjectTemplate, generatePhasesFromTemplate, generateRisksFromTemplate, generateMetricsFromTemplate } from '../../utils/projectTemplates';
+import * as XLSX from 'xlsx';
 
 // Project Categories with icons and colors
 const PROJECT_CATEGORIES: { value: ProjectCategory; label: string; icon: React.ReactNode; color: string }[] = [
@@ -102,6 +103,243 @@ const ProjectsView: React.FC = () => {
     stakeholders: ''
   });
 
+  // Excel import/export state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
+
+  // Download Excel Template
+  const downloadExcelTemplate = () => {
+    // Create template data with headers and example row
+    const templateData = [
+      {
+        'Title*': 'Example Project',
+        'Description': 'Project description here',
+        'Status': 'Planning',
+        'Priority': 'Medium',
+        'Category': 'IT',
+        'Start Date': '2026-01-15',
+        'Deadline': '2026-06-30',
+        'Project Manager': 'John Doe',
+        'Team Members': 'Alice, Bob, Charlie',
+        'Stakeholders': 'CEO, CTO',
+        'Tags': 'web, development, priority',
+        'Notes': 'Additional notes here',
+        'Reporting Structure': 'Reports to: CTO',
+        'Total Budget': '50000',
+        'Health Status': 'On Track'
+      }
+    ];
+
+    // Create instructions sheet
+    const instructions = [
+      { 'Instructions': 'ClearMind Project Import Template' },
+      { 'Instructions': '' },
+      { 'Instructions': 'Required Fields:' },
+      { 'Instructions': '- Title* (required): The name of your project' },
+      { 'Instructions': '' },
+      { 'Instructions': 'Optional Fields:' },
+      { 'Instructions': '- Description: Brief description of the project' },
+      { 'Instructions': '- Status: Not Started, Planning, In Progress, On Hold, Completed, Cancelled' },
+      { 'Instructions': '- Priority: Critical, High, Medium, Low' },
+      { 'Instructions': '- Category: Energy, Green Energy, Finance, Health, IT, Education, Construction, Manufacturing, Retail, Marketing, Research, Government, Non-Profit, Startup, Personal, Other' },
+      { 'Instructions': '- Start Date: Format YYYY-MM-DD' },
+      { 'Instructions': '- Deadline: Format YYYY-MM-DD' },
+      { 'Instructions': '- Project Manager: Name of the project manager' },
+      { 'Instructions': '- Team Members: Comma-separated list of team members' },
+      { 'Instructions': '- Stakeholders: Comma-separated list of stakeholders' },
+      { 'Instructions': '- Tags: Comma-separated tags' },
+      { 'Instructions': '- Notes: Additional notes' },
+      { 'Instructions': '- Reporting Structure: e.g., "Reports to: Manager Name"' },
+      { 'Instructions': '- Total Budget: Numeric value' },
+      { 'Instructions': '- Health Status: On Track, At Risk, Off Track' },
+      { 'Instructions': '' },
+      { 'Instructions': 'Tips:' },
+      { 'Instructions': '- Delete the example row before adding your data' },
+      { 'Instructions': '- You can add multiple projects (one per row)' },
+      { 'Instructions': '- Save the file as .xlsx before uploading' },
+    ];
+
+    // Create workbook with two sheets
+    const wb = XLSX.utils.book_new();
+    
+    // Projects sheet
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 25 }, // Title
+      { wch: 40 }, // Description
+      { wch: 15 }, // Status
+      { wch: 12 }, // Priority
+      { wch: 15 }, // Category
+      { wch: 12 }, // Start Date
+      { wch: 12 }, // Deadline
+      { wch: 20 }, // Project Manager
+      { wch: 30 }, // Team Members
+      { wch: 25 }, // Stakeholders
+      { wch: 25 }, // Tags
+      { wch: 30 }, // Notes
+      { wch: 25 }, // Reporting Structure
+      { wch: 12 }, // Total Budget
+      { wch: 12 }, // Health Status
+    ];
+    
+    XLSX.utils.book_append_sheet(wb, ws, 'Projects');
+    
+    // Instructions sheet
+    const wsInstructions = XLSX.utils.json_to_sheet(instructions);
+    wsInstructions['!cols'] = [{ wch: 80 }];
+    XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
+
+    // Download the file
+    XLSX.writeFile(wb, 'ClearMind_Project_Template.xlsx');
+  };
+
+  // Parse and import Excel file
+  const handleExcelUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportError(null);
+    setImportSuccess(null);
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      
+      // Get the first sheet (Projects)
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Convert to JSON
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[];
+      
+      if (jsonData.length === 0) {
+        setImportError('No data found in the Excel file');
+        setIsImporting(false);
+        return;
+      }
+
+      const validStatuses = ['Not Started', 'Planning', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
+      const validPriorities = ['Critical', 'High', 'Medium', 'Low'];
+      const validCategories = ['Energy', 'Green Energy', 'Finance', 'Health', 'IT', 'Education', 'Construction', 'Manufacturing', 'Retail', 'Marketing', 'Research', 'Government', 'Non-Profit', 'Startup', 'Personal', 'Other'];
+      const validHealthStatuses = ['On Track', 'At Risk', 'Off Track'];
+
+      let importedCount = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        const rowNum = i + 2; // Excel rows start at 1, plus header row
+
+        // Get title (required)
+        const title = row['Title*'] || row['Title'];
+        if (!title || typeof title !== 'string' || !title.trim()) {
+          errors.push(`Row ${rowNum}: Missing required field "Title"`);
+          continue;
+        }
+
+        // Parse status
+        let status: Project['status'] = 'Planning';
+        if (row['Status'] && validStatuses.includes(row['Status'])) {
+          status = row['Status'] as Project['status'];
+        }
+
+        // Parse priority
+        let priority: Project['priority'] = 'Medium';
+        if (row['Priority'] && validPriorities.includes(row['Priority'])) {
+          priority = row['Priority'] as Project['priority'];
+        }
+
+        // Parse category
+        let category: ProjectCategory | undefined = undefined;
+        if (row['Category'] && validCategories.includes(row['Category'])) {
+          category = row['Category'] as ProjectCategory;
+        }
+
+        // Parse health status
+        let healthStatus: Project['healthStatus'] = 'On Track';
+        if (row['Health Status'] && validHealthStatuses.includes(row['Health Status'])) {
+          healthStatus = row['Health Status'] as Project['healthStatus'];
+        }
+
+        // Parse dates
+        const parseDate = (dateValue: any): string | undefined => {
+          if (!dateValue) return undefined;
+          if (typeof dateValue === 'number') {
+            // Excel serial date
+            const date = XLSX.SSF.parse_date_code(dateValue);
+            return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+          }
+          if (typeof dateValue === 'string') {
+            // Try to parse as ISO date
+            const match = dateValue.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (match) return dateValue;
+          }
+          return undefined;
+        };
+
+        // Parse comma-separated values
+        const parseList = (value: any): string[] => {
+          if (!value) return [];
+          return String(value).split(',').map(s => s.trim()).filter(s => s);
+        };
+
+        // Create project
+        const project: Project = {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          title: title.trim(),
+          description: row['Description'] ? String(row['Description']).trim() : '',
+          status,
+          progress: 0,
+          tags: parseList(row['Tags']),
+          deadline: parseDate(row['Deadline']),
+          startDate: parseDate(row['Start Date']),
+          projectManager: row['Project Manager'] ? String(row['Project Manager']).trim() : undefined,
+          team: parseList(row['Team Members']),
+          stakeholders: parseList(row['Stakeholders']),
+          priority,
+          category,
+          notes: row['Notes'] ? String(row['Notes']).trim() : undefined,
+          reportingStructure: row['Reporting Structure'] ? String(row['Reporting Structure']).trim() : undefined,
+          totalBudget: row['Total Budget'] ? Number(row['Total Budget']) : undefined,
+          healthStatus,
+          projectMilestones: [],
+          teamCheckIns: [],
+          createdAt: new Date().toISOString()
+        };
+
+        await dbService.put(STORES.PROJECTS, project);
+        importedCount++;
+      }
+
+      // Reload projects
+      const updatedProjects = await dbService.getAll<Project>(STORES.PROJECTS);
+      setProjects(updatedProjects);
+
+      if (errors.length > 0) {
+        setImportError(`Imported ${importedCount} projects. Errors: ${errors.join('; ')}`);
+      } else {
+        setImportSuccess(`Successfully imported ${importedCount} project${importedCount !== 1 ? 's' : ''}!`);
+      }
+
+      // Clear success message after 5 seconds
+      setTimeout(() => setImportSuccess(null), 5000);
+    } catch (error) {
+      console.error('Excel import error:', error);
+      setImportError('Failed to parse Excel file. Please ensure it matches the template format.');
+    } finally {
+      setIsImporting(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   useEffect(() => {
     const loadProjects = async () => {
       try {
@@ -114,6 +352,15 @@ const ProjectsView: React.FC = () => {
       }
     };
     loadProjects();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'projects') {
+        loadProjects();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const handleAddProject = async () => {
@@ -643,13 +890,45 @@ const ProjectsView: React.FC = () => {
   }
 
   return (
-    <div className="p-8 animate-fade-in">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-8 animate-fade-in overflow-y-auto h-full">
+      {/* Hidden file input for Excel upload */}
+      <input 
+        type="file" 
+        ref={fileInputRef}
+        onChange={handleExcelUpload}
+        accept=".xlsx,.xls"
+        className="hidden"
+      />
+      
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
           <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Projects</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm">Manage your projects with implementation plans, team check-ins, and more.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Excel Template Download */}
+          <button 
+            onClick={downloadExcelTemplate}
+            className="dark:bg-green-900/30 bg-green-100 hover:bg-green-200 dark:hover:bg-green-900/50 dark:text-green-400 text-green-700 px-3 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors border dark:border-green-800 border-green-300"
+            title="Download Excel template to bulk import projects"
+          >
+            <Download size={16} />
+            <span className="hidden sm:inline">Template</span>
+          </button>
+          {/* Excel Upload */}
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="dark:bg-purple-900/30 bg-purple-100 hover:bg-purple-200 dark:hover:bg-purple-900/50 dark:text-purple-400 text-purple-700 px-3 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors border dark:border-purple-800 border-purple-300 disabled:opacity-50"
+            title="Upload Excel file to import projects"
+          >
+            {isImporting ? (
+              <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Upload size={16} />
+            )}
+            <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import'}</span>
+          </button>
           <button 
             onClick={() => setShowTemplateModal(true)}
             className="dark:bg-gray-800 bg-gray-100 hover:bg-gray-200 dark:hover:bg-gray-700 dark:text-white text-gray-900 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
@@ -666,6 +945,26 @@ const ProjectsView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Import Status Messages */}
+      {importError && (
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+          <AlertCircle size={16} />
+          {importError}
+          <button onClick={() => setImportError(null)} className="ml-auto hover:text-red-300">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+      {importSuccess && (
+        <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-2 text-green-400 text-sm">
+          <CheckCircle2 size={16} />
+          {importSuccess}
+          <button onClick={() => setImportSuccess(null)} className="ml-auto hover:text-green-300">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Category Filter */}
       <div className="mb-6 flex flex-wrap gap-2">

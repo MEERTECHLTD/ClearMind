@@ -372,9 +372,27 @@ const App: React.FC = () => {
       syncCleanupRef.current();
     }
 
+    // Map Firestore collection names to IndexedDB store names
+    const firestoreToLocalMap: Record<string, string> = {
+      'tasks': 'tasks',
+      'projects': 'projects',
+      'notes': 'notes',
+      'habits': 'habits',
+      'goals': 'goals',
+      'milestones': 'milestones',
+      'dailyLogs': 'logs',
+      'rants': 'rants',
+      'events': 'events',
+      'timeblocks': 'dailymapper',
+      'mindmaps': 'mindmaps',
+      'applications': 'applications',
+      'iris_conversations': 'iris_conversations'
+    };
+
     const storeNames = [
       'tasks', 'projects', 'notes', 'habits', 'goals', 
-      'milestones', 'dailyLogs', 'rants', 'events', 'timeblocks', 'mindmaps'
+      'milestones', 'dailyLogs', 'rants', 'events', 'timeblocks', 'mindmaps',
+      'applications', 'iris_conversations'
     ];
 
     setSyncStatus('syncing');
@@ -383,8 +401,11 @@ const App: React.FC = () => {
       storeNames,
       async (storeName: string, cloudItems: any[]) => {
         try {
-          // Get local items
-          const localItems = await dbService.getAll(storeName as any);
+          // Convert Firestore collection name to IndexedDB store name
+          const localStoreName = firestoreToLocalMap[storeName] || storeName;
+          
+          // Get local items using the correct IndexedDB store name
+          const localItems = await dbService.getAll(localStoreName as any);
           
           // Create a map for quick lookup
           const localMap = new Map(localItems.map((item: any) => [item.id, item]));
@@ -395,16 +416,16 @@ const App: React.FC = () => {
             const localItem = localMap.get(cloudItem.id);
             
             if (!localItem) {
-              // New item from cloud - add to local
-              await dbService.put(storeName as any, cloudItem);
+              // New item from cloud - add to local (use localStoreName for IndexedDB)
+              await dbService.put(localStoreName as any, cloudItem);
             } else {
               // Compare timestamps
               const localTime = localItem.updatedAt || localItem.lastEdited || localItem.syncedAt || '0';
               const cloudTime = cloudItem.updatedAt || cloudItem.lastEdited || cloudItem.syncedAt || '0';
               
               if (new Date(cloudTime) > new Date(localTime)) {
-                // Cloud is newer - update local
-                await dbService.put(storeName as any, cloudItem);
+                // Cloud is newer - update local (use localStoreName for IndexedDB)
+                await dbService.put(localStoreName as any, cloudItem);
               }
             }
           }
@@ -419,8 +440,8 @@ const App: React.FC = () => {
           
           setSyncStatus('connected');
           
-          // Trigger a re-render by dispatching a custom event
-          window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: storeName } }));
+          // Trigger a re-render by dispatching a custom event (use localStoreName for consistency)
+          window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: localStoreName } }));
         } catch (error) {
           console.error(`Sync error for ${storeName}:`, error);
         }
@@ -556,7 +577,7 @@ const App: React.FC = () => {
           onLogout={handleLogout}
           onNavigate={handleViewChange}
         />
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 relative overflow-auto touch-pan-y">
           <Suspense fallback={<ViewLoader />}>
             {viewContent}
           </Suspense>

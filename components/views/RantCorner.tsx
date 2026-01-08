@@ -33,6 +33,15 @@ const RantCorner: React.FC = () => {
       }
     };
     loadRants();
+
+    // Listen for sync events to reload data
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.store === 'rants') {
+        loadRants();
+      }
+    };
+    window.addEventListener('clearmind-sync', handleSync as EventListener);
+    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
   const handleSaveRant = async () => {
