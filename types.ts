@@ -268,6 +268,66 @@ export interface ApplicationPreferences {
   groupBy: 'none' | 'type' | 'status' | 'priority';
 }
 
+// Learning Vault Types
+export type LearningContentType = 'video' | 'audio';
+export type LearningContentStatus = 'unwatched' | 'in-progress' | 'completed';
+export type LearningSourcePlatform = 
+  | 'youtube' 
+  | 'vimeo' 
+  | 'spotify' 
+  | 'apple-podcasts' 
+  | 'soundcloud' 
+  | 'coursera' 
+  | 'udemy' 
+  | 'khan-academy' 
+  | 'mit-ocw' 
+  | 'ted' 
+  | 'other';
+
+export interface LearningResourceNote {
+  id: string;
+  content: string;
+  timestamp?: number; // Timestamp in seconds for media-linked notes
+  createdAt: string;
+}
+
+export interface LearningResource {
+  id: string;
+  url: string;
+  title: string;
+  description?: string;
+  thumbnail?: string;
+  contentType: LearningContentType;
+  duration?: number; // Duration in seconds
+  sourcePlatform: LearningSourcePlatform;
+  author?: string; // Channel name or author
+  status: LearningContentStatus;
+  progress?: number; // Playback progress in seconds
+  tags: string[];
+  folder?: string; // Optional folder/collection name
+  notes: LearningResourceNote[];
+  isSourceAvailable: boolean; // Track if external link is still available
+  savedAt: string;
+  completedAt?: string;
+  lastAccessedAt?: string;
+  updatedAt?: string;
+}
+
+export interface LearningFolder {
+  id: string;
+  name: string;
+  color?: string;
+  createdAt: string;
+}
+
+export interface LearningVaultStats {
+  totalItems: number;
+  completedItems: number;
+  totalWatchTime: number; // in seconds
+  weeklyWatchTime: number; // in seconds
+  averageSessionLength: number; // in seconds
+}
+
 export interface IrisConversation {
   id: string;
   messages: ChatMessage[];
@@ -332,4 +392,5 @@ export type ViewState =
   | 'calendar'
   | 'dailymapper'
   | 'applications'
+  | 'learningvault'
   | 'settings';

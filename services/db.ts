@@ -1,8 +1,8 @@
-import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, MindMap, CalendarEvent, DailyMapperEntry, Application, IrisConversation } from '../types';
+import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, MindMap, CalendarEvent, DailyMapperEntry, Application, IrisConversation, LearningResource, LearningFolder } from '../types';
 import { firebaseService, isFirebaseConfigured } from './firebase';
 
 const DB_NAME = 'ClearMindDB';
-const DB_VERSION = 7; // Incremented version to add applications and iris_conversations stores
+const DB_VERSION = 8; // Incremented version to add learning vault stores
 
 export const STORES = {
   PROJECTS: 'projects',
@@ -19,6 +19,8 @@ export const STORES = {
   DAILY_MAPPER: 'dailymapper',
   APPLICATIONS: 'applications',
   IRIS_CONVERSATIONS: 'iris_conversations',
+  LEARNING_RESOURCES: 'learningresources',
+  LEARNING_FOLDERS: 'learningfolders',
 };
 
 class DatabaseService {
@@ -58,6 +60,8 @@ class DatabaseService {
               createStore(STORES.DAILY_MAPPER);
               createStore(STORES.APPLICATIONS);
               createStore(STORES.IRIS_CONVERSATIONS);
+              createStore(STORES.LEARNING_RESOURCES);
+              createStore(STORES.LEARNING_FOLDERS);
 
               // No seed data - Clean slate for real users
           };
@@ -112,7 +116,9 @@ class DatabaseService {
       [STORES.DAILY_MAPPER]: 'timeblocks',
       [STORES.MINDMAPS]: 'mindmaps',
       [STORES.APPLICATIONS]: 'applications',
-      [STORES.IRIS_CONVERSATIONS]: 'iris_conversations'
+      [STORES.IRIS_CONVERSATIONS]: 'iris_conversations',
+      [STORES.LEARNING_RESOURCES]: 'learningResources',
+      [STORES.LEARNING_FOLDERS]: 'learningFolders'
     };
     return mapping[storeName] || storeName;
   }

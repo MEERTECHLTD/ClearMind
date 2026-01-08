@@ -24,6 +24,7 @@ const CalendarView = lazy(() => import('./components/views/CalendarView'));
 const DailyMapperView = lazy(() => import('./components/views/DailyMapperView'));
 const AuthView = lazy(() => import('./components/views/AuthView'));
 const ApplicationsView = lazy(() => import('./components/views/ApplicationsView'));
+const LearningVaultView = lazy(() => import('./components/views/LearningVaultView'));
 
 // Loading fallback component
 const ViewLoader = () => (
@@ -41,7 +42,7 @@ const getViewFromHash = (): ViewState => {
   const validViews: ViewState[] = [
     'dashboard', 'projects', 'tasks', 'notes', 'habits', 
     'goals', 'milestones', 'iris', 'rant', 'dailylog', 
-    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications'
+    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'learningvault'
   ];
   return validViews.includes(hash as ViewState) ? (hash as ViewState) : 'dashboard';
 };
@@ -386,13 +387,15 @@ const App: React.FC = () => {
       'timeblocks': 'dailymapper',
       'mindmaps': 'mindmaps',
       'applications': 'applications',
-      'iris_conversations': 'iris_conversations'
+      'iris_conversations': 'iris_conversations',
+      'learningResources': 'learningresources',
+      'learningFolders': 'learningfolders'
     };
 
     const storeNames = [
       'tasks', 'projects', 'notes', 'habits', 'goals', 
       'milestones', 'dailyLogs', 'rants', 'events', 'timeblocks', 'mindmaps',
-      'applications', 'iris_conversations'
+      'applications', 'iris_conversations', 'learningResources', 'learningFolders'
     ];
 
     setSyncStatus('syncing');
@@ -493,6 +496,8 @@ const App: React.FC = () => {
         return <TasksView />;
       case 'applications':
         return <ApplicationsView />;
+      case 'learningvault':
+        return <LearningVaultView />;
       case 'notes':
         return <NotesView />;
       case 'habits':
