@@ -241,7 +241,8 @@ export interface Rant {
   id: string;
   content: string;
   createdAt: string;
-  mood?: 'frustrated' | 'angry' | 'overwhelmed' | 'confused';
+  timestamp?: string; // Alias for createdAt for backwards compatibility
+  mood?: 'frustrated' | 'angry' | 'overwhelmed' | 'confused' | 'venting';
 }
 
 export interface Application {
