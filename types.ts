@@ -219,6 +219,21 @@ export interface DailyMapperEntry {
   comment?: string;
   adjustment?: string;
   color?: string;
+  // For permanent/recurring todos
+  isPermanent?: boolean;
+  permanentType?: 'daily' | 'workday' | 'weekend'; // daily = every day, workday = Mon-Fri, weekend = Sat-Sun
+  templateId?: string; // Links to the permanent template it was created from
+}
+
+// Template for permanent daily mapper entries
+export interface DailyMapperTemplate {
+  id: string;
+  startTime: string;
+  endTime: string;
+  task: string;
+  color?: string;
+  permanentType: 'daily' | 'workday' | 'weekend';
+  createdAt: string;
 }
 
 export interface Goal {

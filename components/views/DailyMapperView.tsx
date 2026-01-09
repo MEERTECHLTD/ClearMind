@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DailyMapperEntry } from '../../types';
+import { DailyMapperEntry, DailyMapperTemplate } from '../../types';
 import { dbService, STORES } from '../../services/db';
 import { 
   Plus, 
@@ -15,14 +15,21 @@ import {
   AlertCircle,
   Copy,
   Calendar,
-  ArrowRight
+  ArrowRight,
+  RefreshCw,
+  Briefcase,
+  Coffee,
+  Star,
+  Settings
 } from 'lucide-react';
 
 const DailyMapperView: React.FC = () => {
   const [entries, setEntries] = useState<DailyMapperEntry[]>([]);
+  const [templates, setTemplates] = useState<DailyMapperTemplate[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showModal, setShowModal] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState<string | null>(null);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [moveToDate, setMoveToDate] = useState('');
   const [editingEntry, setEditingEntry] = useState<DailyMapperEntry | null>(null);
   const [formData, setFormData] = useState({
@@ -32,7 +39,9 @@ const DailyMapperView: React.FC = () => {
     completed: 'no' as 'yes' | 'no' | 'partial',
     comment: '',
     adjustment: '',
-    color: '#3B82F6'
+    color: '#3B82F6',
+    makePermanent: false,
+    permanentType: 'daily' as 'daily' | 'workday' | 'weekend'
   });
 
   const colors = [
@@ -52,11 +61,13 @@ const DailyMapperView: React.FC = () => {
   ];
 
   useEffect(() => {
+    loadTemplates();
     loadEntriesAndAutoMove();
 
     // Listen for sync events to reload data
     const handleSync = (e: CustomEvent) => {
-      if (e.detail?.store === 'dailymapper') {
+      if (e.detail?.store === 'dailymapper' || e.detail?.store === 'dailymappertemplates') {
+        loadTemplates();
         loadEntriesAndAutoMove();
       }
     };
@@ -64,8 +75,31 @@ const DailyMapperView: React.FC = () => {
     return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
+  // Helper to check if a date is a weekend
+  const isWeekend = (dateStr: string): boolean => {
+    const date = new Date(dateStr);
+    const day = date.getDay();
+    return day === 0 || day === 6; // Sunday = 0, Saturday = 6
+  };
+
+  // Helper to check if a date is a workday
+  const isWorkday = (dateStr: string): boolean => {
+    return !isWeekend(dateStr);
+  };
+
+  // Get day type label
+  const getDayTypeLabel = (dateStr: string): string => {
+    return isWeekend(dateStr) ? 'Weekend' : 'Workday';
+  };
+
+  const loadTemplates = async () => {
+    const data = await dbService.getAll<DailyMapperTemplate>(STORES.DAILY_MAPPER_TEMPLATES);
+    setTemplates(data);
+  };
+
   const loadEntriesAndAutoMove = async () => {
     const data = await dbService.getAll<DailyMapperEntry>(STORES.DAILY_MAPPER);
+    const templateData = await dbService.getAll<DailyMapperTemplate>(STORES.DAILY_MAPPER_TEMPLATES);
     const today = new Date().toISOString().split('T')[0];
     
     // Auto-move incomplete entries from previous days to today
@@ -73,7 +107,8 @@ const DailyMapperView: React.FC = () => {
     let movedCount = 0;
     
     for (const entry of data) {
-      if (entry.date < today && entry.completed !== 'yes') {
+      // Don't auto-move permanent template entries - they stay on their date
+      if (entry.date < today && entry.completed !== 'yes' && !entry.templateId) {
         // Move incomplete entry to today
         const updated: DailyMapperEntry = {
           ...entry,
@@ -90,7 +125,41 @@ const DailyMapperView: React.FC = () => {
       }
     }
     
+    // Apply permanent templates for today if not already applied
+    const todayEntries = updatedEntries.filter(e => e.date === today);
+    const appliedTemplateIds = todayEntries.filter(e => e.templateId).map(e => e.templateId);
+    const todayIsWeekend = isWeekend(today);
+    
+    for (const template of templateData) {
+      // Skip if already applied
+      if (appliedTemplateIds.includes(template.id)) continue;
+      
+      // Check if template applies to today
+      const shouldApply = 
+        template.permanentType === 'daily' ||
+        (template.permanentType === 'workday' && !todayIsWeekend) ||
+        (template.permanentType === 'weekend' && todayIsWeekend);
+      
+      if (shouldApply) {
+        const newEntry: DailyMapperEntry = {
+          id: `${Date.now()}-${template.id}`,
+          date: today,
+          startTime: template.startTime,
+          endTime: template.endTime,
+          task: template.task,
+          color: template.color,
+          completed: 'no',
+          templateId: template.id,
+          isPermanent: true,
+          permanentType: template.permanentType
+        };
+        await dbService.put(STORES.DAILY_MAPPER, newEntry);
+        updatedEntries.push(newEntry);
+      }
+    }
+    
     setEntries(updatedEntries);
+    setTemplates(templateData);
     
     // Show notification if entries were moved
     if (movedCount > 0) {
@@ -145,7 +214,9 @@ const DailyMapperView: React.FC = () => {
       completed: 'no',
       comment: '',
       adjustment: '',
-      color: '#3B82F6'
+      color: '#3B82F6',
+      makePermanent: false,
+      permanentType: 'daily'
     });
     setEditingEntry(null);
     setShowModal(true);
@@ -159,7 +230,9 @@ const DailyMapperView: React.FC = () => {
       completed: entry.completed,
       comment: entry.comment || '',
       adjustment: entry.adjustment || '',
-      color: entry.color || '#3B82F6'
+      color: entry.color || '#3B82F6',
+      makePermanent: entry.isPermanent || false,
+      permanentType: entry.permanentType || 'daily'
     });
     setEditingEntry(entry);
     setShowModal(true);
@@ -171,15 +244,73 @@ const DailyMapperView: React.FC = () => {
     if (editingEntry) {
       const updated: DailyMapperEntry = {
         ...editingEntry,
-        ...formData
+        startTime: formData.startTime,
+        endTime: formData.endTime,
+        task: formData.task,
+        completed: formData.completed,
+        comment: formData.comment,
+        adjustment: formData.adjustment,
+        color: formData.color,
+        isPermanent: formData.makePermanent,
+        permanentType: formData.makePermanent ? formData.permanentType : undefined
       };
       await dbService.put(STORES.DAILY_MAPPER, updated);
       setEntries(entries.map(e => e.id === editingEntry.id ? updated : e));
+      
+      // If making permanent and not already a template, create template
+      if (formData.makePermanent && !editingEntry.templateId) {
+        const existingTemplate = templates.find(t => 
+          t.task === formData.task && 
+          t.startTime === formData.startTime && 
+          t.permanentType === formData.permanentType
+        );
+        
+        if (!existingTemplate) {
+          const newTemplate: DailyMapperTemplate = {
+            id: Date.now().toString(),
+            startTime: formData.startTime,
+            endTime: formData.endTime,
+            task: formData.task,
+            color: formData.color,
+            permanentType: formData.permanentType,
+            createdAt: new Date().toISOString()
+          };
+          await dbService.put(STORES.DAILY_MAPPER_TEMPLATES, newTemplate);
+          setTemplates([...templates, newTemplate]);
+        }
+      }
     } else {
+      let templateId: string | undefined;
+      
+      // If making permanent, create template first
+      if (formData.makePermanent) {
+        const newTemplate: DailyMapperTemplate = {
+          id: Date.now().toString(),
+          startTime: formData.startTime,
+          endTime: formData.endTime,
+          task: formData.task,
+          color: formData.color,
+          permanentType: formData.permanentType,
+          createdAt: new Date().toISOString()
+        };
+        await dbService.put(STORES.DAILY_MAPPER_TEMPLATES, newTemplate);
+        setTemplates([...templates, newTemplate]);
+        templateId = newTemplate.id;
+      }
+      
       const newEntry: DailyMapperEntry = {
-        id: Date.now().toString(),
+        id: Date.now().toString() + '-entry',
         date: selectedDate,
-        ...formData
+        startTime: formData.startTime,
+        endTime: formData.endTime,
+        task: formData.task,
+        completed: formData.completed,
+        comment: formData.comment,
+        adjustment: formData.adjustment,
+        color: formData.color,
+        isPermanent: formData.makePermanent,
+        permanentType: formData.makePermanent ? formData.permanentType : undefined,
+        templateId
       };
       await dbService.put(STORES.DAILY_MAPPER, newEntry);
       setEntries([...entries, newEntry]);
@@ -193,6 +324,28 @@ const DailyMapperView: React.FC = () => {
     if (!confirm('Delete this time block?')) return;
     await dbService.delete(STORES.DAILY_MAPPER, id);
     setEntries(entries.filter(e => e.id !== id));
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (!confirm('Delete this permanent template? It will no longer be added to new days.')) return;
+    await dbService.hardDelete(STORES.DAILY_MAPPER_TEMPLATES, templateId);
+    setTemplates(templates.filter(t => t.id !== templateId));
+  };
+
+  const getPermanentTypeIcon = (type: 'daily' | 'workday' | 'weekend') => {
+    switch (type) {
+      case 'daily': return <RefreshCw size={12} className="text-purple-400" />;
+      case 'workday': return <Briefcase size={12} className="text-blue-400" />;
+      case 'weekend': return <Coffee size={12} className="text-green-400" />;
+    }
+  };
+
+  const getPermanentTypeLabel = (type: 'daily' | 'workday' | 'weekend') => {
+    switch (type) {
+      case 'daily': return 'Every Day';
+      case 'workday': return 'Workdays';
+      case 'weekend': return 'Weekends';
+    }
   };
 
   const toggleCompletion = async (entry: DailyMapperEntry) => {
@@ -279,7 +432,15 @@ const DailyMapperView: React.FC = () => {
           <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Daily To-Do Mapper</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm">Plan your day with time blocks, like a personal schedule.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button 
+            onClick={() => setShowTemplatesModal(true)}
+            title="Manage permanent todos"
+            className="px-3 py-2 border dark:border-gray-700 border-gray-300 rounded-lg flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <Star size={16} className="text-yellow-500" />
+            Permanents ({templates.length})
+          </button>
           <button 
             onClick={copyTodayToDate}
             disabled={todayEntries.length === 0}
@@ -300,7 +461,7 @@ const DailyMapperView: React.FC = () => {
       </div>
 
       {/* Date Navigation */}
-      <div className="flex items-center justify-between mb-6 bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-6 dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-4">
         <button 
           onClick={() => navigateDay(-1)}
           title="Previous day"
@@ -312,7 +473,13 @@ const DailyMapperView: React.FC = () => {
         <div className="flex items-center gap-4">
           <div className="text-center">
             <h3 className="text-lg font-bold dark:text-white text-gray-900">{formatDate(selectedDate)}</h3>
-            {isToday && <span className="text-xs text-blue-500 font-medium">Today</span>}
+            <div className="flex items-center justify-center gap-2">
+              {isToday && <span className="text-xs text-blue-500 font-medium">Today</span>}
+              <span className={`text-xs font-medium flex items-center gap-1 ${isWeekend(selectedDate) ? 'text-green-500' : 'text-purple-500'}`}>
+                {isWeekend(selectedDate) ? <Coffee size={12} /> : <Briefcase size={12} />}
+                {getDayTypeLabel(selectedDate)}
+              </span>
+            </div>
           </div>
           {!isToday && (
             <button
@@ -363,7 +530,7 @@ const DailyMapperView: React.FC = () => {
 
       {/* Quick Add Presets */}
       {todayEntries.length === 0 && (
-        <div className="mb-6 p-4 bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl">
+        <div className="mb-6 p-4 dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl">
           <p className="text-sm text-gray-500 mb-3">Quick start with preset time slots:</p>
           <div className="flex flex-wrap gap-2">
             {presetTimeSlots.map((slot, idx) => (
@@ -391,7 +558,7 @@ const DailyMapperView: React.FC = () => {
           todayEntries.map((entry) => (
             <div 
               key={entry.id} 
-              className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-4 hover:border-gray-400 dark:hover:border-gray-600 transition-colors group"
+              className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-4 hover:border-gray-400 dark:hover:border-gray-600 transition-colors group"
             >
               <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
                 {/* Time Column - horizontal on mobile, vertical on desktop */}
@@ -418,7 +585,15 @@ const DailyMapperView: React.FC = () => {
 
                 {/* Task Content */}
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-medium dark:text-white text-gray-900 mb-1">{entry.task}</h4>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className="font-medium dark:text-white text-gray-900">{entry.task}</h4>
+                    {entry.isPermanent && entry.permanentType && (
+                      <span className="flex items-center gap-1 text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 rounded-full">
+                        {getPermanentTypeIcon(entry.permanentType)}
+                        {getPermanentTypeLabel(entry.permanentType)}
+                      </span>
+                    )}
+                  </div>
                   {entry.comment && (
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
                       💬 {entry.comment}
@@ -600,6 +775,55 @@ const DailyMapperView: React.FC = () => {
                   ))}
                 </div>
               </div>
+
+              {/* Make Permanent */}
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="makePermanent"
+                    checked={formData.makePermanent}
+                    onChange={(e) => setFormData({ ...formData, makePermanent: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-300 text-yellow-500 focus:ring-yellow-500"
+                  />
+                  <label htmlFor="makePermanent" className="text-sm font-medium dark:text-white text-gray-900 flex items-center gap-2">
+                    <Star size={16} className="text-yellow-500" />
+                    Make this a permanent todo
+                  </label>
+                </div>
+                
+                {formData.makePermanent && (
+                  <div className="ml-7 space-y-2">
+                    <p className="text-xs text-gray-500 mb-2">This task will automatically appear on:</p>
+                    <div className="flex gap-2">
+                      {(['daily', 'workday', 'weekend'] as const).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, permanentType: type })}
+                          className={`flex-1 py-2 px-3 rounded-lg border text-xs font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                            formData.permanentType === type
+                              ? type === 'daily'
+                                ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-600 dark:text-purple-400'
+                                : type === 'workday'
+                                ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-600 dark:text-blue-400'
+                                : 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-600 dark:text-green-400'
+                              : 'dark:border-gray-700 border-gray-300 dark:text-gray-400 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
+                          }`}
+                        >
+                          {type === 'daily' ? <RefreshCw size={14} /> : type === 'workday' ? <Briefcase size={14} /> : <Coffee size={14} />}
+                          {type === 'daily' ? 'Every Day' : type === 'workday' ? 'Workdays' : 'Weekends'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      {formData.permanentType === 'daily' && 'This task will appear every day (Mon-Sun)'}
+                      {formData.permanentType === 'workday' && 'This task will appear on workdays only (Mon-Fri)'}
+                      {formData.permanentType === 'weekend' && 'This task will appear on weekends only (Sat-Sun)'}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -674,6 +898,94 @@ const DailyMapperView: React.FC = () => {
                 className="px-4 py-2.5 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Permanent Templates Modal */}
+      {showTemplatesModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold dark:text-white text-gray-900 flex items-center gap-2">
+                <Star size={20} className="text-yellow-500" />
+                Permanent Todos
+              </h3>
+              <button 
+                onClick={() => setShowTemplatesModal(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <p className="text-sm text-gray-500 mb-4">
+              These tasks are automatically added to your daily schedule based on their type.
+            </p>
+
+            <div className="flex-1 overflow-y-auto">
+              {templates.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Star size={32} className="mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No permanent todos yet</p>
+                  <p className="text-xs mt-1">Create one by checking "Make permanent" when adding a time block</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Group by type */}
+                  {(['daily', 'workday', 'weekend'] as const).map((type) => {
+                    const typeTemplates = templates.filter(t => t.permanentType === type);
+                    if (typeTemplates.length === 0) return null;
+                    
+                    return (
+                      <div key={type} className="mb-4">
+                        <h4 className={`text-xs font-medium uppercase tracking-wider mb-2 flex items-center gap-2 ${
+                          type === 'daily' ? 'text-purple-500' : type === 'workday' ? 'text-blue-500' : 'text-green-500'
+                        }`}>
+                          {type === 'daily' ? <RefreshCw size={12} /> : type === 'workday' ? <Briefcase size={12} /> : <Coffee size={12} />}
+                          {type === 'daily' ? 'Every Day' : type === 'workday' ? 'Workdays (Mon-Fri)' : 'Weekends (Sat-Sun)'}
+                        </h4>
+                        <div className="space-y-2">
+                          {typeTemplates.map((template) => (
+                            <div 
+                              key={template.id}
+                              className="flex items-center gap-3 p-3 dark:bg-gray-800/50 bg-gray-50 rounded-lg group"
+                            >
+                              <div 
+                                className="w-1 h-10 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: template.color || '#3B82F6' }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium dark:text-white text-gray-900 text-sm truncate">{template.task}</p>
+                                <p className="text-xs text-gray-500">
+                                  {formatTime(template.startTime)} - {formatTime(template.endTime)}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteTemplate(template.id)}
+                                title="Remove permanent todo"
+                                className="p-1.5 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t dark:border-gray-700 border-gray-200">
+              <button
+                onClick={() => setShowTemplatesModal(false)}
+                className="w-full py-2.5 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors font-medium"
+              >
+                Close
               </button>
             </div>
           </div>

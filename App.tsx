@@ -1,9 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
-import { ViewState, UserProfile, Task, CalendarEvent } from './types';
+import { ViewState, UserProfile, Task, CalendarEvent, Application } from './types';
 import { dbService, STORES } from './services/db';
 import { firebaseService, isFirebaseConfigured, FirebaseUser } from './services/firebase';
+import { 
+  initializeNotifications, 
+  startNotificationScheduler, 
+  stopNotificationScheduler,
+  isNotificationSupported,
+  isNotificationPermitted,
+  showNotification
+} from './services/notificationService';
 
 // Lazy load all view components for code splitting
 const ProjectsView = lazy(() => import('./components/views/ProjectsView'));
@@ -207,12 +215,13 @@ const App: React.FC = () => {
     };
     mediaQuery.addEventListener('change', handleDisplayModeChange);
 
-    // Notification Logic Loop
+    // Notification Logic Loop - Enhanced with service worker support
     const checkNotifications = async () => {
-      if (Notification.permission !== 'granted') return;
+      if (!isNotificationSupported() || !isNotificationPermitted()) return;
 
       const tasks = await dbService.getAll<Task>(STORES.TASKS);
       const events = await dbService.getAll<CalendarEvent>(STORES.EVENTS);
+      const applications = await dbService.getAll<Application>(STORES.APPLICATIONS);
       const today = new Date().toISOString().split('T')[0];
       const now = new Date();
       const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -229,23 +238,25 @@ const App: React.FC = () => {
             
             // Notify 5 minutes before or at the time
             if (taskMinutes - nowMinutes <= 5 && taskMinutes - nowMinutes >= 0) {
-              new Notification('ClearMind Task Reminder', {
+              await showNotification('⏰ Task Reminder', {
                 body: `Coming up: ${task.title} at ${task.dueTime}`,
-                icon: '/clearmindlogo.png',
-                tag: `task-${task.id}`
+                tag: `task-${task.id}`,
+                data: { type: 'task', id: task.id }
               });
               const updatedTask = { ...task, notified: true };
               await dbService.put(STORES.TASKS, updatedTask);
             }
           } else {
-            // No specific time, notify once for today
-            new Notification('ClearMind Task Reminder', {
-              body: `Today: ${task.title}`,
-              icon: '/clearmindlogo.png',
-              tag: `task-${task.id}`
-            });
-            const updatedTask = { ...task, notified: true };
-            await dbService.put(STORES.TASKS, updatedTask);
+            // No specific time, notify once for today (between 8-9 AM)
+            if (now.getHours() >= 8 && now.getHours() < 9) {
+              await showNotification('📋 Task Due Today', {
+                body: task.title,
+                tag: `task-${task.id}`,
+                data: { type: 'task', id: task.id }
+              });
+              const updatedTask = { ...task, notified: true };
+              await dbService.put(STORES.TASKS, updatedTask);
+            }
           }
         }
       }
@@ -261,10 +272,10 @@ const App: React.FC = () => {
             
             // Notify 15 minutes before
             if (eventMinutes - nowMinutes <= 15 && eventMinutes - nowMinutes >= 0) {
-              new Notification('ClearMind Event Reminder', {
+              await showNotification('📅 Event Starting Soon', {
                 body: `${event.title} starts at ${event.startTime}${event.location ? ` - ${event.location}` : ''}`,
-                icon: '/clearmindlogo.png',
-                tag: `event-${event.id}`
+                tag: `event-${event.id}`,
+                data: { type: 'event', id: event.id }
               });
               const updatedEvent = { ...event, notified: true };
               await dbService.put(STORES.EVENTS, updatedEvent);
@@ -272,10 +283,10 @@ const App: React.FC = () => {
           } else {
             // All-day event, notify in the morning
             if (now.getHours() >= 8 && now.getHours() < 9) {
-              new Notification('ClearMind Event Today', {
+              await showNotification('📅 Event Today', {
                 body: `${event.title}${event.location ? ` - ${event.location}` : ''}`,
-                icon: '/clearmindlogo.png',
-                tag: `event-${event.id}`
+                tag: `event-${event.id}`,
+                data: { type: 'event', id: event.id }
               });
               const updatedEvent = { ...event, notified: true };
               await dbService.put(STORES.EVENTS, updatedEvent);
@@ -283,7 +294,56 @@ const App: React.FC = () => {
           }
         }
       }
+
+      // Check application deadlines
+      for (const app of applications) {
+        // Skip closed/submitted/accepted/rejected
+        if (['closed', 'submitted', 'accepted', 'rejected'].includes(app.status)) continue;
+        
+        const deadline = app.submissionDeadline || app.closingDate;
+        if (!deadline) continue;
+
+        const deadlineDate = new Date(deadline);
+        const daysUntilDeadline = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const notifiedKey = `app-deadline-${app.id}-${daysUntilDeadline}`;
+        const alreadyNotified = localStorage.getItem(notifiedKey);
+
+        // Notify at 1 day, 3 days, and 7 days before deadline
+        if (!alreadyNotified && (daysUntilDeadline === 1 || daysUntilDeadline === 3 || daysUntilDeadline === 7)) {
+          const typeLabel = app.type.charAt(0).toUpperCase() + app.type.slice(1);
+          const urgency = daysUntilDeadline === 1 ? '🚨' : daysUntilDeadline === 3 ? '⚠️' : '📋';
+          
+          await showNotification(`${urgency} ${typeLabel} Deadline`, {
+            body: `${app.name}: ${daysUntilDeadline} day${daysUntilDeadline > 1 ? 's' : ''} left to apply!`,
+            tag: `app-${app.id}-${daysUntilDeadline}`,
+            data: { type: 'application', id: app.id }
+          });
+          
+          localStorage.setItem(notifiedKey, 'true');
+        }
+
+        // Notify on the deadline day
+        if (deadline === today && now.getHours() >= 8 && now.getHours() < 9) {
+          const dayNotifiedKey = `app-deadline-today-${app.id}`;
+          if (!localStorage.getItem(dayNotifiedKey)) {
+            const typeLabel = app.type.charAt(0).toUpperCase() + app.type.slice(1);
+            await showNotification(`🚨 ${typeLabel} Deadline TODAY`, {
+              body: `${app.name} - Submit before end of day!`,
+              tag: `app-today-${app.id}`,
+              data: { type: 'application', id: app.id }
+            });
+            localStorage.setItem(dayNotifiedKey, 'true');
+          }
+        }
+      }
     };
+
+    // Initialize notification service
+    initializeNotifications().then((initialized) => {
+      if (initialized) {
+        console.log('Notifications initialized successfully');
+      }
+    });
 
     // Check every minute
     const notificationInterval = setInterval(checkNotifications, 60000);
@@ -294,6 +354,7 @@ const App: React.FC = () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
       clearInterval(notificationInterval);
+      stopNotificationScheduler();
     };
   }, []);
 

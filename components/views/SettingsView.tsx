@@ -1,8 +1,17 @@
-import React, { useState } from 'react';
-import { Bell, Cloud, LogOut, Moon, Save, Info, RefreshCw, Check, AlertCircle, Loader2, Link } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, Cloud, LogOut, Moon, Save, Info, RefreshCw, Check, AlertCircle, Loader2, Link, BellRing, BellOff, Smartphone } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
 import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
+import { 
+  isNotificationSupported, 
+  isNotificationPermitted, 
+  requestNotificationPermission,
+  getNotificationPrefs,
+  saveNotificationPrefs,
+  NotificationPreferences,
+  startNotificationScheduler
+} from '../../services/notificationService';
 
 interface SettingsProps {
   user: UserProfile | null;
@@ -16,8 +25,44 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
+  // Notification state
+  const [notificationSupported] = useState(isNotificationSupported());
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    notificationSupported ? Notification.permission : 'denied'
+  );
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>(getNotificationPrefs());
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  
   const isCloudUser = user?.provider && user.provider !== 'local';
   const firebaseReady = isFirebaseConfigured();
+
+  // Update permission state when it changes
+  useEffect(() => {
+    if (notificationSupported) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, [notificationSupported]);
+
+  const handleRequestNotificationPermission = async () => {
+    setIsRequestingPermission(true);
+    try {
+      const granted = await requestNotificationPermission();
+      setNotificationPermission(granted ? 'granted' : 'denied');
+      if (granted) {
+        startNotificationScheduler();
+      }
+    } catch (error) {
+      console.error('Failed to request permission:', error);
+    } finally {
+      setIsRequestingPermission(false);
+    }
+  };
+
+  const updateNotificationPref = (key: keyof NotificationPreferences, value: boolean) => {
+    const updated = { ...notificationPrefs, [key]: value };
+    setNotificationPrefs(updated);
+    saveNotificationPrefs(updated);
+  };
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -50,8 +95,12 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
         STORES.LOGS,
         STORES.EVENTS,
         STORES.DAILY_MAPPER,
+        STORES.DAILY_MAPPER_TEMPLATES,
         STORES.RANTS,
         STORES.MINDMAPS,
+        STORES.APPLICATIONS,
+        STORES.LEARNING_RESOURCES,
+        STORES.LEARNING_FOLDERS,
       ];
 
       for (const storeName of stores) {
@@ -84,7 +133,7 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
 
       <div className="space-y-6">
         {/* Profile Section */}
-        <section className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
+        <section className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
           <div className="flex items-start gap-6">
             {user?.photoURL ? (
               <img 
@@ -163,7 +212,7 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
 
         {/* Cloud Sync Section */}
         {firebaseReady && (
-          <section className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
+          <section className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
             <div className="flex items-center gap-3 mb-4">
               <Cloud size={24} className="text-blue-500" />
               <h3 className="text-lg font-bold dark:text-white text-gray-900">Cloud Sync</h3>
@@ -236,18 +285,114 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
         )}
 
         {/* Preferences */}
-        <section className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl overflow-hidden shadow-sm dark:shadow-none transition-colors">
-          <div className="p-4 border-b dark:border-gray-800 border-gray-200 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800/30 cursor-pointer">
-            <div className="flex items-center gap-3">
-              <Bell className="text-gray-400" size={20} />
+        <section className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl overflow-hidden shadow-sm dark:shadow-none transition-colors">
+          {/* Notifications Section */}
+          <div className="p-4 border-b dark:border-gray-800 border-gray-200">
+            <div className="flex items-center gap-3 mb-4">
+              <Bell className="text-blue-500" size={20} />
               <div>
                 <p className="dark:text-white text-gray-900 font-medium">Notifications</p>
-                <p className="text-xs text-gray-500">Manage daily reminders and alerts</p>
+                <p className="text-xs text-gray-500">Get alerts for tasks, deadlines, and events</p>
               </div>
             </div>
-            <div className="w-10 h-5 bg-blue-600 rounded-full relative">
-                <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div>
-            </div>
+            
+            {!notificationSupported ? (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                <p className="text-sm text-yellow-500">
+                  Notifications are not supported in this browser. Try using Chrome or Firefox for the best experience.
+                </p>
+              </div>
+            ) : notificationPermission === 'denied' ? (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <p className="text-sm text-red-400 mb-2">
+                  Notifications are blocked. Please enable them in your browser settings.
+                </p>
+                <p className="text-xs text-red-400/70">
+                  On mobile: Go to Settings → Site Settings → Notifications
+                </p>
+              </div>
+            ) : notificationPermission === 'default' ? (
+              <div className="space-y-3">
+                <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                  <p className="text-sm text-blue-400 mb-3">
+                    Enable notifications to get alerts for:
+                  </p>
+                  <ul className="text-xs text-blue-300/80 space-y-1 mb-3">
+                    <li>• Task deadlines (5 mins before)</li>
+                    <li>• Application deadlines (1, 3, 7 days before)</li>
+                    <li>• Calendar events (15 mins before)</li>
+                  </ul>
+                  <button
+                    onClick={handleRequestNotificationPermission}
+                    disabled={isRequestingPermission}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isRequestingPermission ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <BellRing size={16} />
+                    )}
+                    Enable Notifications
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <Smartphone size={14} />
+                  <span>Works best on mobile when installed as an app</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Check size={16} className="text-green-500" />
+                    <span className="text-sm text-green-400">Notifications enabled</span>
+                  </div>
+                  <BellRing size={16} className="text-green-500" />
+                </div>
+                
+                {/* Notification toggles */}
+                <div className="space-y-2">
+                  <div 
+                    onClick={() => updateNotificationPref('taskReminders', !notificationPrefs.taskReminders)}
+                    className="flex items-center justify-between p-3 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-sm dark:text-white text-gray-900">Task Reminders</p>
+                      <p className="text-xs text-gray-500">Get notified before task deadlines</p>
+                    </div>
+                    <div className={`w-10 h-5 rounded-full relative transition-colors ${notificationPrefs.taskReminders ? 'bg-blue-600' : 'bg-gray-600'}`}>
+                      <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${notificationPrefs.taskReminders ? 'right-1' : 'left-1'}`}></div>
+                    </div>
+                  </div>
+                  
+                  <div 
+                    onClick={() => updateNotificationPref('applicationDeadlines', !notificationPrefs.applicationDeadlines)}
+                    className="flex items-center justify-between p-3 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-sm dark:text-white text-gray-900">Application Deadlines</p>
+                      <p className="text-xs text-gray-500">Alerts 1, 3, and 7 days before deadline</p>
+                    </div>
+                    <div className={`w-10 h-5 rounded-full relative transition-colors ${notificationPrefs.applicationDeadlines ? 'bg-blue-600' : 'bg-gray-600'}`}>
+                      <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${notificationPrefs.applicationDeadlines ? 'right-1' : 'left-1'}`}></div>
+                    </div>
+                  </div>
+                  
+                  <div 
+                    onClick={() => updateNotificationPref('calendarReminders', !notificationPrefs.calendarReminders)}
+                    className="flex items-center justify-between p-3 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-sm dark:text-white text-gray-900">Calendar Events</p>
+                      <p className="text-xs text-gray-500">Reminders 15 minutes before events</p>
+                    </div>
+                    <div className={`w-10 h-5 rounded-full relative transition-colors ${notificationPrefs.calendarReminders ? 'bg-blue-600' : 'bg-gray-600'}`}>
+                      <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${notificationPrefs.calendarReminders ? 'right-1' : 'left-1'}`}></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-4 border-b dark:border-gray-800 border-gray-200 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800/30 cursor-pointer">
@@ -273,7 +418,7 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
         </section>
 
         {/* About Section */}
-        <section className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
+        <section className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
           <div className="flex items-center gap-3 mb-4">
             <Info size={24} className="text-blue-500" />
             <h3 className="text-lg font-bold dark:text-white text-gray-900">About ClearMind</h3>

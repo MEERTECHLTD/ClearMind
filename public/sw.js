@@ -1,4 +1,4 @@
-const CACHE_NAME = 'clearmind-v5';
+const CACHE_NAME = 'clearmind-v6';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -8,6 +8,7 @@ const urlsToCache = [
   '/icon-512.png',
   '/icon-maskable-192.png',
   '/icon-maskable-512.png',
+  '/clearmindlogo.png',
   '/widgets/tasks-widget.json',
   '/widgets/habits-widget.json',
   '/widgets/quick-note-widget.json',
@@ -22,6 +23,75 @@ self.addEventListener('install', (event) => {
   );
   // Force the waiting service worker to become the active service worker
   self.skipWaiting();
+});
+
+// Handle notification clicks
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const data = event.notification.data;
+  let urlToOpen = '/';
+
+  // Route to appropriate page based on notification type
+  if (data) {
+    switch (data.type) {
+      case 'task':
+        urlToOpen = '/?view=tasks';
+        break;
+      case 'application':
+        urlToOpen = '/?view=applications';
+        break;
+      case 'event':
+        urlToOpen = '/?view=calendar';
+        break;
+      default:
+        urlToOpen = '/';
+    }
+  }
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Try to focus an existing window
+      for (const client of clientList) {
+        if (client.url.includes(self.registration.scope) && 'focus' in client) {
+          client.focus();
+          client.navigate(urlToOpen);
+          return;
+        }
+      }
+      // Open a new window if no existing one
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
+    })
+  );
+});
+
+// Handle push events (for future server-side push)
+self.addEventListener('push', (event) => {
+  let data = { title: 'ClearMind', body: 'You have a new notification' };
+  
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: '/clearmindlogo.png',
+    badge: '/clearmindlogo.png',
+    vibrate: [200, 100, 200],
+    data: data.data || {},
+    requireInteraction: true,
+    actions: data.actions || []
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
 });
 
 self.addEventListener('fetch', (event) => {

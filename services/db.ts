@@ -1,8 +1,8 @@
-import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, MindMap, CalendarEvent, DailyMapperEntry, Application, IrisConversation, LearningResource, LearningFolder } from '../types';
+import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, MindMap, CalendarEvent, DailyMapperEntry, DailyMapperTemplate, Application, IrisConversation, LearningResource, LearningFolder } from '../types';
 import { firebaseService, isFirebaseConfigured } from './firebase';
 
 const DB_NAME = 'ClearMindDB';
-const DB_VERSION = 8; // Incremented version to add learning vault stores
+const DB_VERSION = 9; // Incremented version to add daily mapper templates store
 
 export const STORES = {
   PROJECTS: 'projects',
@@ -17,6 +17,7 @@ export const STORES = {
   MINDMAPS: 'mindmaps',
   EVENTS: 'events',
   DAILY_MAPPER: 'dailymapper',
+  DAILY_MAPPER_TEMPLATES: 'dailymappertemplates',
   APPLICATIONS: 'applications',
   IRIS_CONVERSATIONS: 'iris_conversations',
   LEARNING_RESOURCES: 'learningresources',
@@ -58,6 +59,7 @@ class DatabaseService {
               createStore(STORES.MINDMAPS);
               createStore(STORES.EVENTS);
               createStore(STORES.DAILY_MAPPER);
+              createStore(STORES.DAILY_MAPPER_TEMPLATES);
               createStore(STORES.APPLICATIONS);
               createStore(STORES.IRIS_CONVERSATIONS);
               createStore(STORES.LEARNING_RESOURCES);
@@ -114,6 +116,7 @@ class DatabaseService {
       [STORES.RANTS]: 'rants',
       [STORES.EVENTS]: 'events',
       [STORES.DAILY_MAPPER]: 'timeblocks',
+      [STORES.DAILY_MAPPER_TEMPLATES]: 'timeblocktemplates',
       [STORES.MINDMAPS]: 'mindmaps',
       [STORES.APPLICATIONS]: 'applications',
       [STORES.IRIS_CONVERSATIONS]: 'iris_conversations',
