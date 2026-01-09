@@ -29,6 +29,14 @@ const formatDate = (dateStr: string): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+// Helper to format date and time
+const formatDateTime = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  const dateFormatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const timeFormatted = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${dateFormatted} at ${timeFormatted}`;
+};
+
 // Helper to extract domain from URL
 const extractDomain = (url: string): string => {
   try {
@@ -466,14 +474,15 @@ const LearningVaultView: React.FC = () => {
   };
 
   const handleDeleteResource = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this learning resource?')) return;
-    await dbService.delete(STORES.LEARNING_RESOURCES, id);
+    if (!confirm('Are you sure you want to permanently delete this learning resource? This action cannot be undone.')) return;
+    // Use hardDelete for permanent deletion from local and cloud
+    await dbService.hardDelete(STORES.LEARNING_RESOURCES, id);
     setResources(resources.filter(r => r.id !== id));
     if (selectedResource?.id === id) setSelectedResource(null);
   };
 
   const handleDeleteFolder = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this folder? Resources in this folder will be unassigned.')) return;
+    if (!confirm('Are you sure you want to permanently delete this folder? Resources in this folder will be unassigned. This action cannot be undone.')) return;
     
     // Unassign resources from this folder
     const folderName = folders.find(f => f.id === id)?.name;
@@ -490,7 +499,8 @@ const LearningVaultView: React.FC = () => {
       }
     }
     
-    await dbService.delete(STORES.LEARNING_FOLDERS, id);
+    // Use hardDelete for permanent deletion from local and cloud
+    await dbService.hardDelete(STORES.LEARNING_FOLDERS, id);
     setFolders(folders.filter(f => f.id !== id));
   };
 
@@ -885,11 +895,11 @@ const LearningVaultView: React.FC = () => {
             {filteredResources.map(resource => (
               <div
                 key={resource.id}
-                className="group bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-xl overflow-hidden hover:border-blue-500/50 transition-all duration-200"
+                className="group dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl overflow-hidden hover:border-blue-500/50 transition-all duration-200 shadow-sm"
               >
                 {/* Thumbnail */}
                 <div 
-                  className="relative h-36 bg-gray-800 cursor-pointer"
+                  className="relative h-36 dark:bg-gray-800 bg-gray-100 cursor-pointer"
                   onClick={() => openResource(resource)}
                 >
                   {resource.thumbnail ? (
@@ -953,7 +963,7 @@ const LearningVaultView: React.FC = () => {
                 {/* Content */}
                 <div className="p-4">
                   <h3 
-                    className="font-medium text-white truncate mb-1 cursor-pointer hover:text-blue-400 transition-colors"
+                    className="font-medium dark:text-white text-gray-900 truncate mb-1 cursor-pointer hover:text-blue-500 transition-colors"
                     onClick={() => openResource(resource)}
                     title={resource.title}
                   >
@@ -970,7 +980,9 @@ const LearningVaultView: React.FC = () => {
                       {getStatusLabel(resource.status, resource.contentType)}
                     </span>
                     <span>•</span>
-                    <span>{formatDate(resource.savedAt)}</span>
+                    <span title={formatDateTime(resource.savedAt)}>
+                      Added {formatDate(resource.savedAt)}
+                    </span>
                   </div>
                   
                   {/* Tags */}
@@ -979,7 +991,7 @@ const LearningVaultView: React.FC = () => {
                       {resource.tags.slice(0, 3).map(tag => (
                         <span 
                           key={tag}
-                          className="text-[10px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded"
+                          className="text-[10px] dark:bg-gray-800 bg-gray-100 dark:text-gray-400 text-gray-600 px-2 py-0.5 rounded"
                         >
                           #{tag}
                         </span>
@@ -1010,7 +1022,7 @@ const LearningVaultView: React.FC = () => {
                   <div className="flex items-center gap-2 pt-2 border-t dark:border-gray-700 border-gray-200">
                     <button
                       onClick={() => toggleStatus(resource)}
-                      className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded transition-colors"
+                      className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs dark:bg-gray-800 bg-gray-100 dark:hover:bg-gray-700 hover:bg-gray-200 dark:text-gray-300 text-gray-700 rounded transition-colors"
                       title={resource.status === 'completed' ? 'Mark as unwatched' : 'Toggle status'}
                     >
                       {resource.status === 'completed' ? (
