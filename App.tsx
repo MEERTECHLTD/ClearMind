@@ -579,7 +579,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-midnight text-gray-200 overflow-hidden font-sans">
+    <div className="flex h-app-screen bg-midnight text-gray-200 overflow-hidden font-sans">
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div 
@@ -597,7 +597,7 @@ const App: React.FC = () => {
         isMobileOpen={isMobileMenuOpen}
       />
       
-      <main className="flex-1 flex flex-col min-w-0 bg-midnight transition-colors duration-300">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-midnight transition-colors duration-300">
         <TopBar 
           user={userProfile} 
           toggleTheme={toggleTheme} 
@@ -608,7 +608,7 @@ const App: React.FC = () => {
           onLogout={handleLogout}
           onNavigate={handleViewChange}
         />
-        <div className="flex-1 relative overflow-auto touch-pan-y">
+        <div className="flex-1 relative overflow-auto touch-pan-y min-h-0">
           <Suspense fallback={<ViewLoader />}>
             {viewContent}
           </Suspense>

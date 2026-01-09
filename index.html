@@ -147,6 +147,20 @@
         color: var(--text-main);
         transition: background-color 0.3s, color 0.3s;
       }
+
+      /* Mobile viewport height fix - accounts for browser chrome */
+      :root {
+        --app-height: 100vh;
+      }
+      @supports (height: 100dvh) {
+        :root {
+          --app-height: 100dvh;
+        }
+      }
+      .h-app-screen {
+        height: 100vh;
+        height: var(--app-height);
+      }
       
       /* Mobile Touch Scrolling */
       html, body {

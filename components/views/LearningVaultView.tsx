@@ -740,7 +740,7 @@ const LearningVaultView: React.FC = () => {
   }
 
   return (
-    <div className="p-4 md:p-8 h-full flex flex-col animate-fade-in overflow-hidden">
+    <div className="p-4 md:p-8 h-full flex flex-col animate-fade-in overflow-hidden min-h-0">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
         <div>
@@ -903,7 +903,7 @@ const LearningVaultView: React.FC = () => {
       )}
 
       {/* Resources Grid */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0 pb-4">
         {filteredResources.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-gray-400">
             <Bookmark size={48} className="mb-4 opacity-50" />
