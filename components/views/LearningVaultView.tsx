@@ -291,10 +291,20 @@ const LearningVaultView: React.FC = () => {
     };
     loadData();
 
-    // Listen for sync events
-    const handleSync = (e: CustomEvent) => {
+    // Listen for sync events - but don't reload if we just deleted something
+    let recentlyDeleted: string[] = [];
+    const handleSync = async (e: CustomEvent) => {
       if (e.detail?.store === 'learningresources' || e.detail?.store === 'learningfolders') {
-        loadData();
+        // Reload but filter out any items that might have been restored from cloud
+        try {
+          const resourceData = await dbService.getAll<LearningResource>(STORES.LEARNING_RESOURCES);
+          const folderData = await dbService.getAll<LearningFolder>(STORES.LEARNING_FOLDERS);
+          // Filter to only non-deleted items (getAll already does this, but double-check)
+          setResources(resourceData.filter(r => !(r as any).deleted));
+          setFolders(folderData.filter(f => !(f as any).deleted));
+        } catch (err) {
+          console.error('Failed to reload after sync', err);
+        }
       }
     };
     window.addEventListener('clearmind-sync', handleSync as EventListener);
@@ -410,52 +420,57 @@ const LearningVaultView: React.FC = () => {
   const handleSaveResource = async () => {
     if (!formData.url.trim() || !formData.title.trim()) return;
 
-    const durationSeconds = formData.duration ? parseInt(formData.duration) * 60 : undefined;
-    const tags = formData.tags.split(',').map(t => t.trim()).filter(Boolean);
+    try {
+      const durationSeconds = formData.duration ? parseInt(formData.duration) * 60 : undefined;
+      const tags = formData.tags.split(',').map(t => t.trim()).filter(Boolean);
 
-    if (editingResource) {
-      const updated: LearningResource = {
-        ...editingResource,
-        url: formData.url,
-        title: formData.title,
-        description: formData.description,
-        thumbnail: formData.thumbnail,
-        contentType: formData.contentType,
-        duration: durationSeconds,
-        sourcePlatform: formData.sourcePlatform,
-        author: formData.author,
-        tags,
-        folder: formData.folder || undefined,
-        updatedAt: new Date().toISOString()
-      };
-      await dbService.put(STORES.LEARNING_RESOURCES, updated);
-      setResources(resources.map(r => r.id === editingResource.id ? updated : r));
-    } else {
-      const newResource: LearningResource = {
-        id: Date.now().toString(),
-        url: formData.url,
-        title: formData.title,
-        description: formData.description,
-        thumbnail: formData.thumbnail,
-        contentType: formData.contentType,
-        duration: durationSeconds,
-        sourcePlatform: formData.sourcePlatform,
-        author: formData.author,
-        status: 'unwatched',
-        progress: 0,
-        tags,
-        folder: formData.folder || undefined,
-        notes: [],
-        isSourceAvailable: true,
-        savedAt: new Date().toISOString()
-      };
-      await dbService.put(STORES.LEARNING_RESOURCES, newResource);
-      setResources([newResource, ...resources]);
+      if (editingResource) {
+        const updated: LearningResource = {
+          ...editingResource,
+          url: formData.url,
+          title: formData.title,
+          description: formData.description,
+          thumbnail: formData.thumbnail,
+          contentType: formData.contentType,
+          duration: durationSeconds,
+          sourcePlatform: formData.sourcePlatform,
+          author: formData.author,
+          tags,
+          folder: formData.folder || undefined,
+          updatedAt: new Date().toISOString()
+        };
+        await dbService.put(STORES.LEARNING_RESOURCES, updated);
+        setResources(prev => prev.map(r => r.id === editingResource.id ? updated : r));
+      } else {
+        const newResource: LearningResource = {
+          id: Date.now().toString(),
+          url: formData.url,
+          title: formData.title,
+          description: formData.description,
+          thumbnail: formData.thumbnail,
+          contentType: formData.contentType,
+          duration: durationSeconds,
+          sourcePlatform: formData.sourcePlatform,
+          author: formData.author,
+          status: 'unwatched',
+          progress: 0,
+          tags,
+          folder: formData.folder || undefined,
+          notes: [],
+          isSourceAvailable: true,
+          savedAt: new Date().toISOString()
+        };
+        await dbService.put(STORES.LEARNING_RESOURCES, newResource);
+        setResources(prev => [newResource, ...prev]);
+      }
+    } catch (err) {
+      console.error('Failed to save resource:', err);
+    } finally {
+      // Always close modal and reset form
+      setShowAddModal(false);
+      setEditingResource(null);
+      resetForm();
     }
-
-    setShowAddModal(false);
-    setEditingResource(null);
-    resetForm();
   };
 
   const handleSaveFolder = async () => {
@@ -1044,10 +1059,11 @@ const LearningVaultView: React.FC = () => {
                     </button>
                     <button
                       onClick={() => openResource(resource)}
-                      className="p-1.5 text-gray-400 hover:text-green-400 transition-colors"
+                      className="flex items-center justify-center gap-1 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded transition-colors"
                       title="Open URL"
                     >
                       <ExternalLink size={14} />
+                      <span className="hidden sm:inline">Open</span>
                     </button>
                     <button
                       onClick={() => { setSelectedResource(resource); setShowNotesModal(true); }}
