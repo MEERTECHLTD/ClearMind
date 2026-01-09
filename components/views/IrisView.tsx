@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { generateIrisResponse, UserContext, parseActionCommands, ParsedActions } from '../../services/geminiService';
 import { dbService, STORES } from '../../services/db';
-import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation } from '../../types';
+import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation, ProjectCategory } from '../../types';
 import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare, FileText, Target, Calendar, Briefcase, Activity, Flag, BookOpen, Zap } from 'lucide-react';
 
 const CURRENT_CONVERSATION_ID = 'current-iris-conversation';
@@ -182,7 +182,7 @@ const IrisView: React.FC = () => {
         priority: project.priority || 'Medium',
         deadline: project.deadline,
         tags: project.tags || [],
-        category: project.category,
+        category: project.category as ProjectCategory,
       };
       await dbService.put(STORES.PROJECTS, newProject);
       summary.projectsCreated.push(project.title);

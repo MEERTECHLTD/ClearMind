@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Bell, Cloud, LogOut, Moon, Save, Info, RefreshCw, Check, AlertCircle, Loader2, Link, BellRing, BellOff, Smartphone } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
+import { isFirebaseConfigured } from '../../services/firebase';
+import { syncAllStores, dispatchAllSyncEvents } from '../../services/syncService';
 import { 
   isNotificationSupported, 
   isNotificationPermitted, 
@@ -84,48 +85,29 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
     setSyncMessage(null);
 
     try {
-      // Sync all stores - grouped for parallel processing
-      const stores = [
-        STORES.TASKS,
-        STORES.NOTES,
-        STORES.HABITS,
-        STORES.GOALS,
-        STORES.MILESTONES,
-        STORES.PROJECTS,
-        STORES.LOGS,
-        STORES.EVENTS,
-        STORES.DAILY_MAPPER,
-        STORES.DAILY_MAPPER_TEMPLATES,
-        STORES.RANTS,
-        STORES.MINDMAPS,
-        STORES.APPLICATIONS,
-        STORES.LEARNING_RESOURCES,
-        STORES.LEARNING_FOLDERS,
-      ];
-
-      // Process stores in parallel batches of 3 for better performance
-      const batchSize = 3;
-      for (let i = 0; i < stores.length; i += batchSize) {
-        const batch = stores.slice(i, i + batchSize);
-        await Promise.all(batch.map(async (storeName) => {
-          // Get all items including deleted ones for proper sync comparison
-          const localItems = await (dbService as any).getAllIncludingDeleted<{ id: string }>(storeName);
-          const syncedItems = await firebaseService.fullSync(storeName, localItems);
-          // Use batch local-only put to avoid triggering individual cloud syncs (already synced)
-          await (dbService as any).putBatchLocalOnly(storeName, syncedItems);
-        }));
-      }
+      // Use centralized sync service for all stores
+      const result = await syncAllStores();
 
       // Dispatch sync events for all stores to update views
-      stores.forEach(storeName => {
-        window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: storeName } }));
-      });
+      dispatchAllSyncEvents();
 
       const now = new Date().toISOString();
       const updated = { ...user!, lastSyncedAt: now };
       await dbService.put(STORES.PROFILE, updated);
       onUpdateUser(updated);
-      setSyncMessage({ type: 'success', text: 'Data synced successfully!' });
+      
+      if (result.success) {
+        setSyncMessage({ 
+          type: 'success', 
+          text: `Synced ${result.totalItemsSynced} items successfully!` 
+        });
+      } else {
+        const failedList = result.failedStores.join(', ');
+        setSyncMessage({ 
+          type: 'error', 
+          text: `Partial sync. Failed stores: ${failedList}` 
+        });
+      }
     } catch (error: any) {
       console.error('Sync error:', error);
       setSyncMessage({ type: 'error', text: error.message || 'Sync failed. Please try again.' });

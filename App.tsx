@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import { ViewState, UserProfile, Task, CalendarEvent, Application } from './types';
-import { dbService, STORES } from './services/db';
+import { dbService, STORES, getLocalStoreName, getAllFirestoreCollections } from './services/db';
 import { firebaseService, isFirebaseConfigured, FirebaseUser } from './services/firebase';
+import { handleRealtimeUpdate, syncDeletedItems, dispatchSyncEvent } from './services/syncService';
 import { 
   initializeNotifications, 
   startNotificationScheduler, 
@@ -62,6 +63,7 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected'>('idle');
+  const [showAuthView, setShowAuthView] = useState(false);
   
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -142,7 +144,7 @@ const App: React.FC = () => {
           // Wait a moment for Firebase auth state
           await new Promise(resolve => setTimeout(resolve, 500));
           
-          const unsubscribe = firebaseService.onAuthChange(async (firebaseUser: FirebaseUser | null) => {
+          const unsubscribe = firebaseService.onAuthChange(async (firebaseUser) => {
             if (firebaseUser) {
               // Firebase user found, create/update local profile
               const cloudProfile: UserProfile = {
@@ -430,7 +432,7 @@ const App: React.FC = () => {
   const lastSyncEventRef = React.useRef<Record<string, number>>({});
   const SYNC_THROTTLE_MS = 1000; // Minimum 1 second between sync events per store
 
-  // Real-time sync setup
+  // Real-time sync setup using centralized sync service
   const startRealTimeSync = useCallback(() => {
     if (!isFirebaseConfigured()) return;
     
@@ -439,101 +441,26 @@ const App: React.FC = () => {
       syncCleanupRef.current();
     }
 
-    // Map Firestore collection names to IndexedDB store names
-    const firestoreToLocalMap: Record<string, string> = {
-      'tasks': 'tasks',
-      'projects': 'projects',
-      'notes': 'notes',
-      'habits': 'habits',
-      'goals': 'goals',
-      'milestones': 'milestones',
-      'dailyLogs': 'logs',
-      'rants': 'rants',
-      'events': 'events',
-      'timeblocks': 'dailymapper',
-      'timeblocktemplates': 'dailymappertemplates',
-      'mindmaps': 'mindmaps',
-      'applications': 'applications',
-      'iris_conversations': 'iris_conversations',
-      'learningResources': 'learningresources',
-      'learningFolders': 'learningfolders'
-    };
-
-    const storeNames = [
-      'tasks', 'projects', 'notes', 'habits', 'goals', 
-      'milestones', 'dailyLogs', 'rants', 'events', 'timeblocks', 'timeblocktemplates', 'mindmaps',
-      'applications', 'iris_conversations', 'learningResources', 'learningFolders'
-    ];
+    // Get all Firestore collection names from centralized mapping
+    const firestoreCollections = getAllFirestoreCollections();
 
     setSyncStatus('syncing');
 
     const cleanup = firebaseService.subscribeToAllCollections(
-      storeNames,
-      async (storeName: string, cloudItems: any[]) => {
+      firestoreCollections,
+      async (firestoreCollection: string, cloudItems: any[]) => {
         try {
-          // Convert Firestore collection name to IndexedDB store name
-          const localStoreName = firestoreToLocalMap[storeName] || storeName;
+          // Use centralized mapping for collection -> store conversion
+          const localStoreName = getLocalStoreName(firestoreCollection);
           
-          // Get all local items INCLUDING deleted ones for proper sync comparison
-          const localItems = await (dbService as any).getAllIncludingDeleted(localStoreName);
+          // Handle real-time update using centralized sync service
+          const { updated } = await handleRealtimeUpdate(firestoreCollection, cloudItems);
           
-          // Create a map for quick lookup
-          const localMap = new Map(localItems.map((item: any) => [item.id, item]));
-          const cloudMap = new Map(cloudItems.map((item: any) => [item.id, item]));
+          // Get local items for deleted sync
+          const localItems = await dbService.getAllIncludingDeleted<any>(localStoreName);
           
-          // Collect items to update in batch
-          const itemsToUpdate: any[] = [];
-          const deletedItemsToSync: any[] = [];
-          
-          // Merge: newest wins based on updatedAt timestamp
-          for (const cloudItem of cloudItems) {
-            const localItem = localMap.get(cloudItem.id);
-            
-            if (!localItem) {
-              // New item from cloud - add to local only if not deleted
-              if (!cloudItem.deleted) {
-                itemsToUpdate.push(cloudItem);
-              }
-            } else {
-              // Compare timestamps - newest wins
-              const localTime = localItem.updatedAt || localItem.lastEdited || localItem.syncedAt || '0';
-              const cloudTime = cloudItem.updatedAt || cloudItem.lastEdited || cloudItem.syncedAt || '0';
-              
-              if (new Date(cloudTime) > new Date(localTime)) {
-                // Cloud is newer - update local (this respects soft-delete flags)
-                itemsToUpdate.push(cloudItem);
-              }
-              // If local is newer (e.g., local delete is newer than cloud update), local wins - no action needed
-            }
-          }
-          
-          // Batch update local items (no cloud sync - data came FROM cloud)
-          if (itemsToUpdate.length > 0) {
-            await (dbService as any).putBatchLocalOnly(localStoreName, itemsToUpdate);
-          }
-          
-          // Collect locally deleted items to push to cloud
-          for (const localItem of localItems as any[]) {
-            if (localItem.deleted) {
-              const cloudItem = cloudMap.get(localItem.id);
-              if (!cloudItem || new Date(localItem.updatedAt || '0') > new Date(cloudItem.updatedAt || cloudItem.syncedAt || '0')) {
-                deletedItemsToSync.push(localItem);
-              }
-            }
-          }
-          
-          // Push deleted items to cloud in parallel (limit concurrency)
-          if (deletedItemsToSync.length > 0) {
-            const batchSize = 5;
-            for (let i = 0; i < deletedItemsToSync.length; i += batchSize) {
-              const batch = deletedItemsToSync.slice(i, i + batchSize);
-              await Promise.all(batch.map(item => 
-                firebaseService.pushItemToCloud(storeName, item).catch(e => 
-                  console.warn('Failed to sync deleted item to cloud:', e)
-                )
-              ));
-            }
-          }
+          // Sync any locally deleted items that are newer than cloud
+          await syncDeletedItems(firestoreCollection, localItems as any, cloudItems);
           
           setSyncStatus('connected');
           
@@ -542,10 +469,10 @@ const App: React.FC = () => {
           const lastEvent = lastSyncEventRef.current[localStoreName] || 0;
           if (now - lastEvent > SYNC_THROTTLE_MS) {
             lastSyncEventRef.current[localStoreName] = now;
-            window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: localStoreName } }));
+            dispatchSyncEvent(localStoreName);
           }
         } catch (error) {
-          console.error(`Sync error for ${storeName}:`, error);
+          console.error(`Sync error for ${firestoreCollection}:`, error);
         }
       }
     );

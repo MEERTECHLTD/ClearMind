@@ -198,7 +198,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         title: data.title || aiPrompt,
         nodes,
         edges,
-        type: 'mind-map',
+        type: 'mindmap',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
