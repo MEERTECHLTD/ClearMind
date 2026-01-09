@@ -345,15 +345,16 @@ const App: React.FC = () => {
       }
     });
 
-    // Check every minute
-    const notificationInterval = setInterval(checkNotifications, 60000);
-    // Also check on mount
-    checkNotifications();
+    // Check every 5 minutes instead of every minute (reduces DB reads significantly)
+    const notificationInterval = setInterval(checkNotifications, 300000);
+    // Delay initial check to not slow down app startup
+    const initialCheckTimeout = setTimeout(checkNotifications, 5000);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
       clearInterval(notificationInterval);
+      clearTimeout(initialCheckTimeout);
       stopNotificationScheduler();
     };
   }, []);
@@ -424,6 +425,10 @@ const App: React.FC = () => {
     // Start real-time sync after auth
     startRealTimeSync();
   }, []);
+
+  // Throttle sync events to prevent excessive re-renders
+  const lastSyncEventRef = React.useRef<Record<string, number>>({});
+  const SYNC_THROTTLE_MS = 1000; // Minimum 1 second between sync events per store
 
   // Real-time sync setup
   const startRealTimeSync = useCallback(() => {
@@ -514,8 +519,13 @@ const App: React.FC = () => {
           
           setSyncStatus('connected');
           
-          // Trigger a re-render by dispatching a custom event (use localStoreName for consistency)
-          window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: localStoreName } }));
+          // Throttle sync events to prevent excessive re-renders
+          const now = Date.now();
+          const lastEvent = lastSyncEventRef.current[localStoreName] || 0;
+          if (now - lastEvent > SYNC_THROTTLE_MS) {
+            lastSyncEventRef.current[localStoreName] = now;
+            window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: localStoreName } }));
+          }
         } catch (error) {
           console.error(`Sync error for ${storeName}:`, error);
         }

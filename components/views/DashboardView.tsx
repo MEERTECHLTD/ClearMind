@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, memo } from 'react';
 import { Flame, CheckCircle, Github, Activity, Folder, FileText, Plus, X, Clock, Target } from 'lucide-react';
 import { UserProfile, Task, Habit, LogEntry, Project, Goal } from '../../types';
 import { dbService, STORES } from '../../services/db';
@@ -8,7 +8,7 @@ interface DashboardProps {
   onNavigate?: (view: string) => void;
 }
 
-const StatCard = ({ title, value, subtitle, icon: Icon, color, onClick }: any) => (
+const StatCard = memo(({ title, value, subtitle, icon: Icon, color, onClick }: any) => (
   <div 
     onClick={onClick}
     className={`bg-midnight-light border dark:border-gray-800 border-gray-200 p-6 rounded-xl flex items-start justify-between shadow-sm dark:shadow-none transition-all duration-300 ${onClick ? 'cursor-pointer hover:border-blue-400 hover:scale-[1.02]' : ''}`}
@@ -22,7 +22,7 @@ const StatCard = ({ title, value, subtitle, icon: Icon, color, onClick }: any) =
       <Icon className={color.text} size={24} />
     </div>
   </div>
-);
+));
 
 const DashboardView: React.FC<DashboardProps> = ({ user, onNavigate }) => {
   const [stats, setStats] = useState({

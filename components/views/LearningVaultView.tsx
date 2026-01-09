@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { LearningResource, LearningFolder, LearningContentType, LearningContentStatus, LearningSourcePlatform, LearningResourceNote } from '../../types';
 import { dbService, STORES } from '../../services/db';
 import { 
@@ -229,8 +229,25 @@ const LearningVaultView: React.FC = () => {
   const [showStatsPanel, setShowStatsPanel] = useState(false);
   const [editingResource, setEditingResource] = useState<LearningResource | null>(null);
   const [selectedResource, setSelectedResource] = useState<LearningResource | null>(null);
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Debounced search - only update searchQuery after user stops typing
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 300);
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchInput]);
   
   // Filters
   const [filterContentType, setFilterContentType] = useState<'all' | LearningContentType>('all');
@@ -551,19 +568,20 @@ const LearningVaultView: React.FC = () => {
     setResources(resources.map(r => r.id === resource.id ? updated : r));
   };
 
-  const openResource = async (resource: LearningResource) => {
-    // Update last accessed timestamp
+  const openResource = (resource: LearningResource) => {
+    // Open URL immediately to avoid popup blocker
+    window.open(resource.url, '_blank', 'noopener,noreferrer');
+    
+    // Update last accessed timestamp in background (non-blocking)
     const updated: LearningResource = {
       ...resource,
       lastAccessedAt: new Date().toISOString(),
       status: resource.status === 'unwatched' ? 'in-progress' : resource.status,
       updatedAt: new Date().toISOString()
     };
-    await dbService.put(STORES.LEARNING_RESOURCES, updated);
-    setResources(resources.map(r => r.id === resource.id ? updated : r));
-    
-    // Open in new tab
-    window.open(resource.url, '_blank');
+    dbService.put(STORES.LEARNING_RESOURCES, updated).then(() => {
+      setResources(prev => prev.map(r => r.id === resource.id ? updated : r));
+    }).catch(console.error);
   };
 
   const addNote = async () => {
@@ -765,23 +783,23 @@ const LearningVaultView: React.FC = () => {
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center">
-              <p className="text-2xl font-bold text-white">{stats.totalItems}</p>
+              <p className="text-2xl font-bold dark:text-white text-gray-900">{stats.totalItems}</p>
               <p className="text-xs text-gray-400">Total Items</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-400">{stats.completedItems}</p>
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.completedItems}</p>
               <p className="text-xs text-gray-400">Completed</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-blue-400">{formatDuration(stats.totalWatchTime)}</p>
+              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatDuration(stats.totalWatchTime)}</p>
               <p className="text-xs text-gray-400">Total Time</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-purple-400">{formatDuration(stats.weeklyWatchTime)}</p>
+              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{formatDuration(stats.weeklyWatchTime)}</p>
               <p className="text-xs text-gray-400">This Week</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-yellow-400">{formatDuration(stats.averageSessionLength)}</p>
+              <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{formatDuration(stats.averageSessionLength)}</p>
               <p className="text-xs text-gray-400">Avg Session</p>
             </div>
           </div>
@@ -796,9 +814,9 @@ const LearningVaultView: React.FC = () => {
           <input
             type="text"
             placeholder="Search by title, tags, description..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
           />
         </div>
         
@@ -807,7 +825,7 @@ const LearningVaultView: React.FC = () => {
           <select
             value={filterContentType}
             onChange={(e) => setFilterContentType(e.target.value as any)}
-            className="px-3 py-2 bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
+            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
           >
             <option value="all">All Types</option>
             <option value="video">Video</option>
@@ -817,7 +835,7 @@ const LearningVaultView: React.FC = () => {
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value as any)}
-            className="px-3 py-2 bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
+            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
           >
             <option value="all">All Status</option>
             <option value="unwatched">Unwatched</option>
@@ -828,7 +846,7 @@ const LearningVaultView: React.FC = () => {
           <select
             value={filterFolder}
             onChange={(e) => setFilterFolder(e.target.value)}
-            className="px-3 py-2 bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
+            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
           >
             <option value="all">All Folders</option>
             {folders.map(f => (
@@ -839,7 +857,7 @@ const LearningVaultView: React.FC = () => {
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
+            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
           >
             <option value="savedAt">Date Saved</option>
             <option value="duration">Duration</option>
@@ -849,7 +867,7 @@ const LearningVaultView: React.FC = () => {
           
           <button
             onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-            className="px-3 py-2 bg-midnight-light border dark:border-gray-700 border-gray-200 rounded-lg text-sm text-gray-400 hover:text-white transition-colors"
+            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-gray-400 text-gray-600 hover:text-blue-500 dark:hover:text-white transition-colors"
             title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
           >
             {sortOrder === 'asc' ? '↑' : '↓'}
@@ -866,8 +884,8 @@ const LearningVaultView: React.FC = () => {
               onClick={() => setFilterFolder(filterFolder === folder.name ? 'all' : folder.name)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-colors whitespace-nowrap
                 ${filterFolder === folder.name 
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50' 
-                  : 'bg-midnight-light border dark:border-gray-700 border-gray-200 text-gray-400 hover:text-white'}`}
+                  ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/50' 
+                  : 'dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 dark:text-gray-400 text-gray-600 hover:text-blue-500 dark:hover:text-white'}`}
             >
               <Folder size={14} style={{ color: folder.color }} />
               {folder.name}
@@ -922,6 +940,8 @@ const LearningVaultView: React.FC = () => {
                       src={resource.thumbnail} 
                       alt={resource.title}
                       className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
