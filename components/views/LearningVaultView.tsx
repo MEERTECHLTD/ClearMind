@@ -1043,6 +1043,13 @@ const LearningVaultView: React.FC = () => {
                       )}
                     </button>
                     <button
+                      onClick={() => openResource(resource)}
+                      className="p-1.5 text-gray-400 hover:text-green-400 transition-colors"
+                      title="Open URL"
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                    <button
                       onClick={() => { setSelectedResource(resource); setShowNotesModal(true); }}
                       className="p-1.5 text-gray-400 hover:text-purple-400 transition-colors"
                       title="Notes"
