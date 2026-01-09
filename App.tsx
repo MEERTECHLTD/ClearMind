@@ -451,6 +451,7 @@ const App: React.FC = () => {
       'rants': 'rants',
       'events': 'events',
       'timeblocks': 'dailymapper',
+      'timeblocktemplates': 'dailymappertemplates',
       'mindmaps': 'mindmaps',
       'applications': 'applications',
       'iris_conversations': 'iris_conversations',
@@ -460,7 +461,7 @@ const App: React.FC = () => {
 
     const storeNames = [
       'tasks', 'projects', 'notes', 'habits', 'goals', 
-      'milestones', 'dailyLogs', 'rants', 'events', 'timeblocks', 'mindmaps',
+      'milestones', 'dailyLogs', 'rants', 'events', 'timeblocks', 'timeblocktemplates', 'mindmaps',
       'applications', 'iris_conversations', 'learningResources', 'learningFolders'
     ];
 
@@ -480,6 +481,10 @@ const App: React.FC = () => {
           const localMap = new Map(localItems.map((item: any) => [item.id, item]));
           const cloudMap = new Map(cloudItems.map((item: any) => [item.id, item]));
           
+          // Collect items to update in batch
+          const itemsToUpdate: any[] = [];
+          const deletedItemsToSync: any[] = [];
+          
           // Merge: newest wins based on updatedAt timestamp
           for (const cloudItem of cloudItems) {
             const localItem = localMap.get(cloudItem.id);
@@ -487,7 +492,7 @@ const App: React.FC = () => {
             if (!localItem) {
               // New item from cloud - add to local only if not deleted
               if (!cloudItem.deleted) {
-                await dbService.put(localStoreName as any, cloudItem);
+                itemsToUpdate.push(cloudItem);
               }
             } else {
               // Compare timestamps - newest wins
@@ -496,24 +501,37 @@ const App: React.FC = () => {
               
               if (new Date(cloudTime) > new Date(localTime)) {
                 // Cloud is newer - update local (this respects soft-delete flags)
-                await dbService.put(localStoreName as any, cloudItem);
+                itemsToUpdate.push(cloudItem);
               }
               // If local is newer (e.g., local delete is newer than cloud update), local wins - no action needed
             }
           }
           
-          // Push locally deleted items to cloud if they don't exist in cloud or cloud version is older
+          // Batch update local items (no cloud sync - data came FROM cloud)
+          if (itemsToUpdate.length > 0) {
+            await (dbService as any).putBatchLocalOnly(localStoreName, itemsToUpdate);
+          }
+          
+          // Collect locally deleted items to push to cloud
           for (const localItem of localItems as any[]) {
             if (localItem.deleted) {
               const cloudItem = cloudMap.get(localItem.id);
               if (!cloudItem || new Date(localItem.updatedAt || '0') > new Date(cloudItem.updatedAt || cloudItem.syncedAt || '0')) {
-                // Local soft-delete is newer - push to cloud
-                try {
-                  await firebaseService.pushItemToCloud(storeName, localItem);
-                } catch (e) {
-                  console.warn('Failed to sync deleted item to cloud:', e);
-                }
+                deletedItemsToSync.push(localItem);
               }
+            }
+          }
+          
+          // Push deleted items to cloud in parallel (limit concurrency)
+          if (deletedItemsToSync.length > 0) {
+            const batchSize = 5;
+            for (let i = 0; i < deletedItemsToSync.length; i += batchSize) {
+              const batch = deletedItemsToSync.slice(i, i + batchSize);
+              await Promise.all(batch.map(item => 
+                firebaseService.pushItemToCloud(storeName, item).catch(e => 
+                  console.warn('Failed to sync deleted item to cloud:', e)
+                )
+              ));
             }
           }
           

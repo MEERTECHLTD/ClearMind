@@ -259,22 +259,41 @@ export const firebaseService = {
     await setDoc(doc(db, 'users', uid), data, { merge: true });
   },
 
-  // Sync data to cloud
+  // Sync data to cloud - optimized with batch chunking
   async syncToCloud<T extends { id: string }>(storeName: string, items: T[]): Promise<void> {
     if (!auth || !db) throw new Error('Firebase not configured');
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
 
-    const batch = writeBatch(db);
+    if (items.length === 0) return;
+
     const collectionRef = collection(db, `users/${user.uid}/${storeName}`);
     
-    items.forEach(item => {
-      const docRef = doc(collectionRef, item.id);
-      const sanitizedItem = sanitizeForFirestore({ ...item, syncedAt: new Date().toISOString() });
-      batch.set(docRef, sanitizedItem);
-    });
+    // Firestore batch limit is 500 operations - chunk if needed
+    const BATCH_LIMIT = 450; // Leave some margin
+    const chunks: T[][] = [];
     
-    await batch.commit();
+    for (let i = 0; i < items.length; i += BATCH_LIMIT) {
+      chunks.push(items.slice(i, i + BATCH_LIMIT));
+    }
+    
+    // Process chunks in parallel (limit to 3 concurrent batches)
+    const CONCURRENT_BATCHES = 3;
+    for (let i = 0; i < chunks.length; i += CONCURRENT_BATCHES) {
+      const batchChunks = chunks.slice(i, i + CONCURRENT_BATCHES);
+      
+      await Promise.all(batchChunks.map(async (chunk) => {
+        const batch = writeBatch(db);
+        
+        chunk.forEach(item => {
+          const docRef = doc(collectionRef, item.id);
+          const sanitizedItem = sanitizeForFirestore({ ...item, syncedAt: new Date().toISOString() });
+          batch.set(docRef, sanitizedItem);
+        });
+        
+        await batch.commit();
+      }));
+    }
   },
 
   // Fetch from cloud

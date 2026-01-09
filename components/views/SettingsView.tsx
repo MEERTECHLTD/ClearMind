@@ -84,7 +84,7 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
     setSyncMessage(null);
 
     try {
-      // Sync all stores
+      // Sync all stores - grouped for parallel processing
       const stores = [
         STORES.TASKS,
         STORES.NOTES,
@@ -103,15 +103,23 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
         STORES.LEARNING_FOLDERS,
       ];
 
-      for (const storeName of stores) {
-        // Get all items including deleted ones for proper sync comparison
-        const localItems = await (dbService as any).getAllIncludingDeleted<{ id: string }>(storeName);
-        const syncedItems = await firebaseService.fullSync(storeName, localItems);
-        // Only put back non-deleted items (fullSync already filters these)
-        for (const item of syncedItems) {
-          await dbService.put(storeName, item);
-        }
+      // Process stores in parallel batches of 3 for better performance
+      const batchSize = 3;
+      for (let i = 0; i < stores.length; i += batchSize) {
+        const batch = stores.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (storeName) => {
+          // Get all items including deleted ones for proper sync comparison
+          const localItems = await (dbService as any).getAllIncludingDeleted<{ id: string }>(storeName);
+          const syncedItems = await firebaseService.fullSync(storeName, localItems);
+          // Use batch local-only put to avoid triggering individual cloud syncs (already synced)
+          await (dbService as any).putBatchLocalOnly(storeName, syncedItems);
+        }));
       }
+
+      // Dispatch sync events for all stores to update views
+      stores.forEach(storeName => {
+        window.dispatchEvent(new CustomEvent('clearmind-sync', { detail: { store: storeName } }));
+      });
 
       const now = new Date().toISOString();
       const updated = { ...user!, lastSyncedAt: now };

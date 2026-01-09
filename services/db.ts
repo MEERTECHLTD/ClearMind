@@ -103,7 +103,7 @@ class DatabaseService {
     });
   }
 
-  // Map store names to Firestore collection names
+  // Map IndexedDB store names to Firestore collection names
   private getFirestoreStoreName(storeName: string): string {
     const mapping: Record<string, string> = {
       [STORES.TASKS]: 'tasks',
@@ -124,6 +124,51 @@ class DatabaseService {
       [STORES.LEARNING_FOLDERS]: 'learningFolders'
     };
     return mapping[storeName] || storeName;
+  }
+
+  // Put item to local IndexedDB only (no cloud sync) - used for batch sync operations
+  async putLocalOnly<T extends { id: string }>(storeName: string, item: T): Promise<void> {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(storeName, 'readwrite');
+          const store = transaction.objectStore(storeName);
+          const request = store.put(item);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+      });
+  }
+
+  // Batch put multiple items to local IndexedDB (no cloud sync) - optimized for sync
+  async putBatchLocalOnly<T extends { id: string }>(storeName: string, items: T[]): Promise<void> {
+      if (items.length === 0) return;
+      
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(storeName, 'readwrite');
+          const store = transaction.objectStore(storeName);
+          
+          let completed = 0;
+          let hasError = false;
+          
+          for (const item of items) {
+              const request = store.put(item);
+              request.onsuccess = () => {
+                  completed++;
+                  if (completed === items.length && !hasError) {
+                      resolve();
+                  }
+              };
+              request.onerror = () => {
+                  if (!hasError) {
+                      hasError = true;
+                      reject(request.error);
+                  }
+              };
+          }
+          
+          // Handle empty items case
+          if (items.length === 0) resolve();
+      });
   }
 
   async put<T extends { id: string }>(storeName: string, item: T): Promise<void> {
