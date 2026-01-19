@@ -466,11 +466,21 @@ const IrisView: React.FC = () => {
     }
 
     // Delete Daily Mapper Entries (reuse allDailyMapperEntries from earlier)
+    // Also delete associated templates to prevent them from recreating
+    const allTemplates = await dbService.getAll<DailyMapperTemplate>(STORES.DAILY_MAPPER_TEMPLATES);
     for (const taskName of actions.deletedDailyMapperEntries) {
-      const entries = allDailyMapperEntries.filter(e => e.task.toLowerCase() === taskName.toLowerCase());
-      for (const entry of entries) {
+      const entriesToDelete = allDailyMapperEntries.filter(e => e.task.toLowerCase() === taskName.toLowerCase());
+      for (const entry of entriesToDelete) {
         await dbService.delete(STORES.DAILY_MAPPER, entry.id);
         summary.dailyMapperEntriesDeleted.push(entry.task);
+        
+        // If this entry has a templateId, delete the template too
+        if (entry.templateId) {
+          const template = allTemplates.find(t => t.id === entry.templateId);
+          if (template) {
+            await dbService.hardDelete(STORES.DAILY_MAPPER_TEMPLATES, template.id);
+          }
+        }
       }
     }
 

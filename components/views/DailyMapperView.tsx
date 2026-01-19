@@ -380,9 +380,34 @@ const DailyMapperView: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this time block?')) return;
-    await dbService.delete(STORES.DAILY_MAPPER, id);
-    setEntries(entries.filter(e => e.id !== id));
+    const entry = entries.find(e => e.id === id);
+    if (!entry) return;
+    
+    // If this entry is from a permanent template, ask if they want to delete the template too
+    if (entry.templateId) {
+      const deleteTemplate = confirm(
+        'This is a permanent/recurring time block.\n\n' +
+        '• Click OK to delete this entry AND stop it from appearing on future days.\n' +
+        '• Click Cancel to keep the entry.'
+      );
+      
+      if (!deleteTemplate) return;
+      
+      // Delete the template so it doesn't recreate
+      await dbService.hardDelete(STORES.DAILY_MAPPER_TEMPLATES, entry.templateId);
+      setTemplates(templates.filter(t => t.id !== entry.templateId));
+      
+      // Also delete all entries created from this template
+      const relatedEntries = entries.filter(e => e.templateId === entry.templateId);
+      for (const relatedEntry of relatedEntries) {
+        await dbService.delete(STORES.DAILY_MAPPER, relatedEntry.id);
+      }
+      setEntries(entries.filter(e => e.templateId !== entry.templateId));
+    } else {
+      if (!confirm('Delete this time block?')) return;
+      await dbService.delete(STORES.DAILY_MAPPER, id);
+      setEntries(entries.filter(e => e.id !== id));
+    }
   };
 
   const handleDeleteTemplate = async (templateId: string) => {
