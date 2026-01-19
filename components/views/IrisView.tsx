@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { generateIrisResponse, UserContext, parseActionCommands, ParsedActions } from '../../services/geminiService';
 import { dbService, STORES } from '../../services/db';
-import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation, ProjectCategory } from '../../types';
+import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation, ProjectCategory, DailyMapperEntry } from '../../types';
 import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare, FileText, Target, Calendar, Briefcase, Activity, Flag, BookOpen, Zap } from 'lucide-react';
 
 const CURRENT_CONVERSATION_ID = 'current-iris-conversation';
@@ -20,6 +20,17 @@ interface ActionsSummary {
   rantsCreated: string[];
   habitsCompleted: string[];
   tasksCompleted: string[];
+  // Deletion tracking
+  tasksDeleted: string[];
+  notesDeleted: string[];
+  habitsDeleted: string[];
+  goalsDeleted: string[];
+  projectsDeleted: string[];
+  milestonesDeleted: string[];
+  eventsDeleted: string[];
+  applicationsDeleted: string[];
+  dailyMapperEntriesDeleted: string[];
+  duplicatesRemoved: number;
 }
 
 const IrisView: React.FC = () => {
@@ -108,6 +119,16 @@ const IrisView: React.FC = () => {
       rantsCreated: [],
       habitsCompleted: [],
       tasksCompleted: [],
+      tasksDeleted: [],
+      notesDeleted: [],
+      habitsDeleted: [],
+      goalsDeleted: [],
+      projectsDeleted: [],
+      milestonesDeleted: [],
+      eventsDeleted: [],
+      applicationsDeleted: [],
+      dailyMapperEntriesDeleted: [],
+      duplicatesRemoved: 0,
     };
 
     // Create Tasks
@@ -292,6 +313,118 @@ const IrisView: React.FC = () => {
       }
     }
 
+    // Delete Tasks
+    for (const taskTitle of actions.deletedTasks) {
+      const task = allTasks.find(t => t.title.toLowerCase() === taskTitle.toLowerCase());
+      if (task) {
+        await dbService.delete(STORES.TASKS, task.id);
+        summary.tasksDeleted.push(task.title);
+      }
+    }
+
+    // Delete Notes
+    const allNotes = await dbService.getAll<Note>(STORES.NOTES);
+    for (const noteTitle of actions.deletedNotes) {
+      const note = allNotes.find(n => n.title.toLowerCase() === noteTitle.toLowerCase());
+      if (note) {
+        await dbService.delete(STORES.NOTES, note.id);
+        summary.notesDeleted.push(note.title);
+      }
+    }
+
+    // Delete Habits
+    for (const habitName of actions.deletedHabits) {
+      const habit = allHabits.find(h => h.name.toLowerCase() === habitName.toLowerCase());
+      if (habit) {
+        await dbService.delete(STORES.HABITS, habit.id);
+        summary.habitsDeleted.push(habit.name);
+      }
+    }
+
+    // Delete Goals
+    const allGoals = await dbService.getAll<Goal>(STORES.GOALS);
+    for (const goalTitle of actions.deletedGoals) {
+      const goal = allGoals.find(g => g.title.toLowerCase() === goalTitle.toLowerCase());
+      if (goal) {
+        await dbService.delete(STORES.GOALS, goal.id);
+        summary.goalsDeleted.push(goal.title);
+      }
+    }
+
+    // Delete Projects
+    const allProjects = await dbService.getAll<Project>(STORES.PROJECTS);
+    for (const projectTitle of actions.deletedProjects) {
+      const project = allProjects.find(p => p.title.toLowerCase() === projectTitle.toLowerCase());
+      if (project) {
+        await dbService.delete(STORES.PROJECTS, project.id);
+        summary.projectsDeleted.push(project.title);
+      }
+    }
+
+    // Delete Milestones
+    const allMilestones = await dbService.getAll<Milestone>(STORES.MILESTONES);
+    for (const milestoneTitle of actions.deletedMilestones) {
+      const milestone = allMilestones.find(m => m.title.toLowerCase() === milestoneTitle.toLowerCase());
+      if (milestone) {
+        await dbService.delete(STORES.MILESTONES, milestone.id);
+        summary.milestonesDeleted.push(milestone.title);
+      }
+    }
+
+    // Delete Events
+    const allEvents = await dbService.getAll<CalendarEvent>(STORES.EVENTS);
+    for (const eventTitle of actions.deletedEvents) {
+      const event = allEvents.find(e => e.title.toLowerCase() === eventTitle.toLowerCase());
+      if (event) {
+        await dbService.delete(STORES.EVENTS, event.id);
+        summary.eventsDeleted.push(event.title);
+      }
+    }
+
+    // Delete Applications
+    const allApplications = await dbService.getAll<Application>(STORES.APPLICATIONS);
+    for (const appName of actions.deletedApplications) {
+      const app = allApplications.find(a => a.name.toLowerCase() === appName.toLowerCase());
+      if (app) {
+        await dbService.delete(STORES.APPLICATIONS, app.id);
+        summary.applicationsDeleted.push(app.name);
+      }
+    }
+
+    // Delete Daily Mapper Entries
+    const allDailyMapperEntries = await dbService.getAll<DailyMapperEntry>(STORES.DAILY_MAPPER);
+    for (const taskName of actions.deletedDailyMapperEntries) {
+      const entries = allDailyMapperEntries.filter(e => e.task.toLowerCase() === taskName.toLowerCase());
+      for (const entry of entries) {
+        await dbService.delete(STORES.DAILY_MAPPER, entry.id);
+        summary.dailyMapperEntriesDeleted.push(entry.task);
+      }
+    }
+
+    // Delete Duplicate Daily Mapper Entries
+    if (actions.deleteDuplicateDailyMapper) {
+      // Group entries by date + startTime + endTime + task
+      const entryGroups = new Map<string, DailyMapperEntry[]>();
+      for (const entry of allDailyMapperEntries) {
+        const key = `${entry.date}-${entry.startTime}-${entry.endTime}-${entry.task}`;
+        if (!entryGroups.has(key)) {
+          entryGroups.set(key, []);
+        }
+        entryGroups.get(key)!.push(entry);
+      }
+
+      // Delete duplicates (keep the first one of each group)
+      for (const [, entries] of entryGroups) {
+        if (entries.length > 1) {
+          // Keep the first entry, delete the rest
+          for (let i = 1; i < entries.length; i++) {
+            await dbService.delete(STORES.DAILY_MAPPER, entries[i].id);
+            summary.duplicatesRemoved++;
+          }
+        }
+      }
+    }
+
     return summary;
   };
 
@@ -309,7 +442,17 @@ const IrisView: React.FC = () => {
       summary.logsCreated.length > 0 ||
       summary.rantsCreated.length > 0 ||
       summary.habitsCompleted.length > 0 ||
-      summary.tasksCompleted.length > 0
+      summary.tasksCompleted.length > 0 ||
+      summary.tasksDeleted.length > 0 ||
+      summary.notesDeleted.length > 0 ||
+      summary.habitsDeleted.length > 0 ||
+      summary.goalsDeleted.length > 0 ||
+      summary.projectsDeleted.length > 0 ||
+      summary.milestonesDeleted.length > 0 ||
+      summary.eventsDeleted.length > 0 ||
+      summary.applicationsDeleted.length > 0 ||
+      summary.dailyMapperEntriesDeleted.length > 0 ||
+      summary.duplicatesRemoved > 0
     );
   };
 
@@ -541,6 +684,66 @@ const IrisView: React.FC = () => {
               <div className="flex items-center gap-1.5 text-teal-400">
                 <CheckCircle size={12} />
                 <span>{actionsSummary.tasksCompleted.length} task(s) completed</span>
+              </div>
+            )}
+            {actionsSummary.tasksDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.tasksDeleted.length} task(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.notesDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.notesDeleted.length} note(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.habitsDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.habitsDeleted.length} habit(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.goalsDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.goalsDeleted.length} goal(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.projectsDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.projectsDeleted.length} project(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.milestonesDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.milestonesDeleted.length} milestone(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.eventsDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.eventsDeleted.length} event(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.applicationsDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.applicationsDeleted.length} application(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.dailyMapperEntriesDeleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-red-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.dailyMapperEntriesDeleted.length} daily mapper entry(s) deleted</span>
+              </div>
+            )}
+            {actionsSummary.duplicatesRemoved > 0 && (
+              <div className="flex items-center gap-1.5 text-orange-400">
+                <Trash2 size={12} />
+                <span>{actionsSummary.duplicatesRemoved} duplicate(s) removed</span>
               </div>
             )}
           </div>

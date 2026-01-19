@@ -142,6 +142,17 @@ export interface ParsedActions {
   rants: ParsedRant[];
   completedHabits: string[]; // habit names to mark as completed
   completedTasks: string[]; // task titles to mark as completed
+  // Deletion actions
+  deletedTasks: string[]; // task titles to delete
+  deletedNotes: string[]; // note titles to delete
+  deletedHabits: string[]; // habit names to delete
+  deletedGoals: string[]; // goal titles to delete
+  deletedProjects: string[]; // project titles to delete
+  deletedMilestones: string[]; // milestone titles to delete
+  deletedEvents: string[]; // event titles to delete
+  deletedApplications: string[]; // application names to delete
+  deletedDailyMapperEntries: string[]; // daily mapper task names to delete (can be "all duplicates" or specific task names)
+  deleteDuplicateDailyMapper: boolean; // special flag to delete all duplicate daily mapper entries
 }
 
 // Parse all action commands from Iris response
@@ -160,6 +171,16 @@ export const parseActionCommands = (response: string): ParsedActions => {
     rants: [],
     completedHabits: [],
     completedTasks: [],
+    deletedTasks: [],
+    deletedNotes: [],
+    deletedHabits: [],
+    deletedGoals: [],
+    deletedProjects: [],
+    deletedMilestones: [],
+    deletedEvents: [],
+    deletedApplications: [],
+    deletedDailyMapperEntries: [],
+    deleteDuplicateDailyMapper: false,
   };
 
   // Task creation
@@ -343,6 +364,57 @@ export const parseActionCommands = (response: string): ParsedActions => {
     actions.completedTasks.push(match[1]);
   }
 
+  // Delete commands
+  const deleteTaskRegex = /\[DELETE_TASK:\s*"([^"]+)"\]/g;
+  while ((match = deleteTaskRegex.exec(response)) !== null) {
+    actions.deletedTasks.push(match[1]);
+  }
+
+  const deleteNoteRegex = /\[DELETE_NOTE:\s*"([^"]+)"\]/g;
+  while ((match = deleteNoteRegex.exec(response)) !== null) {
+    actions.deletedNotes.push(match[1]);
+  }
+
+  const deleteHabitRegex = /\[DELETE_HABIT:\s*"([^"]+)"\]/g;
+  while ((match = deleteHabitRegex.exec(response)) !== null) {
+    actions.deletedHabits.push(match[1]);
+  }
+
+  const deleteGoalRegex = /\[DELETE_GOAL:\s*"([^"]+)"\]/g;
+  while ((match = deleteGoalRegex.exec(response)) !== null) {
+    actions.deletedGoals.push(match[1]);
+  }
+
+  const deleteProjectRegex = /\[DELETE_PROJECT:\s*"([^"]+)"\]/g;
+  while ((match = deleteProjectRegex.exec(response)) !== null) {
+    actions.deletedProjects.push(match[1]);
+  }
+
+  const deleteMilestoneRegex = /\[DELETE_MILESTONE:\s*"([^"]+)"\]/g;
+  while ((match = deleteMilestoneRegex.exec(response)) !== null) {
+    actions.deletedMilestones.push(match[1]);
+  }
+
+  const deleteEventRegex = /\[DELETE_EVENT:\s*"([^"]+)"\]/g;
+  while ((match = deleteEventRegex.exec(response)) !== null) {
+    actions.deletedEvents.push(match[1]);
+  }
+
+  const deleteApplicationRegex = /\[DELETE_APPLICATION:\s*"([^"]+)"\]/g;
+  while ((match = deleteApplicationRegex.exec(response)) !== null) {
+    actions.deletedApplications.push(match[1]);
+  }
+
+  const deleteDailyMapperRegex = /\[DELETE_DAILY_MAPPER:\s*"([^"]+)"\]/g;
+  while ((match = deleteDailyMapperRegex.exec(response)) !== null) {
+    actions.deletedDailyMapperEntries.push(match[1]);
+  }
+
+  // Special command to delete all duplicate daily mapper entries
+  if (/\[DELETE_DUPLICATE_DAILY_MAPPER\]/.test(response)) {
+    actions.deleteDuplicateDailyMapper = true;
+  }
+
   // Clean the response by removing all action commands
   actions.cleanedResponse = response
     .replace(/\[CREATE_TASK:\s*\{[^}]+\}\]/g, '')
@@ -357,6 +429,16 @@ export const parseActionCommands = (response: string): ParsedActions => {
     .replace(/\[CREATE_RANT:\s*\{[^}]+\}\]/g, '')
     .replace(/\[COMPLETE_HABIT:\s*"[^"]+"\]/g, '')
     .replace(/\[COMPLETE_TASK:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_TASK:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_NOTE:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_HABIT:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_GOAL:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_PROJECT:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_MILESTONE:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_EVENT:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_APPLICATION:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_DAILY_MAPPER:\s*"[^"]+"\]/g, '')
+    .replace(/\[DELETE_DUPLICATE_DAILY_MAPPER\]/g, '')
     .trim();
 
   return actions;
@@ -614,14 +696,59 @@ Example: [COMPLETE_HABIT: "Drink 8 glasses of water"]
 [COMPLETE_TASK: "Task title exactly as it appears"]
 Example: [COMPLETE_TASK: "Review pull request"]
 
+=== DELETE COMMANDS ===
+You can also DELETE items when the user asks. Use exact titles/names:
+
+13. DELETE A TASK:
+[DELETE_TASK: "Task title exactly as it appears"]
+Example: [DELETE_TASK: "Old task I don't need"]
+
+14. DELETE A NOTE:
+[DELETE_NOTE: "Note title exactly as it appears"]
+Example: [DELETE_NOTE: "Outdated meeting notes"]
+
+15. DELETE A HABIT:
+[DELETE_HABIT: "Habit name exactly as it appears"]
+Example: [DELETE_HABIT: "Old habit"]
+
+16. DELETE A GOAL:
+[DELETE_GOAL: "Goal title exactly as it appears"]
+Example: [DELETE_GOAL: "Cancelled project goal"]
+
+17. DELETE A PROJECT:
+[DELETE_PROJECT: "Project title exactly as it appears"]
+Example: [DELETE_PROJECT: "Abandoned project"]
+
+18. DELETE A MILESTONE:
+[DELETE_MILESTONE: "Milestone title exactly as it appears"]
+Example: [DELETE_MILESTONE: "Old milestone"]
+
+19. DELETE AN EVENT:
+[DELETE_EVENT: "Event title exactly as it appears"]
+Example: [DELETE_EVENT: "Cancelled meeting"]
+
+20. DELETE AN APPLICATION:
+[DELETE_APPLICATION: "Application name exactly as it appears"]
+Example: [DELETE_APPLICATION: "Job I withdrew from"]
+
+21. DELETE A DAILY MAPPER ENTRY (from Daily To-Do Mapper):
+[DELETE_DAILY_MAPPER: "Task name exactly as it appears"]
+Example: [DELETE_DAILY_MAPPER: "Morning review"]
+
+22. DELETE ALL DUPLICATE DAILY MAPPER ENTRIES (removes duplicates, keeps one of each):
+[DELETE_DUPLICATE_DAILY_MAPPER]
+Use this when user complains about repeated/duplicate entries in Daily Mapper. This will automatically find and remove duplicate entries that have the same time and task name, keeping only one instance of each.
+
 === RULES FOR USING COMMANDS ===
 1. When user asks you to add/create anything, ALWAYS use the appropriate command
-2. You can include multiple commands in one response
-3. Confirm what you did after the command in a friendly way
-4. For notes: Put actual useful content in them, not placeholders
-5. Match task/habit names EXACTLY when completing them (check user's data)
-6. Use the correct date format: YYYY-MM-DD
-7. Use 24-hour time format: HH:MM
+2. When user asks you to delete/remove anything, use the appropriate DELETE command
+3. You can include multiple commands in one response
+4. Confirm what you did after the command in a friendly way
+5. For notes: Put actual useful content in them, not placeholders
+6. Match task/habit names EXACTLY when completing or deleting them (check user's data)
+7. Use the correct date format: YYYY-MM-DD
+8. Use 24-hour time format: HH:MM
+9. When user mentions duplicate entries in Daily Mapper, use [DELETE_DUPLICATE_DAILY_MAPPER] to clean them up
 
 === EXAMPLES OF PROPER RESPONSES ===
 
