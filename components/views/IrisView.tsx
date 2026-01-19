@@ -465,8 +465,7 @@ const IrisView: React.FC = () => {
       }
     }
 
-    // Delete Daily Mapper Entries
-    const allDailyMapperEntries = await dbService.getAll<DailyMapperEntry>(STORES.DAILY_MAPPER);
+    // Delete Daily Mapper Entries (reuse allDailyMapperEntries from earlier)
     for (const taskName of actions.deletedDailyMapperEntries) {
       const entries = allDailyMapperEntries.filter(e => e.task.toLowerCase() === taskName.toLowerCase());
       for (const entry of entries) {
