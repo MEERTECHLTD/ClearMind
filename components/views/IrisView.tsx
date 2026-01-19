@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { generateIrisResponse, UserContext, parseActionCommands, ParsedActions } from '../../services/geminiService';
 import { dbService, STORES } from '../../services/db';
-import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation, ProjectCategory, DailyMapperEntry } from '../../types';
+import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation, ProjectCategory, DailyMapperEntry, DailyMapperTemplate } from '../../types';
 import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare, FileText, Target, Calendar, Briefcase, Activity, Flag, BookOpen, Zap } from 'lucide-react';
 
 const CURRENT_CONVERSATION_ID = 'current-iris-conversation';
@@ -18,8 +18,11 @@ interface ActionsSummary {
   applicationsCreated: string[];
   logsCreated: string[];
   rantsCreated: string[];
+  dailyMapperEntriesCreated: string[];
   habitsCompleted: string[];
   tasksCompleted: string[];
+  dailyMapperCompleted: string[];
+  dailyMapperUpdated: string[];
   // Deletion tracking
   tasksDeleted: string[];
   notesDeleted: string[];
@@ -117,8 +120,11 @@ const IrisView: React.FC = () => {
       applicationsCreated: [],
       logsCreated: [],
       rantsCreated: [],
+      dailyMapperEntriesCreated: [],
       habitsCompleted: [],
       tasksCompleted: [],
+      dailyMapperCompleted: [],
+      dailyMapperUpdated: [],
       tasksDeleted: [],
       notesDeleted: [],
       habitsDeleted: [],
@@ -284,6 +290,74 @@ const IrisView: React.FC = () => {
       summary.rantsCreated.push(rant.content.slice(0, 30) + '...');
     }
 
+    // Create Daily Mapper Entries
+    const today = new Date().toISOString().split('T')[0];
+    for (const entry of actions.dailyMapperEntries) {
+      let templateId: string | undefined;
+      
+      // If making permanent, create template first
+      if (entry.makePermanent) {
+        const newTemplate: DailyMapperTemplate = {
+          id: generateId(),
+          startTime: entry.startTime,
+          endTime: entry.endTime,
+          task: entry.task,
+          color: entry.color || '#3B82F6',
+          location: entry.location,
+          permanentType: entry.permanentType || 'daily',
+          createdAt: new Date().toISOString()
+        };
+        await dbService.put(STORES.DAILY_MAPPER_TEMPLATES, newTemplate);
+        templateId = newTemplate.id;
+      }
+      
+      const newEntry: DailyMapperEntry = {
+        id: generateId(),
+        date: entry.date || today,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        task: entry.task,
+        completed: entry.completed || 'no',
+        color: entry.color || '#3B82F6',
+        location: entry.location,
+        isPermanent: entry.makePermanent || false,
+        permanentType: entry.makePermanent ? entry.permanentType : undefined,
+        templateId,
+      };
+      await dbService.put(STORES.DAILY_MAPPER, newEntry);
+      summary.dailyMapperEntriesCreated.push(entry.task);
+    }
+
+    // Update Daily Mapper Entries
+    const allDailyMapperEntries = await dbService.getAll<DailyMapperEntry>(STORES.DAILY_MAPPER);
+    for (const update of actions.dailyMapperUpdates) {
+      const dateToFind = update.date || today;
+      const entry = allDailyMapperEntries.find(
+        e => e.task.toLowerCase() === update.task.toLowerCase() && e.date === dateToFind
+      );
+      if (entry) {
+        const updatedEntry: DailyMapperEntry = {
+          ...entry,
+          completed: update.completed || entry.completed,
+          comment: update.comment || entry.comment,
+        };
+        await dbService.put(STORES.DAILY_MAPPER, updatedEntry);
+        summary.dailyMapperUpdated.push(entry.task);
+      }
+    }
+
+    // Complete Daily Mapper Tasks (quick complete)
+    for (const taskName of actions.completedDailyMapperTasks) {
+      const entry = allDailyMapperEntries.find(
+        e => e.task.toLowerCase() === taskName.toLowerCase() && e.date === today && e.completed !== 'yes'
+      );
+      if (entry) {
+        const updatedEntry: DailyMapperEntry = { ...entry, completed: 'yes' };
+        await dbService.put(STORES.DAILY_MAPPER, updatedEntry);
+        summary.dailyMapperCompleted.push(entry.task);
+      }
+    }
+
     // Complete Habits
     const allHabits = await dbService.getAll<Habit>(STORES.HABITS);
     for (const habitName of actions.completedHabits) {
@@ -441,8 +515,11 @@ const IrisView: React.FC = () => {
       summary.applicationsCreated.length > 0 ||
       summary.logsCreated.length > 0 ||
       summary.rantsCreated.length > 0 ||
+      summary.dailyMapperEntriesCreated.length > 0 ||
       summary.habitsCompleted.length > 0 ||
       summary.tasksCompleted.length > 0 ||
+      summary.dailyMapperCompleted.length > 0 ||
+      summary.dailyMapperUpdated.length > 0 ||
       summary.tasksDeleted.length > 0 ||
       summary.notesDeleted.length > 0 ||
       summary.habitsDeleted.length > 0 ||
@@ -459,7 +536,7 @@ const IrisView: React.FC = () => {
   // Fetch all user data for context
   const fetchUserContext = useCallback(async () => {
     try {
-      const [projects, tasks, notes, habits, goals, milestones, logs, rants, events, applications] = await Promise.all([
+      const [projects, tasks, notes, habits, goals, milestones, logs, rants, events, applications, dailyMapperEntries, dailyMapperTemplates] = await Promise.all([
         dbService.getAll<Project>(STORES.PROJECTS),
         dbService.getAll<Task>(STORES.TASKS),
         dbService.getAll<Note>(STORES.NOTES),
@@ -470,6 +547,8 @@ const IrisView: React.FC = () => {
         dbService.getAll<Rant>(STORES.RANTS),
         dbService.getAll<CalendarEvent>(STORES.EVENTS),
         dbService.getAll<Application>(STORES.APPLICATIONS),
+        dbService.getAll<DailyMapperEntry>(STORES.DAILY_MAPPER),
+        dbService.getAll<DailyMapperTemplate>(STORES.DAILY_MAPPER_TEMPLATES),
       ]);
       
       let profile: UserProfile | undefined;
@@ -491,6 +570,8 @@ const IrisView: React.FC = () => {
         rants,
         events,
         applications,
+        dailyMapperEntries,
+        dailyMapperTemplates,
       });
     } catch (error) {
       console.error('Failed to fetch user context:', error);
@@ -684,6 +765,24 @@ const IrisView: React.FC = () => {
               <div className="flex items-center gap-1.5 text-teal-400">
                 <CheckCircle size={12} />
                 <span>{actionsSummary.tasksCompleted.length} task(s) completed</span>
+              </div>
+            )}
+            {actionsSummary.dailyMapperEntriesCreated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-cyan-400">
+                <Calendar size={12} />
+                <span>{actionsSummary.dailyMapperEntriesCreated.length} time block(s) added</span>
+              </div>
+            )}
+            {actionsSummary.dailyMapperCompleted.length > 0 && (
+              <div className="flex items-center gap-1.5 text-lime-400">
+                <CheckCircle size={12} />
+                <span>{actionsSummary.dailyMapperCompleted.length} time block(s) completed</span>
+              </div>
+            )}
+            {actionsSummary.dailyMapperUpdated.length > 0 && (
+              <div className="flex items-center gap-1.5 text-sky-400">
+                <CheckCircle size={12} />
+                <span>{actionsSummary.dailyMapperUpdated.length} time block(s) updated</span>
               </div>
             )}
             {actionsSummary.tasksDeleted.length > 0 && (

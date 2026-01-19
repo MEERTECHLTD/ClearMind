@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application } from '../types';
+import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, DailyMapperEntry, DailyMapperTemplate } from '../types';
 
 // Global API key from environment variable (set in Vercel)
 const GLOBAL_API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
@@ -127,6 +127,27 @@ export interface ParsedRant {
   mood?: 'frustrated' | 'angry' | 'overwhelmed' | 'confused';
 }
 
+// Interface for parsed daily mapper entry
+export interface ParsedDailyMapperEntry {
+  task: string;
+  startTime: string;
+  endTime: string;
+  date?: string; // defaults to today
+  location?: 'home' | 'work' | 'other';
+  color?: string;
+  completed?: 'yes' | 'no' | 'partial';
+  makePermanent?: boolean;
+  permanentType?: 'daily' | 'workday' | 'weekend';
+}
+
+// Interface for updating daily mapper entry
+export interface ParsedDailyMapperUpdate {
+  task: string; // task name to find
+  date?: string; // date to find (defaults to today)
+  completed?: 'yes' | 'no' | 'partial';
+  comment?: string;
+}
+
 // Complete actions object returned from parsing
 export interface ParsedActions {
   cleanedResponse: string;
@@ -140,8 +161,11 @@ export interface ParsedActions {
   applications: ParsedApplication[];
   logs: ParsedLog[];
   rants: ParsedRant[];
+  dailyMapperEntries: ParsedDailyMapperEntry[]; // daily mapper entries to create
+  dailyMapperUpdates: ParsedDailyMapperUpdate[]; // daily mapper entries to update
   completedHabits: string[]; // habit names to mark as completed
   completedTasks: string[]; // task titles to mark as completed
+  completedDailyMapperTasks: string[]; // daily mapper task names to mark as completed
   // Deletion actions
   deletedTasks: string[]; // task titles to delete
   deletedNotes: string[]; // note titles to delete
@@ -169,8 +193,11 @@ export const parseActionCommands = (response: string): ParsedActions => {
     applications: [],
     logs: [],
     rants: [],
+    dailyMapperEntries: [],
+    dailyMapperUpdates: [],
     completedHabits: [],
     completedTasks: [],
+    completedDailyMapperTasks: [],
     deletedTasks: [],
     deletedNotes: [],
     deletedHabits: [],
@@ -352,6 +379,43 @@ export const parseActionCommands = (response: string): ParsedActions => {
     }
   }
 
+  // Daily Mapper entry creation
+  const dailyMapperRegex = /\[CREATE_DAILY_MAPPER:\s*(\{[^}]+\})\]/g;
+  while ((match = dailyMapperRegex.exec(response)) !== null) {
+    try {
+      const data = JSON.parse(match[1]);
+      actions.dailyMapperEntries.push({
+        task: data.task || 'New Time Block',
+        startTime: data.startTime || '08:00',
+        endTime: data.endTime || '09:00',
+        date: data.date,
+        location: ['home', 'work', 'other'].includes(data.location) ? data.location : 'home',
+        color: data.color || '#3B82F6',
+        completed: ['yes', 'no', 'partial'].includes(data.completed) ? data.completed : 'no',
+        makePermanent: data.makePermanent || false,
+        permanentType: ['daily', 'workday', 'weekend'].includes(data.permanentType) ? data.permanentType : 'daily',
+      });
+    } catch (e) {
+      console.error('Failed to parse daily mapper command:', e);
+    }
+  }
+
+  // Daily Mapper entry update
+  const dailyMapperUpdateRegex = /\[UPDATE_DAILY_MAPPER:\s*(\{[^}]+\})\]/g;
+  while ((match = dailyMapperUpdateRegex.exec(response)) !== null) {
+    try {
+      const data = JSON.parse(match[1]);
+      actions.dailyMapperUpdates.push({
+        task: data.task,
+        date: data.date,
+        completed: ['yes', 'no', 'partial'].includes(data.completed) ? data.completed : undefined,
+        comment: data.comment,
+      });
+    } catch (e) {
+      console.error('Failed to parse daily mapper update command:', e);
+    }
+  }
+
   // Complete habit
   const completeHabitRegex = /\[COMPLETE_HABIT:\s*"([^"]+)"\]/g;
   while ((match = completeHabitRegex.exec(response)) !== null) {
@@ -362,6 +426,12 @@ export const parseActionCommands = (response: string): ParsedActions => {
   const completeTaskRegex = /\[COMPLETE_TASK:\s*"([^"]+)"\]/g;
   while ((match = completeTaskRegex.exec(response)) !== null) {
     actions.completedTasks.push(match[1]);
+  }
+
+  // Complete daily mapper task
+  const completeDailyMapperRegex = /\[COMPLETE_DAILY_MAPPER:\s*"([^"]+)"\]/g;
+  while ((match = completeDailyMapperRegex.exec(response)) !== null) {
+    actions.completedDailyMapperTasks.push(match[1]);
   }
 
   // Delete commands
@@ -427,8 +497,11 @@ export const parseActionCommands = (response: string): ParsedActions => {
     .replace(/\[CREATE_APPLICATION:\s*\{[^}]+\}\]/g, '')
     .replace(/\[CREATE_LOG:\s*\{[^}]+\}\]/g, '')
     .replace(/\[CREATE_RANT:\s*\{[^}]+\}\]/g, '')
+    .replace(/\[CREATE_DAILY_MAPPER:\s*\{[^}]+\}\]/g, '')
+    .replace(/\[UPDATE_DAILY_MAPPER:\s*\{[^}]+\}\]/g, '')
     .replace(/\[COMPLETE_HABIT:\s*"[^"]+"\]/g, '')
     .replace(/\[COMPLETE_TASK:\s*"[^"]+"\]/g, '')
+    .replace(/\[COMPLETE_DAILY_MAPPER:\s*"[^"]+"\]/g, '')
     .replace(/\[DELETE_TASK:\s*"[^"]+"\]/g, '')
     .replace(/\[DELETE_NOTE:\s*"[^"]+"\]/g, '')
     .replace(/\[DELETE_HABIT:\s*"[^"]+"\]/g, '')
@@ -492,6 +565,8 @@ export interface UserContext {
   rants: Rant[];
   events?: CalendarEvent[];
   applications?: Application[];
+  dailyMapperEntries?: DailyMapperEntry[];
+  dailyMapperTemplates?: DailyMapperTemplate[];
 }
 
 // Format user context into a readable summary for the AI
@@ -610,6 +685,51 @@ ${appList}`);
     }
   }
 
+  // Daily Mapper (today's schedule and recent entries)
+  if (context.dailyMapperEntries && context.dailyMapperEntries.length > 0) {
+    const today = new Date().toISOString().split('T')[0];
+    const todayEntries = context.dailyMapperEntries
+      .filter(e => e.date === today)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+    
+    if (todayEntries.length > 0) {
+      const entryList = todayEntries.map(e => {
+        const status = e.completed === 'yes' ? '✓' : e.completed === 'partial' ? '◐' : '○';
+        const location = e.location ? ` [${e.location}]` : '';
+        const permanent = e.isPermanent ? ' (permanent)' : '';
+        return `- ${status} ${e.startTime}-${e.endTime}: "${e.task}"${location}${permanent}`;
+      }).join('\n');
+      sections.push(`## Today's Daily Mapper Schedule (${todayEntries.length} time blocks)
+${entryList}`);
+    }
+
+    // Show recent entries from other days
+    const recentEntries = context.dailyMapperEntries
+      .filter(e => e.date !== today)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5);
+    
+    if (recentEntries.length > 0) {
+      const recentList = recentEntries.map(e => {
+        const status = e.completed === 'yes' ? '✓' : e.completed === 'partial' ? '◐' : '○';
+        return `- ${status} ${e.date} ${e.startTime}-${e.endTime}: "${e.task}"`;
+      }).join('\n');
+      sections.push(`## Recent Daily Mapper Entries
+${recentList}`);
+    }
+  }
+
+  // Daily Mapper Templates (permanent/recurring todos)
+  if (context.dailyMapperTemplates && context.dailyMapperTemplates.length > 0) {
+    const templateList = context.dailyMapperTemplates.map(t => {
+      const typeLabel = t.permanentType === 'daily' ? 'Every Day' : t.permanentType === 'workday' ? 'Workdays' : 'Weekends';
+      const location = t.location ? ` [${t.location}]` : '';
+      return `- ${t.startTime}-${t.endTime}: "${t.task}" (${typeLabel})${location}`;
+    }).join('\n');
+    sections.push(`## Permanent Daily Mapper Templates (${context.dailyMapperTemplates.length})
+${templateList}`);
+  }
+
   return sections.join('\n\n');
 };
 
@@ -688,54 +808,72 @@ Example: [CREATE_LOG: {"content": "Made great progress on the API integration. F
 [CREATE_RANT: {"content": "User's frustration or vent...", "mood": "frustrated|angry|overwhelmed|confused"}]
 Example: [CREATE_RANT: {"content": "This API documentation is so confusing!", "mood": "frustrated"}]
 
-11. COMPLETE A HABIT (mark as done today):
+=== DAILY MAPPER COMMANDS (Daily To-Do Schedule) ===
+The Daily Mapper is for time-blocked daily schedules. Users plan their day with specific time slots.
+
+11. CREATE DAILY MAPPER ENTRY (add a time block to the daily schedule):
+[CREATE_DAILY_MAPPER: {"task": "Task name", "startTime": "HH:MM", "endTime": "HH:MM", "date": "YYYY-MM-DD", "location": "home|work|other", "color": "#hexcolor", "makePermanent": false, "permanentType": "daily|workday|weekend"}]
+Example: [CREATE_DAILY_MAPPER: {"task": "Morning workout", "startTime": "06:00", "endTime": "07:00", "date": "${today}", "location": "home"}]
+Example with permanent: [CREATE_DAILY_MAPPER: {"task": "Daily standup", "startTime": "09:00", "endTime": "09:30", "location": "work", "makePermanent": true, "permanentType": "workday"}]
+
+12. UPDATE DAILY MAPPER ENTRY (update completion status or add comment):
+[UPDATE_DAILY_MAPPER: {"task": "Task name exactly as it appears", "date": "YYYY-MM-DD", "completed": "yes|no|partial", "comment": "optional comment"}]
+Example: [UPDATE_DAILY_MAPPER: {"task": "Morning workout", "completed": "yes", "comment": "Did 30 minutes cardio"}]
+
+13. COMPLETE DAILY MAPPER ENTRY (quick way to mark as done):
+[COMPLETE_DAILY_MAPPER: "Task name exactly as it appears"]
+Example: [COMPLETE_DAILY_MAPPER: "Morning workout"]
+
+=== OTHER COMPLETION COMMANDS ===
+
+14. COMPLETE A HABIT (mark as done today):
 [COMPLETE_HABIT: "Habit name exactly as it appears"]
 Example: [COMPLETE_HABIT: "Drink 8 glasses of water"]
 
-12. COMPLETE A TASK:
+15. COMPLETE A TASK:
 [COMPLETE_TASK: "Task title exactly as it appears"]
 Example: [COMPLETE_TASK: "Review pull request"]
 
 === DELETE COMMANDS ===
 You can also DELETE items when the user asks. Use exact titles/names:
 
-13. DELETE A TASK:
+16. DELETE A TASK:
 [DELETE_TASK: "Task title exactly as it appears"]
 Example: [DELETE_TASK: "Old task I don't need"]
 
-14. DELETE A NOTE:
+17. DELETE A NOTE:
 [DELETE_NOTE: "Note title exactly as it appears"]
 Example: [DELETE_NOTE: "Outdated meeting notes"]
 
-15. DELETE A HABIT:
+18. DELETE A HABIT:
 [DELETE_HABIT: "Habit name exactly as it appears"]
 Example: [DELETE_HABIT: "Old habit"]
 
-16. DELETE A GOAL:
+19. DELETE A GOAL:
 [DELETE_GOAL: "Goal title exactly as it appears"]
 Example: [DELETE_GOAL: "Cancelled project goal"]
 
-17. DELETE A PROJECT:
+20. DELETE A PROJECT:
 [DELETE_PROJECT: "Project title exactly as it appears"]
 Example: [DELETE_PROJECT: "Abandoned project"]
 
-18. DELETE A MILESTONE:
+21. DELETE A MILESTONE:
 [DELETE_MILESTONE: "Milestone title exactly as it appears"]
 Example: [DELETE_MILESTONE: "Old milestone"]
 
-19. DELETE AN EVENT:
+22. DELETE AN EVENT:
 [DELETE_EVENT: "Event title exactly as it appears"]
 Example: [DELETE_EVENT: "Cancelled meeting"]
 
-20. DELETE AN APPLICATION:
+23. DELETE AN APPLICATION:
 [DELETE_APPLICATION: "Application name exactly as it appears"]
 Example: [DELETE_APPLICATION: "Job I withdrew from"]
 
-21. DELETE A DAILY MAPPER ENTRY (from Daily To-Do Mapper):
+24. DELETE A DAILY MAPPER ENTRY (from Daily To-Do Mapper):
 [DELETE_DAILY_MAPPER: "Task name exactly as it appears"]
 Example: [DELETE_DAILY_MAPPER: "Morning review"]
 
-22. DELETE ALL DUPLICATE DAILY MAPPER ENTRIES (removes duplicates, keeps one of each):
+25. DELETE ALL DUPLICATE DAILY MAPPER ENTRIES (removes duplicates, keeps one of each):
 [DELETE_DUPLICATE_DAILY_MAPPER]
 Use this when user complains about repeated/duplicate entries in Daily Mapper. This will automatically find and remove duplicate entries that have the same time and task name, keeping only one instance of each.
 
