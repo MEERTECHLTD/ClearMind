@@ -20,7 +20,11 @@ import {
   Briefcase,
   Coffee,
   Star,
-  Settings
+  Settings,
+  Home,
+  Building2,
+  MapPin,
+  ArrowUpDown
 } from 'lucide-react';
 
 const DailyMapperView: React.FC = () => {
@@ -32,6 +36,7 @@ const DailyMapperView: React.FC = () => {
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [moveToDate, setMoveToDate] = useState('');
   const [editingEntry, setEditingEntry] = useState<DailyMapperEntry | null>(null);
+  const [sortBy, setSortBy] = useState<'time' | 'location'>('time');
   const [formData, setFormData] = useState({
     startTime: '08:00',
     endTime: '08:30',
@@ -40,6 +45,7 @@ const DailyMapperView: React.FC = () => {
     comment: '',
     adjustment: '',
     color: '#3B82F6',
+    location: 'home' as 'home' | 'work' | 'other',
     makePermanent: false,
     permanentType: 'daily' as 'daily' | 'workday' | 'weekend'
   });
@@ -126,13 +132,28 @@ const DailyMapperView: React.FC = () => {
     }
     
     // Apply permanent templates for today if not already applied
+    // Use a Set to track which templates have already been applied today
     const todayEntries = updatedEntries.filter(e => e.date === today);
-    const appliedTemplateIds = todayEntries.filter(e => e.templateId).map(e => e.templateId);
+    const appliedTemplateIds = new Set(
+      todayEntries
+        .filter(e => e.templateId)
+        .map(e => e.templateId)
+    );
+    
+    // Also check for entries that match the template by task+time (in case templateId was lost)
+    const existingTaskKeys = new Set(
+      todayEntries.map(e => `${e.startTime}-${e.endTime}-${e.task}`)
+    );
+    
     const todayIsWeekend = isWeekend(today);
     
     for (const template of templateData) {
-      // Skip if already applied
-      if (appliedTemplateIds.includes(template.id)) continue;
+      // Skip if already applied by templateId
+      if (appliedTemplateIds.has(template.id)) continue;
+      
+      // Skip if an entry with same time+task already exists (prevents duplicates)
+      const taskKey = `${template.startTime}-${template.endTime}-${template.task}`;
+      if (existingTaskKeys.has(taskKey)) continue;
       
       // Check if template applies to today
       const shouldApply = 
@@ -148,6 +169,7 @@ const DailyMapperView: React.FC = () => {
           endTime: template.endTime,
           task: template.task,
           color: template.color,
+          location: template.location,
           completed: 'no',
           templateId: template.id,
           isPermanent: true,
@@ -155,6 +177,8 @@ const DailyMapperView: React.FC = () => {
         };
         await dbService.put(STORES.DAILY_MAPPER, newEntry);
         updatedEntries.push(newEntry);
+        // Add to existing task keys to prevent duplicates in same run
+        existingTaskKeys.add(taskKey);
       }
     }
     
@@ -173,10 +197,39 @@ const DailyMapperView: React.FC = () => {
   };
 
   const todayEntries = useMemo(() => {
-    return entries
-      .filter(e => e.date === selectedDate)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime));
-  }, [entries, selectedDate]);
+    const filtered = entries.filter(e => e.date === selectedDate);
+    
+    if (sortBy === 'location') {
+      // Sort by location (home first, then work, then other), then by time
+      const locationOrder: Record<string, number> = { home: 0, work: 1, other: 2 };
+      return filtered.sort((a, b) => {
+        const locA = locationOrder[a.location || 'other'] ?? 2;
+        const locB = locationOrder[b.location || 'other'] ?? 2;
+        if (locA !== locB) return locA - locB;
+        return a.startTime.localeCompare(b.startTime);
+      });
+    }
+    
+    return filtered.sort((a, b) => a.startTime.localeCompare(b.startTime));
+  }, [entries, selectedDate, sortBy]);
+
+  const getLocationIcon = (location: 'home' | 'work' | 'other' | undefined) => {
+    switch (location) {
+      case 'home': return <Home size={12} className="text-green-500" />;
+      case 'work': return <Building2 size={12} className="text-blue-500" />;
+      case 'other': return <MapPin size={12} className="text-purple-500" />;
+      default: return <MapPin size={12} className="text-gray-400" />;
+    }
+  };
+
+  const getLocationLabel = (location: 'home' | 'work' | 'other' | undefined) => {
+    switch (location) {
+      case 'home': return 'Home';
+      case 'work': return 'Work';
+      case 'other': return 'Other';
+      default: return 'Not set';
+    }
+  };
 
   const navigateDay = (direction: number) => {
     const current = new Date(selectedDate);
@@ -215,6 +268,7 @@ const DailyMapperView: React.FC = () => {
       comment: '',
       adjustment: '',
       color: '#3B82F6',
+      location: 'home',
       makePermanent: false,
       permanentType: 'daily'
     });
@@ -231,6 +285,7 @@ const DailyMapperView: React.FC = () => {
       comment: entry.comment || '',
       adjustment: entry.adjustment || '',
       color: entry.color || '#3B82F6',
+      location: entry.location || 'home',
       makePermanent: entry.isPermanent || false,
       permanentType: entry.permanentType || 'daily'
     });
@@ -251,6 +306,7 @@ const DailyMapperView: React.FC = () => {
         comment: formData.comment,
         adjustment: formData.adjustment,
         color: formData.color,
+        location: formData.location,
         isPermanent: formData.makePermanent,
         permanentType: formData.makePermanent ? formData.permanentType : undefined
       };
@@ -272,6 +328,7 @@ const DailyMapperView: React.FC = () => {
             endTime: formData.endTime,
             task: formData.task,
             color: formData.color,
+            location: formData.location,
             permanentType: formData.permanentType,
             createdAt: new Date().toISOString()
           };
@@ -290,6 +347,7 @@ const DailyMapperView: React.FC = () => {
           endTime: formData.endTime,
           task: formData.task,
           color: formData.color,
+          location: formData.location,
           permanentType: formData.permanentType,
           createdAt: new Date().toISOString()
         };
@@ -308,6 +366,7 @@ const DailyMapperView: React.FC = () => {
         comment: formData.comment,
         adjustment: formData.adjustment,
         color: formData.color,
+        location: formData.location,
         isPermanent: formData.makePermanent,
         permanentType: formData.makePermanent ? formData.permanentType : undefined,
         templateId
@@ -433,6 +492,14 @@ const DailyMapperView: React.FC = () => {
           <p className="text-gray-500 dark:text-gray-400 text-sm">Plan your day with time blocks, like a personal schedule.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button 
+            onClick={() => setSortBy(sortBy === 'time' ? 'location' : 'time')}
+            title={`Sort by ${sortBy === 'time' ? 'location' : 'time'}`}
+            className="px-3 py-2 border dark:border-gray-700 border-gray-300 rounded-lg flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <ArrowUpDown size={16} />
+            {sortBy === 'time' ? 'By Time' : 'By Location'}
+          </button>
           <button 
             onClick={() => setShowTemplatesModal(true)}
             title="Manage permanent todos"
@@ -585,8 +652,14 @@ const DailyMapperView: React.FC = () => {
 
                 {/* Task Content */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <h4 className="font-medium dark:text-white text-gray-900">{entry.task}</h4>
+                    {entry.location && (
+                      <span className="flex items-center gap-1 text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded-full">
+                        {getLocationIcon(entry.location)}
+                        {getLocationLabel(entry.location)}
+                      </span>
+                    )}
                     {entry.isPermanent && entry.permanentType && (
                       <span className="flex items-center gap-1 text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 rounded-full">
                         {getPermanentTypeIcon(entry.permanentType)}
@@ -755,6 +828,32 @@ const DailyMapperView: React.FC = () => {
                   placeholder="e.g., Moved to 6:00 AM, Skipped due to rain..."
                   className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              {/* Location */}
+              <div>
+                <label className="block text-sm text-gray-500 mb-2">Location</label>
+                <div className="flex gap-2">
+                  {(['home', 'work', 'other'] as const).map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, location: loc })}
+                      className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                        formData.location === loc
+                          ? loc === 'home'
+                            ? 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-600 dark:text-green-400'
+                            : loc === 'work'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-600 dark:text-blue-400'
+                            : 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-600 dark:text-purple-400'
+                          : 'dark:border-gray-700 border-gray-300 dark:text-gray-400 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      {loc === 'home' ? <Home size={14} /> : loc === 'work' ? <Building2 size={14} /> : <MapPin size={14} />}
+                      {loc === 'home' ? 'Home' : loc === 'work' ? 'Work' : 'Other'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Color */}

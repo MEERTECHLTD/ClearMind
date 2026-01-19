@@ -219,6 +219,7 @@ export interface DailyMapperEntry {
   comment?: string;
   adjustment?: string;
   color?: string;
+  location?: 'home' | 'work' | 'other'; // Location of the todo
   // For permanent/recurring todos
   isPermanent?: boolean;
   permanentType?: 'daily' | 'workday' | 'weekend'; // daily = every day, workday = Mon-Fri, weekend = Sat-Sun
@@ -232,6 +233,7 @@ export interface DailyMapperTemplate {
   endTime: string;
   task: string;
   color?: string;
+  location?: 'home' | 'work' | 'other'; // Location of the todo
   permanentType: 'daily' | 'workday' | 'weekend';
   createdAt: string;
 }
