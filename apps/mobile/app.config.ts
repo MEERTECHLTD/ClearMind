@@ -31,7 +31,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     package: 'tech.meertech.clearmind',
     // Play requires versionCode to rise per build; CI sets it from the run number.
     versionCode: Number(process.env.ANDROID_VERSION_CODE ?? 1),
-    edgeToEdgeEnabled: true,
+    // Edge-to-edge needs the react-native-edge-to-edge package (Theme.EdgeToEdge);
+    // disabled for the skeleton build. Re-enable + `expo install react-native-edge-to-edge`
+    // for production (Android 15 / Play increasingly expects edge-to-edge).
+    edgeToEdgeEnabled: false,
     adaptiveIcon: {
       foregroundImage: './assets/branding/adaptive-foreground.png',
       backgroundColor: MIDNIGHT,
