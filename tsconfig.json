@@ -20,6 +20,12 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
+      "@clearmind/shared": [
+        "./shared/index.ts"
+      ],
+      "@clearmind/shared/*": [
+        "./shared/*"
+      ],
       "@/*": [
         "./*"
       ]

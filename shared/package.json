@@ -1,0 +1,16 @@
+{
+  "name": "@clearmind/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./types": "./types.ts",
+    "./data/collections": "./data/collections.ts",
+    "./sync/merge": "./sync/merge.ts",
+    "./data/firestore": "./data/firestore.ts",
+    "./ai/geminiCore": "./ai/geminiCore.ts"
+  }
+}
