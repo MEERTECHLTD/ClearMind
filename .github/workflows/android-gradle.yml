@@ -88,6 +88,13 @@ jobs:
           } >> android/gradle.properties
           node scripts/patch-android-signing.mjs
 
+      - name: Debug resolved babel/reanimated versions
+        working-directory: apps/mobile
+        run: |
+          node -e "console.log('babel-preset-expo:', require('babel-preset-expo/package.json').version)" || echo "bpe resolve FAILED"
+          node -e "console.log('react-native-reanimated:', require('react-native-reanimated/package.json').version)" || true
+          node -e "try{require.resolve('react-native-worklets/plugin');console.log('worklets/plugin: PRESENT')}catch(e){console.log('worklets/plugin: absent (expected for SDK53)')}"
+
       - name: Build AAB + APK (Gradle)
         working-directory: apps/mobile/android
         run: ./gradlew :app:bundleRelease :app:assembleRelease --no-daemon --stacktrace
