@@ -36,6 +36,8 @@ const releaseSigningConfig = `signingConfigs {
                 storePassword CLEARMIND_UPLOAD_STORE_PASSWORD
                 keyAlias CLEARMIND_UPLOAD_KEY_ALIAS
                 keyPassword CLEARMIND_UPLOAD_KEY_PASSWORD
+                enableV1Signing true
+                enableV2Signing true
             }
         }`;
 

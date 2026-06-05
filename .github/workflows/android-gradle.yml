@@ -101,19 +101,27 @@ jobs:
           node -e "console.log('react-native-reanimated:', require('react-native-reanimated/package.json').version)" || true
           node -e "try{require.resolve('react-native-worklets/plugin');console.log('worklets/plugin: PRESENT')}catch(e){console.log('worklets/plugin: absent (expected for SDK53)')}"
 
-      - name: Build AAB + APK (Gradle)
+      # APK is the directly-installable artifact and signs via apksigner (robust).
+      - name: Build APK (release, signed)
         working-directory: apps/mobile/android
-        run: ./gradlew :app:bundleRelease :app:assembleRelease --no-daemon --stacktrace
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Collect + rename artifacts
-        id: artifacts
+      # AAB (Play Store) signs via bundletool's FinalizeBundleTask, which can NPE
+      # in some AGP/keystore combos — best-effort so it never blocks the APK release.
+      - name: Build AAB (Play Store, best-effort)
+        continue-on-error: true
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: Collect artifacts (APK required, AAB optional)
         working-directory: apps/mobile
         run: |
           mkdir -p "$GITHUB_WORKSPACE/out"
-          AAB=$(find android/app/build/outputs/bundle/release -name '*.aab' | head -1)
-          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
-          cp "$AAB" "$GITHUB_WORKSPACE/out/clearmind-${{ github.run_number }}.aab"
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then echo "::error::no signed APK was produced"; exit 1; fi
           cp "$APK" "$GITHUB_WORKSPACE/out/clearmind-${{ github.run_number }}.apk"
+          AAB=$(find android/app/build/outputs/bundle/release -name '*.aab' 2>/dev/null | head -1)
+          if [ -n "$AAB" ]; then cp "$AAB" "$GITHUB_WORKSPACE/out/clearmind-${{ github.run_number }}.aab"; echo "AAB included"; else echo "::warning::AAB not produced (bundletool signing) — APK only"; fi
           ls -la "$GITHUB_WORKSPACE/out"
 
       - name: Verify APK signature (apksigner)
@@ -134,9 +142,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            "out/clearmind-${{ github.run_number }}.apk" \
-            "out/clearmind-${{ github.run_number }}.aab" \
+          # Attach whatever was produced (APK always; AAB if bundletool succeeded).
+          gh release create "${GITHUB_REF_NAME}" out/* \
             --title "ClearMind Mobile ${GITHUB_REF_NAME} (skeleton)" \
-            --notes "Signed Android build (Gradle CI). Phase-2 skeleton: branded splash + placeholder home; full views land in Phases 3-9. APK = sideload, AAB = Play Store." \
+            --notes "Signed Android build (Gradle CI). Phase-2 skeleton: branded splash + placeholder home; full views land in Phases 3-9. APK = sideload install; AAB (if present) = Play Store." \
             --target "${GITHUB_SHA}"
