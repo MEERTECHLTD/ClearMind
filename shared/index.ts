@@ -6,3 +6,9 @@
 
 // The data model — the contract both apps share.
 export * from './types';
+
+// Canonical store/collection naming — single source of truth for sync.
+export * from './data/collections';
+
+// Last-write-wins merge engine.
+export * from './sync/merge';
