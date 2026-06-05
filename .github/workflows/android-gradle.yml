@@ -77,22 +77,17 @@ jobs:
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --no-install
 
-      - name: Inject release signing
+      - name: Inject release signing (keystore + build.gradle patch)
         working-directory: apps/mobile
         env:
-          ANDROID_KEYSTORE_BASE64:   ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_PASSWORD:      ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_KEY_ALIAS:         ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
-          {
-            echo "CLEARMIND_UPLOAD_STORE_FILE=upload-keystore.jks"
-            echo "CLEARMIND_UPLOAD_KEY_ALIAS=${ANDROID_KEY_ALIAS:-clearmind-upload}"
-            echo "CLEARMIND_UPLOAD_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
-            echo "CLEARMIND_UPLOAD_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
-          } >> android/gradle.properties
+          # Signing props are passed on the gradle command line (-P) below, NOT via
+          # gradle.properties (Expo's file may lack a trailing newline, merging the
+          # first appended line and hiding the property -> "missing storeFile").
           node scripts/patch-android-signing.mjs
+          test -s android/app/upload-keystore.jks && echo "keystore decoded ($(wc -c < android/app/upload-keystore.jks) bytes)"
 
       - name: Debug resolved babel/reanimated versions
         working-directory: apps/mobile
@@ -102,16 +97,35 @@ jobs:
           node -e "try{require.resolve('react-native-worklets/plugin');console.log('worklets/plugin: PRESENT')}catch(e){console.log('worklets/plugin: absent (expected for SDK53)')}"
 
       # APK is the directly-installable artifact and signs via apksigner (robust).
+      # Signing props passed with -P (GitHub masks the secret values in logs).
       - name: Build APK (release, signed)
         working-directory: apps/mobile/android
-        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+        env:
+          SP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace \
+            -PCLEARMIND_UPLOAD_STORE_FILE=upload-keystore.jks \
+            -PCLEARMIND_UPLOAD_KEY_ALIAS="${ALIAS:-clearmind-upload}" \
+            -PCLEARMIND_UPLOAD_STORE_PASSWORD="$SP" \
+            -PCLEARMIND_UPLOAD_KEY_PASSWORD="$KP"
 
-      # AAB (Play Store) signs via bundletool's FinalizeBundleTask, which can NPE
-      # in some AGP/keystore combos — best-effort so it never blocks the APK release.
+      # AAB (Play Store) signs via bundletool's FinalizeBundleTask — best-effort so
+      # it never blocks the APK release.
       - name: Build AAB (Play Store, best-effort)
         continue-on-error: true
         working-directory: apps/mobile/android
-        run: ./gradlew :app:bundleRelease --no-daemon --stacktrace
+        env:
+          SP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace \
+            -PCLEARMIND_UPLOAD_STORE_FILE=upload-keystore.jks \
+            -PCLEARMIND_UPLOAD_KEY_ALIAS="${ALIAS:-clearmind-upload}" \
+            -PCLEARMIND_UPLOAD_STORE_PASSWORD="$SP" \
+            -PCLEARMIND_UPLOAD_KEY_PASSWORD="$KP"
 
       - name: Collect artifacts (APK required, AAB optional)
         working-directory: apps/mobile
