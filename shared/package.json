@@ -12,5 +12,9 @@
     "./sync/merge": "./sync/merge.ts",
     "./data/firestore": "./data/firestore.ts",
     "./ai/geminiCore": "./ai/geminiCore.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^1.33.0",
+    "firebase": "^12.7.0"
   }
 }
