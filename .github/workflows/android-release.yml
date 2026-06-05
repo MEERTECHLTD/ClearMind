@@ -1,0 +1,108 @@
+name: Android Release (APK + AAB)
+
+# Produces a signed Android App Bundle (.aab, for the Play Store) and a signed
+# .apk (for direct install) as downloadable workflow artifacts. Builds on the
+# runner with `eas build --local` (no Expo cloud / credits; EXPO_TOKEN not needed).
+#
+# Prerequisites before the first run (see apps/mobile/README.md):
+#   1. The 11 repository secrets below are set (Settings -> Secrets -> Actions).
+#   2. The root package-lock.json includes the mobile deps — a developer has run
+#      `npm install` at the repo root once and committed the updated lockfile.
+#
+# Trigger: push a tag like `mobile-v1.0.0`, or run manually (workflow_dispatch).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['mobile-v*']
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      # Read at prebuild/bundle time by app.config.ts and the JS bundle:
+      EXPO_PUBLIC_FIREBASE_API_KEY:             ${{ secrets.EXPO_PUBLIC_FIREBASE_API_KEY }}
+      EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN:         ${{ secrets.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+      EXPO_PUBLIC_FIREBASE_PROJECT_ID:          ${{ secrets.EXPO_PUBLIC_FIREBASE_PROJECT_ID }}
+      EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET:      ${{ secrets.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+      EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+      EXPO_PUBLIC_FIREBASE_APP_ID:              ${{ secrets.EXPO_PUBLIC_FIREBASE_APP_ID }}
+      EXPO_PUBLIC_GEMINI_API_KEY:               ${{ secrets.EXPO_PUBLIC_GEMINI_API_KEY }}
+      EAS_PROJECT_ID:                           ${{ secrets.EAS_PROJECT_ID }}
+      # Play requires a strictly increasing versionCode; the run number provides it:
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_PASSWORD:      ${{ secrets.ANDROID_KEY_PASSWORD }}
+      EXPO_NO_TELEMETRY: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate required secrets (fail fast with a clear message)
+        run: |
+          missing=()
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then missing+=("$v"); fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required signing secrets: ${missing[*]}. Set them in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The skeleton's lockfile is not yet guaranteed in sync with the hand-pinned
+      # mobile deps, so use `npm install` (resilient). Switch to `npm ci` once the
+      # lockfile is committed and stable.
+      - name: Install workspace dependencies (repo root)
+        working-directory: .
+        run: npm install --no-audit --no-fund
+
+      - name: Align Expo native deps to the SDK
+        run: npx expo install --fix
+
+      - name: Restore signing material from secrets
+        run: |
+          mkdir -p credentials
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > credentials/upload-keystore.jks
+          # Substitute ONLY the two password vars (keeps any other $ literal safe):
+          envsubst '$ANDROID_KEYSTORE_PASSWORD $ANDROID_KEY_PASSWORD' \
+            < credentials.example.json > credentials.json
+
+      - name: Build AAB (Play Store bundle)
+        run: npx eas-cli build --platform android --profile production --local --non-interactive --output "$GITHUB_WORKSPACE/artifacts/clearmind-${{ github.run_number }}.aab"
+
+      - name: Build APK (direct install)
+        run: npx eas-cli build --platform android --profile production-apk --local --non-interactive --output "$GITHUB_WORKSPACE/artifacts/clearmind-${{ github.run_number }}.apk"
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: clearmind-aab
+          path: artifacts/*.aab
+          if-no-files-found: error
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: clearmind-apk
+          path: artifacts/*.apk
+          if-no-files-found: error
