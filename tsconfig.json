@@ -32,5 +32,10 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "apps",
+    "dist",
+    "node_modules"
+  ]
 }

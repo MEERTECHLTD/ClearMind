@@ -23,6 +23,7 @@ npm install
 
 # then, in apps/mobile
 cd apps/mobile
+npx expo install --fix      # reconcile the expo-* / RN versions to the installed SDK
 cp .env.example .env        # fill in the SAME Firebase values the web app uses
 npx expo start              # press i (iOS), a (Android), or scan with Expo Go
 ```

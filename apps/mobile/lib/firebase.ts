@@ -8,8 +8,11 @@
  * the user signed in across app launches.
  */
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-// @ts-expect-error getReactNativePersistence is exported by firebase/auth at runtime
-// on RN but is not in the web type surface in some firebase versions.
+// NOTE (Phase 3): getReactNativePersistence exists at runtime on RN but is absent
+// from firebase's web type surface in some versions. @ts-ignore (not -expect-error)
+// so it stays valid whichever way the installed RN types land; revisit once the
+// toolchain is installed and type-checked.
+// @ts-ignore
 import { initializeAuth, getAuth, getReactNativePersistence, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
