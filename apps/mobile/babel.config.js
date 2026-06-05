@@ -12,7 +12,7 @@ module.exports = function (api) {
       // require.context(...) — causing "Invalid call" in release bundles. Inline
       // it ourselves (this plugin always runs, regardless of hoisting). Expo sets
       // EXPO_ROUTER_APP_ROOT in dev/export; CI sets it explicitly.
-      ['transform-inline-environment-variables', { include: ['EXPO_ROUTER_APP_ROOT'] }],
+      ['transform-inline-environment-variables', { include: ['EXPO_ROUTER_APP_ROOT', 'EXPO_ROUTER_IMPORT_MODE'] }],
       // react-native-reanimated/plugin MUST be listed last.
       'react-native-reanimated/plugin',
     ],
