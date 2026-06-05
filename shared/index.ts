@@ -12,3 +12,9 @@ export * from './data/collections';
 
 // Last-write-wins merge engine.
 export * from './sync/merge';
+
+// Firestore read/write/subscribe ops (inject db + uid). Pulls in firebase.
+export * from './data/firestore';
+
+// Gemini AI core (inject apiKey). Pulls in @google/genai.
+export * from './ai/geminiCore';
