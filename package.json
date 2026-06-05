@@ -32,6 +32,7 @@
     "vitest": "^1.6.0"
   },
   "overrides": {
-    "babel-preset-expo": "13.2.5"
+    "babel-preset-expo": "13.2.5",
+    "react-native-css-interop": "0.1.22"
   }
 }

@@ -40,7 +40,7 @@
     "expo-task-manager": "~13.1.0",
     "firebase": "^12.7.0",
     "lucide-react-native": "^0.561.0",
-    "nativewind": "^4.1.23",
+    "nativewind": "4.1.23",
     "react": "19.0.0",
     "react-native": "0.79.5",
     "react-native-gesture-handler": "~2.24.0",
