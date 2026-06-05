@@ -4,4 +4,5 @@
 // Populated incrementally in Phase 1 (see DECISIONS.md, D1–D6). The barrel below
 // is filled as each module is extracted from services/*.
 
-export {};
+// The data model — the contract both apps share.
+export * from './types';
