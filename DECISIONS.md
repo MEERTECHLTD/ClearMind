@@ -135,3 +135,39 @@ exactly, or web ⇄ mobile records will diverge:
   `dailymappertemplates → timeblocktemplates`,
   `learningresources → learningResources`, `learningfolders → learningFolders`.
   All other stores map 1:1. `profile` is not in the map (not synced).
+
+---
+
+## D8 — Phase 2 Expo skeleton: Expo SDK 53 / React 19, scaffold-not-install
+
+**Decision:** `apps/mobile` targets **Expo SDK 53** (React 19.0.0, RN 0.79), which
+keeps React on 19.x — aligned with the web app's React 19.2.3. NativeWind v4 +
+the full interaction stack (gesture-handler, reanimated, bottom-sheet, haptics,
+blur, svg, lucide-react-native) are declared. `metro.config.js` watches the
+workspace root so Metro transpiles `@clearmind/shared` TS source; deps resolve
+from the app then the hoisted root.
+
+This session **scaffolds** the mobile project (config + Firebase/Gemini adapters
+that consume the shared core) but does **not** run the heavy RN `npm install` or
+boot a simulator.
+
+**Why:** (1) Phase 2's real verification — "expo start boots, placeholder
+renders" — requires a simulator/device unavailable here, so installing the
+toolchain adds no *verifiable* value. (2) Installing RN deps re-resolves the root
+workspace and risks the green web build (React-version hoisting). Web uses
+`^19.2.3`; mobile pins `19.0.0`, so npm keeps `19.2.3` hoisted for web and nests
+`19.0.0` for mobile — but that only matters once a developer runs install, which
+is documented in `apps/mobile/README.md` as the next step. The scaffold files are
+written correct-by-construction against the shared API (which this session
+authored), and creating them leaves the web build untouched (verified: 34 tests +
+build still green).
+
+**Mobile↔shared proof points:** `lib/firebase.ts` (initializeAuth +
+getReactNativePersistence, same config keys as web), `services/firebaseService.ts`
+(mirrors web method names; Firestore via `@clearmind/shared/data/firestore` with
+injected `(db, uid)` → identical `users/{uid}/{collection}` paths),
+`services/gemini.ts` (mirrors web adapter; injects `EXPO_PUBLIC_GEMINI_API_KEY`
+into the shared `geminiCore`). Google/GitHub sign-in are stubbed with explicit
+Phase 3 TODOs (no `signInWithPopup` on native).
+
+**Continuation:** Phases 3–9 are specified in `apps/mobile/ROADMAP.md`.
