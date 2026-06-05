@@ -171,3 +171,54 @@ into the shared `geminiCore`). Google/GitHub sign-in are stubbed with explicit
 Phase 3 TODOs (no `signInWithPopup` on native).
 
 **Continuation:** Phases 3–9 are specified in `apps/mobile/ROADMAP.md`.
+
+---
+
+## D9 — Phase 10 Part A: branding from the real logo, not the brief's listed sources
+
+**Decision:** Mobile iconography is generated from `public/clearmindlogo.png` (the
+real ClearMind head+lightbulb mark) by `apps/mobile/scripts/generate-icons.mjs`,
+**not** from the `public/icon-*.png` / `apple-touch-icon.png` / `favicon.png` the
+brief listed. The app icon is the **symbol only** (wordmark cropped, bbox detected
+by per-row alpha analysis: symbol `y139–670`, wordmark `y727–846`); the splash is
+the full lockup with wordmark; the Android notification icon is a flat white head
+silhouette. Backgrounds use the exact web `midnight` `#05050A` and accent `#3B82F6`
+(from index.html's Tailwind config). `app.json` → `app.config.ts` so versionCode /
+EAS projectId read from env.
+
+**Why:** I verified (viewed the actual pixels) that `public/icon-512.png` and the
+whole PWA icon set are a **generic blue-server + yellow-database stock graphic**
+(generated from `clearmindlogo.jpg`), not the ClearMind brand. Following the brief
+literally would ship a database icon — the opposite of its intent ("inherit the
+ClearMind icon, not a placeholder"). The user confirmed: use the real logo,
+symbol-cropped. `icon.png` is flattened with **no alpha channel** (iOS App Store
+rejects icons with alpha).
+
+## D10 — Phase 10 B/C: `eas build --local` primary, signing via secrets
+
+**Decision:** CI builds the signed `.aab` + `.apk` on the GitHub runner with
+`eas build --local` (no Expo cloud, no `EXPO_TOKEN`). The upload keystore is never
+committed — it is base64-stored as a GitHub secret, decoded at build time;
+`credentials.example.json` (tracked) is `envsubst`'d into `credentials.json`
+(gitignored) which EAS reads for signing. `eas.json` uses
+**`appVersionSource: "local"`** (brief said `"remote"`) so `versionCode` comes
+from `app.config.ts`'s `ANDROID_VERSION_CODE` env (the CI run number); `"remote"`
+would require an EAS account and ignore the env-driven versionCode. The workflow
+uses `npm install` (not `npm ci`) because the skeleton lockfile isn't yet synced
+with the hand-pinned mobile deps.
+
+**Known caveat (documented, not blocking):** `eas build --local` archives the
+*project* dir, while `@clearmind/shared` lives at the workspace root
+(`../../shared`). If EAS can't resolve the shared package, switch to the **Gradle
+fallback** (in-place `expo prebuild` + `gradlew`, where Metro's `watchFolders`
+resolves shared); `apps/mobile/scripts/patch-android-signing.mjs` (idempotent)
+injects the release `signingConfig` for that path. Both paths are documented in
+`apps/mobile/README.md`.
+
+**Not run this session (environment limits, faithfully scoped):** the RN toolchain
+install, `expo prebuild`, the CI build itself, device install, and `jarsigner`/
+`bundletool` signing verification all require the installed toolchain / a runner /
+GitHub secrets / a device — none available here. The **source branding was
+visually verified**; the workflow YAML + both scripts pass parse/syntax checks; no
+secret material is tracked; and the web app stays green. The first real CI run is a
+developer step after setting the 11 secrets and committing a synced lockfile.
