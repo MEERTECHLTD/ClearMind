@@ -36,6 +36,11 @@ jobs:
       # app.config.ts reads this for android.versionCode (must rise per build):
       ANDROID_VERSION_CODE: ${{ github.run_number }}
       EXPO_NO_TELEMETRY: '1'
+      # Monorepo: the Gradle release embed runs from a different cwd than `expo
+      # export`, so expo-router can't auto-detect the app dir and leaves
+      # process.env.EXPO_ROUTER_APP_ROOT untransformed ("Invalid call"). Set it
+      # explicitly to the absolute app/ path on the runner.
+      EXPO_ROUTER_APP_ROOT: ${{ github.workspace }}/apps/mobile/app
 
     steps:
       - uses: actions/checkout@v4
