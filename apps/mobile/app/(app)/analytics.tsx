@@ -197,7 +197,10 @@ function Measured({
         const nw = Math.round(e.nativeEvent.layout.width);
         if (nw !== w) setW(nw);
       }}
-      style={{ minHeight: height }}
+      // alignSelf:'stretch' so we fill the parent's width even when the parent is
+      // items-center (otherwise this hugs its content -> width 0 when render(0)
+      // returns null -> the donut never gets a width and stays blank).
+      style={{ minHeight: height, alignSelf: 'stretch' }}
       className="items-center justify-center"
     >
       {render(w)}
