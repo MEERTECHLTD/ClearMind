@@ -196,7 +196,7 @@ const TopBar: React.FC<TopBarProps> = ({
             className="hidden sm:flex items-center gap-2 bg-midnight-light hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-300 text-gray-700 border dark:border-gray-700 border-gray-300 px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
           >
             <Download size={16} />
-            <span>Install App</span>
+            <span>Download App</span>
           </button>
         )}
 
@@ -207,7 +207,7 @@ const TopBar: React.FC<TopBarProps> = ({
           <button 
             onClick={onInstallApp}
             className="sm:hidden relative text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors p-1 animate-pulse hover:animate-none"
-            title="Install App"
+            title="Download App"
           >
             <Download size={20} />
           </button>

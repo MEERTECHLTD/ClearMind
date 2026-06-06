@@ -373,19 +373,12 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
+  // Download the signed Android APK (replaces the PWA install prompt).
+  const ANDROID_APK_URL =
+    'https://github.com/MEERTECHLTD/ClearMind/releases/download/mobile-v0.0.18/clearmind-18.apk';
   const handleInstallApp = useCallback(() => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then((choiceResult: any) => {
-        if (choiceResult.outcome === 'accepted') {
-          console.log('User accepted the install prompt');
-          localStorage.setItem('pwa-installed', 'true');
-          setIsAppInstalled(true);
-        }
-        setDeferredPrompt(null);
-      });
-    }
-  }, [deferredPrompt]);
+    window.open(ANDROID_APK_URL, '_blank', 'noopener,noreferrer');
+  }, []);
 
   const handleLogout = useCallback(async () => {
       if(confirm("Are you sure you want to sign out? This will return you to the login screen.")) {
@@ -603,7 +596,7 @@ const App: React.FC = () => {
           toggleTheme={toggleTheme} 
           isDarkMode={isDarkMode}
           onInstallApp={handleInstallApp}
-          canInstall={!!deferredPrompt && !isAppInstalled}
+          canInstall={true}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onLogout={handleLogout}
           onNavigate={handleViewChange}
