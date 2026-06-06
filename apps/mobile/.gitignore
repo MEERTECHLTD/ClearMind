@@ -38,3 +38,6 @@ yarn-error.*
 
 # macOS
 .DS_Store
+
+# Firebase (provided via CI secret, decoded at build time)
+google-services.json

@@ -33,6 +33,8 @@ jobs:
       EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
       EXPO_PUBLIC_FIREBASE_APP_ID:              ${{ secrets.EXPO_PUBLIC_FIREBASE_APP_ID }}
       EXPO_PUBLIC_GEMINI_API_KEY:               ${{ secrets.EXPO_PUBLIC_GEMINI_API_KEY }}
+      # OAuth Web client id for @react-native-google-signin (GoogleSignin.configure):
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID:         ${{ secrets.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
       # app.config.ts reads this for android.versionCode (must rise per build):
       ANDROID_VERSION_CODE: ${{ github.run_number }}
       EXPO_NO_TELEMETRY: '1'
@@ -72,6 +74,17 @@ jobs:
       - name: Align Expo native deps to the SDK
         working-directory: apps/mobile
         run: npx expo install --fix
+
+      # app.config.ts references android.googleServicesFile, and the google-signin
+      # plugin reads it during prebuild — so decode it from the secret first.
+      - name: Decode google-services.json (Firebase Android config)
+        working-directory: apps/mobile
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then echo "::error::GOOGLE_SERVICES_JSON secret missing"; exit 1; fi
+          echo "$GOOGLE_SERVICES_JSON" | base64 -d > google-services.json
+          node -e "require('./google-services.json'); console.log('google-services.json OK')"
 
       - name: Prebuild Android (generate android/)
         working-directory: apps/mobile

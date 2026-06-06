@@ -16,10 +16,13 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   signInAnonymously as fbSignInAnonymously,
+  GoogleAuthProvider,
+  signInWithCredential,
   signOut,
   type User,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import {
   pushItemToCloud as fsPushItem,
   deleteItemFromCloud as fsDeleteItem,
@@ -28,8 +31,18 @@ import {
   subscribeToCollection as fsSubscribe,
 } from '@clearmind/shared/data/firestore';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
+import { googleWebClientId } from '../lib/config';
 
 export { isFirebaseConfigured };
+
+// Configure Google Sign-In once (idempotent). webClientId is the OAuth 2.0 Web
+// client id from google-services.json (NOT the Android client id).
+let _googleConfigured = false;
+export function configureGoogleSignin(): void {
+  if (_googleConfigured) return;
+  GoogleSignin.configure({ webClientId: googleWebClientId, offlineAccess: false });
+  _googleConfigured = true;
+}
 
 export interface FirebaseUser {
   uid: string;
@@ -79,9 +92,34 @@ export const firebaseService = {
     return { uid: cred.user.uid, email: null, displayName: 'Guest', photoURL: null, provider: 'anonymous' };
   },
 
-  // Phase 3: replace with expo-auth-session -> GoogleAuthProvider.credential(idToken) -> signInWithCredential.
+  // Native Google sign-in: GoogleSignin -> idToken -> Firebase credential.
   async signInWithGoogle(): Promise<FirebaseUser> {
-    throw new Error('Google sign-in: implement with expo-auth-session in Phase 3');
+    configureGoogleSignin();
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    // @react-native-google-signin v13+ returns { type, data: { idToken, user } };
+    // older returns { idToken, user }. Handle both.
+    const res: any = await GoogleSignin.signIn();
+    const idToken: string | undefined = res?.data?.idToken ?? res?.idToken;
+    if (!idToken) throw new Error('Google sign-in returned no idToken');
+    const cred = GoogleAuthProvider.credential(idToken);
+    const { user } = await signInWithCredential(auth, cred);
+    const ref = doc(db, 'users', user.uid);
+    if (!(await getDoc(ref)).exists()) {
+      await setDoc(ref, {
+        nickname: user.displayName || user.email?.split('@')[0] || 'User',
+        email: user.email,
+        provider: 'google',
+        photoURL: user.photoURL,
+        joinedAt: serverTimestamp(),
+      });
+    }
+    return {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      provider: 'google',
+    };
   },
   // Phase 3: expo-auth-session GitHub OAuth -> GithubAuthProvider.credential(token) -> signInWithCredential.
   async signInWithGithub(): Promise<FirebaseUser> {

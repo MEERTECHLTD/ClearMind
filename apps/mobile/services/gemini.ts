@@ -19,7 +19,7 @@ export type {
   ParsedDailyMapperUpdate, ParsedActions, UserContext,
 } from '@clearmind/shared/ai/geminiCore';
 
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
+import { geminiApiKey as GEMINI_API_KEY } from '../lib/config';
 
 export const isApiConfigured = (): boolean => !!GEMINI_API_KEY;
 

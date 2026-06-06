@@ -1,45 +1,43 @@
 /**
  * Firebase initialisation for React Native (Expo).
  *
- * Uses the SAME Firebase project config as the web app (read from EXPO_PUBLIC_*),
- * so a single user's data lives in the same Firestore. The only RN-specific
- * difference vs. web is auth persistence: `getAuth` has no persistence on RN, so
- * we use `initializeAuth` with `getReactNativePersistence(AsyncStorage)` to keep
- * the user signed in across app launches.
+ * Config comes from lib/config.ts (embedded via app.config `extra`). Auth uses
+ * AsyncStorage persistence via the firebase RN build's getReactNativePersistence.
+ *
+ * IMPORTANT: only initialise when actually configured. Calling getAuth()/
+ * initializeAuth() with an empty apiKey throws `auth/invalid-api-key`, which —
+ * if uncaught at module load — crashes the app on launch (the v0.0.11 bug).
  */
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-// NOTE (Phase 3): getReactNativePersistence exists at runtime on RN but is absent
-// from firebase's web type surface in some versions. @ts-ignore (not -expect-error)
-// so it stays valid whichever way the installed RN types land; revisit once the
-// toolchain is installed and type-checked.
+// Metro resolves firebase/auth's `react-native` condition, whose build DOES
+// export getReactNativePersistence (the node build does not — hence @ts-ignore).
 // @ts-ignore
 import { initializeAuth, getAuth, getReactNativePersistence, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { firebaseConfig, isFirebaseConfigured } from './config';
 
-const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '',
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
-};
+export { isFirebaseConfigured };
 
-export const isFirebaseConfigured = (): boolean =>
-  !!(firebaseConfig.apiKey && firebaseConfig.projectId);
+let _app: FirebaseApp | null = null;
+let _auth: Auth | null = null;
+let _db: Firestore | null = null;
 
-const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
-
-// initializeAuth throws if called twice (e.g. Fast Refresh); fall back to getAuth.
-let _auth: Auth;
-try {
-  _auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
-} catch {
-  _auth = getAuth(app);
+if (isFirebaseConfigured()) {
+  _app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  try {
+    _auth = initializeAuth(_app, {
+      persistence: getReactNativePersistence(AsyncStorage),
+    });
+  } catch {
+    // Already initialised (Fast Refresh) — reuse the existing instance.
+    _auth = getAuth(_app);
+  }
+  _db = getFirestore(_app);
 }
 
-export const auth: Auth = _auth;
-export const db: Firestore = getFirestore(app);
+// Non-null assertions for ergonomics: callers gate on isFirebaseConfigured()
+// (firebaseService throws a clear "not configured" error otherwise).
+export const app = _app;
+export const auth = _auth as Auth;
+export const db = _db as Firestore;
