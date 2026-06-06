@@ -16,8 +16,10 @@ module.exports = function (api) {
       // inlining EXPO_ROUTER_APP_ROOT to an absolute path makes expo-router's
       // require.context non-enumerable -> "No routes found" crash (the REAL v0.0.11
       // bug). Leaving them un-inlined lets babel-preset-expo's expo-router plugin
-      // transform _ctx correctly (it resolves expo-router when co-located — see the
-      // root `expo-router` dep that forces co-location with babel-preset-expo).
+      // transform _ctx correctly. That plugin needs to require.resolve('expo-router')
+      // from its own location: the committed package-lock co-locates both
+      // babel-preset-expo and expo-router at the repo-root node_modules, so it works
+      // locally AND in CI (a CI step asserts the resolution so a split fails loudly).
       ['transform-inline-environment-variables', {
         include: [
           'EXPO_PUBLIC_FIREBASE_API_KEY',

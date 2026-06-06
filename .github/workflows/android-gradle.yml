@@ -108,6 +108,10 @@ jobs:
           node -e "console.log('babel-preset-expo:', require('babel-preset-expo/package.json').version)" || echo "bpe resolve FAILED"
           node -e "console.log('react-native-reanimated:', require('react-native-reanimated/package.json').version)" || true
           node -e "try{require.resolve('react-native-worklets/plugin');console.log('worklets/plugin: PRESENT')}catch(e){console.log('worklets/plugin: absent (expected for SDK53)')}"
+          # ASSERT babel-preset-expo can resolve expo-router from its own location.
+          # If not (monorepo hoisting split them), its expo-router plugin silently
+          # skips _ctx -> "No routes found" crash at launch. Fail the build instead.
+          node -e "const path=require('path');const d=path.dirname(require.resolve('babel-preset-expo/package.json'));require.resolve('expo-router/package.json',{paths:[d]});console.log('expo-router resolvable from babel-preset-expo: OK (router plugin will run)')"
 
       # APK is the directly-installable artifact and signs via apksigner (robust).
       # Signing props passed with -P (GitHub masks the secret values in logs).
