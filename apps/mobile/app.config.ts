@@ -12,7 +12,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'ClearMind',
   slug: 'clearmind',
   scheme: 'clearmind',
-  version: '0.0.16', // versionName — bump per release (see README Play checklist)
+  version: '0.0.17', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,

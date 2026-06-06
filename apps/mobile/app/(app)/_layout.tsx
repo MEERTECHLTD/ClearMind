@@ -2,12 +2,14 @@ import { Redirect, Tabs } from 'expo-router';
 import { LayoutDashboard, SquareCheckBig, Sparkles, CalendarDays, Menu } from 'lucide-react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useAppLifecycleSync } from '../../hooks/useAppLifecycleSync';
 import { Spinner } from '../../components/ui';
 
 export default function AppLayout() {
   const { user, checking } = useAuth();
-  // Single realtime-sync subscription for the whole signed-in session.
+  // Single realtime-sync subscription + foreground/online reconcile for the session.
   useRealtimeSync();
+  useAppLifecycleSync();
 
   if (checking) return <Spinner label="Starting…" />;
   if (!user) return <Redirect href="/(auth)/welcome" />;
@@ -43,6 +45,7 @@ export default function AppLayout() {
       <Tabs.Screen name="analytics" options={{ href: null }} />
       <Tabs.Screen name="projects" options={{ href: null }} />
       <Tabs.Screen name="mindmap" options={{ href: null }} />
+      <Tabs.Screen name="diagnostics" options={{ href: null }} />
     </Tabs>
   );
 }

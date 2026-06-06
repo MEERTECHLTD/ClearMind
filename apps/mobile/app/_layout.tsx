@@ -6,6 +6,15 @@ import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { ToastProvider } from '../components/ui';
 import { AuthProvider } from '../hooks/useAuth';
+import { installCrashHandler, loadLogs } from '../lib/logger';
+import { loadFlags } from '../lib/flags';
+
+// Boot-time, before any screen renders: capture global JS crashes and restore
+// persisted flags + the crash log. installCrashHandler only sets a handler (safe
+// at module load); loadFlags/loadLogs are fire-and-forget.
+installCrashHandler();
+loadFlags();
+loadLogs();
 
 // Root shell: global providers + ErrorBoundary. Routing/auth gating lives in the
 // (auth) and (app) group layouts (each guards itself), and app/index.tsx is a
