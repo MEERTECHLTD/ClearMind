@@ -1,35 +1,31 @@
 import '../global.css';
-import { useEffect } from 'react';
+import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Stack } from 'expo-router';
 import { ErrorBoundary } from '../components/ErrorBoundary';
-import { isFirebaseConfigured } from '../lib/firebase';
-import { configureGoogleSignin } from '../services/firebaseService';
+import { ToastProvider } from '../components/ui';
+import { AuthProvider } from '../hooks/useAuth';
 
+// Root shell: global providers + ErrorBoundary. Routing/auth gating lives in the
+// (auth) and (app) group layouts (each guards itself), and app/index.tsx is a
+// thin redirect gate. Firebase init is guarded in lib/firebase + AuthProvider.
 export default function RootLayout() {
-  useEffect(() => {
-    if (isFirebaseConfigured()) {
-      try {
-        configureGoogleSignin();
-      } catch {
-        // Google Play Services / native module not available — handled at sign-in.
-      }
-    }
-  }, []);
-
   return (
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <StatusBar style="light" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: '#05050A' },
-            }}
-          />
+          <AuthProvider>
+            <ToastProvider>
+              <StatusBar style="light" />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: '#05050A' },
+                }}
+              />
+            </ToastProvider>
+          </AuthProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>
