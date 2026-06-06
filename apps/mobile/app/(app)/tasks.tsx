@@ -3,6 +3,7 @@ import { View, Text, Pressable, FlatList, Modal } from 'react-native';
 import { CircleCheckBig, Circle, Pencil, Trash2, ArrowUpDown, SquareCheckBig } from 'lucide-react-native';
 import type { Task } from '@clearmind/shared';
 import { STORES } from '../../services/db';
+import { newId } from '../../lib/id';
 import { useCollection } from '../../hooks/useCollection';
 import {
   Screen, AppHeader, Card, Input, TextArea, SegmentedControl, Badge, Fab, Select,
@@ -54,7 +55,7 @@ export default function TasksScreen() {
     } else {
       const nextNumber = tasks.reduce((m, t) => Math.max(m, t.taskNumber || 0), 0) + 1;
       create({
-        id: Date.now().toString(),
+        id: newId(),
         title: data.title,
         completed: false,
         priority: data.priority,

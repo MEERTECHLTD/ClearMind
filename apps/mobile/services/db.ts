@@ -44,7 +44,14 @@ class DatabaseService {
   }
 
   getDB(): Promise<SQLite.SQLiteDatabase> {
-    if (!this.dbPromise) this.dbPromise = this._open();
+    if (!this.dbPromise) {
+      // Don't cache a rejected open — otherwise one failure poisons the DB for
+      // the whole session with no retry until app restart.
+      this.dbPromise = this._open().catch((e) => {
+        this.dbPromise = null;
+        throw e;
+      });
+    }
     return this.dbPromise;
   }
 
