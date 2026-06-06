@@ -38,12 +38,14 @@ jobs:
       # app.config.ts reads this for android.versionCode (must rise per build):
       ANDROID_VERSION_CODE: ${{ github.run_number }}
       EXPO_NO_TELEMETRY: '1'
-      # Monorepo: the Gradle release embed runs from a different cwd than `expo
-      # export`, so expo-router can't auto-detect the app dir and leaves
-      # process.env.EXPO_ROUTER_APP_ROOT untransformed ("Invalid call"). Set it
-      # explicitly to the absolute app/ path on the runner.
-      EXPO_ROUTER_APP_ROOT: ${{ github.workspace }}/apps/mobile/app
+      # expo-router's _ctx require.context needs EXPO_ROUTER_IMPORT_MODE inlined too
+      # (babel.config.js include list); 'sync' = eager routes.
       EXPO_ROUTER_IMPORT_MODE: sync
+      # EXPO_ROUTER_APP_ROOT is intentionally NOT set here. It must be a path
+      # RELATIVE to expo-router's _ctx file (node_modules/expo-router), NOT an
+      # absolute runner path: an absolute value compiles but makes require.context
+      # enumerate ZERO routes (silent "No routes found" / config-less app). It is
+      # computed hoisting-proof in the "Compute EXPO_ROUTER_APP_ROOT" step below.
 
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +76,21 @@ jobs:
       - name: Align Expo native deps to the SDK
         working-directory: apps/mobile
         run: npx expo install --fix
+
+      # EXPO_ROUTER_APP_ROOT must be RELATIVE to expo-router's _ctx file (where the
+      # require.context lives) so it resolves the same regardless of the bundling
+      # step's cwd, AND so require.context actually enumerates files (an absolute
+      # path silently enumerates nothing -> "No routes found", the real v0.0.11
+      # crash). Compute it from expo-router's real (hoisted) location so it survives
+      # node_modules layout changes. Run AFTER `expo install --fix` so a re-hoist of
+      # expo-router can't leave the value stale. babel.config.js inlines this into
+      # _ctx via transform-inline-environment-variables.
+      - name: Compute EXPO_ROUTER_APP_ROOT (relative, hoisting-proof)
+        run: |
+          REL=$(node -e "const p=require('path');const er=p.dirname(require.resolve('expo-router/package.json'));console.log(p.relative(er,p.resolve('apps/mobile/app')))")
+          if [ -z "$REL" ] || [ ! -d "apps/mobile/app" ]; then echo "::error::could not compute EXPO_ROUTER_APP_ROOT (got '$REL')"; exit 1; fi
+          echo "EXPO_ROUTER_APP_ROOT=$REL" >> "$GITHUB_ENV"
+          echo "Computed EXPO_ROUTER_APP_ROOT=$REL"
 
       # app.config.ts references android.googleServicesFile, and the google-signin
       # plugin reads it during prebuild — so decode it from the secret first.
@@ -112,6 +129,21 @@ jobs:
           # If not (monorepo hoisting split them), its expo-router plugin silently
           # skips _ctx -> "No routes found" crash at launch. Fail the build instead.
           node -e "const path=require('path');const d=path.dirname(require.resolve('babel-preset-expo/package.json'));require.resolve('expo-router/package.json',{paths:[d]});console.log('expo-router resolvable from babel-preset-expo: OK (router plugin will run)')"
+
+      # Device-free guardrail (fail BEFORE building/publishing). Produce the PLAIN
+      # JS bundle that gradle would feed to Hermes and assert the two things that
+      # silently broke past releases: (1) Firebase config is embedded (projectId),
+      # (2) expo-router enumerated the app routes (a unique app/index.tsx literal).
+      # Empty config = v0.0.11 launch crash; zero routes = absolute-app-root regression.
+      - name: Verify JS bundle (Firebase config embedded + routes enumerated)
+        working-directory: apps/mobile
+        run: |
+          npx expo export:embed --platform android --dev false --reset-cache \
+            --bundle-output /tmp/verify.bundle --assets-dest /tmp/verify-assets
+          ok=1
+          grep -q "clearmind-b8d2b" /tmp/verify.bundle || { echo "::error::Firebase config NOT embedded (projectId 'clearmind-b8d2b' missing from bundle)"; ok=0; }
+          grep -q "SHA-1 not registered" /tmp/verify.bundle || { echo "::error::app routes NOT enumerated (app/index.tsx missing — check EXPO_ROUTER_APP_ROOT is relative)"; ok=0; }
+          if [ "$ok" = 1 ]; then echo "Bundle OK: Firebase config embedded AND routes enumerated"; else exit 1; fi
 
       # APK is the directly-installable artifact and signs via apksigner (robust).
       # Signing props passed with -P (GitHub masks the secret values in logs).
