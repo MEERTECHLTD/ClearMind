@@ -1,5 +1,5 @@
 import { Redirect, Tabs } from 'expo-router';
-import { LayoutDashboard, SquareCheckBig, CalendarDays, Menu } from 'lucide-react-native';
+import { LayoutDashboard, SquareCheckBig, Sparkles, CalendarDays, Menu } from 'lucide-react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { Spinner } from '../../components/ui';
@@ -25,6 +25,7 @@ export default function AppLayout() {
       {/* Visible tabs */}
       <Tabs.Screen name="dashboard" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} /> }} />
       <Tabs.Screen name="tasks" options={{ title: 'Tasks', tabBarIcon: ({ color, size }) => <SquareCheckBig color={color} size={size} /> }} />
+      <Tabs.Screen name="iris" options={{ title: 'Iris', tabBarIcon: ({ color, size }) => <Sparkles color={color} size={size} /> }} />
       <Tabs.Screen name="calendar" options={{ title: 'Calendar', tabBarIcon: ({ color, size }) => <CalendarDays color={color} size={size} /> }} />
       <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color, size }) => <Menu color={color} size={size} /> }} />
 
@@ -37,6 +38,11 @@ export default function AppLayout() {
       <Tabs.Screen name="milestones" options={{ href: null }} />
       <Tabs.Screen name="applications" options={{ href: null }} />
       <Tabs.Screen name="rant" options={{ href: null }} />
+      <Tabs.Screen name="dailymapper" options={{ href: null }} />
+      <Tabs.Screen name="learningvault" options={{ href: null }} />
+      <Tabs.Screen name="analytics" options={{ href: null }} />
+      <Tabs.Screen name="projects" options={{ href: null }} />
+      <Tabs.Screen name="mindmap" options={{ href: null }} />
     </Tabs>
   );
 }
