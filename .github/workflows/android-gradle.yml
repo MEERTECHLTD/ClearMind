@@ -77,18 +77,21 @@ jobs:
         working-directory: apps/mobile
         run: npx expo install --fix
 
-      # EXPO_ROUTER_APP_ROOT must be RELATIVE to expo-router's _ctx file (where the
-      # require.context lives) so it resolves the same regardless of the bundling
-      # step's cwd, AND so require.context actually enumerates files (an absolute
-      # path silently enumerates nothing -> "No routes found", the real v0.0.11
-      # crash). Compute it from expo-router's real (hoisted) location so it survives
-      # node_modules layout changes. Run AFTER `expo install --fix` so a re-hoist of
-      # expo-router can't leave the value stale. babel.config.js inlines this into
-      # _ctx via transform-inline-environment-variables.
+      # EXPO_ROUTER_APP_ROOT must be a path RELATIVE to expo-router's _ctx file
+      # (where require.context lives) — an absolute path silently enumerates nothing
+      # ("No routes found", the real v0.0.11 crash). CRITICAL: resolve expo-router
+      # from apps/mobile — the SAME cwd the bundle step uses — so Node picks the
+      # EXACT copy Metro will bundle. In CI a nested apps/mobile/node_modules/
+      # expo-router can coexist with the hoisted one; computing from the repo root
+      # picked the wrong copy => wrong relative path => zero routes (the v0.0.13
+      # guardrail catch). Relative to the resolved copy's dir, the value is correct
+      # whether expo-router is nested (../../app) or hoisted (../../apps/mobile/app).
+      # Run AFTER `expo install --fix` so a re-hoist can't leave it stale.
       - name: Compute EXPO_ROUTER_APP_ROOT (relative, hoisting-proof)
+        working-directory: apps/mobile
         run: |
-          REL=$(node -e "const p=require('path');const er=p.dirname(require.resolve('expo-router/package.json'));console.log(p.relative(er,p.resolve('apps/mobile/app')))")
-          if [ -z "$REL" ] || [ ! -d "apps/mobile/app" ]; then echo "::error::could not compute EXPO_ROUTER_APP_ROOT (got '$REL')"; exit 1; fi
+          REL=$(node -e "const p=require('path');const er=p.dirname(require.resolve('expo-router/package.json'));console.log(p.relative(er,p.resolve('app')))")
+          if [ -z "$REL" ] || [ ! -d "app" ]; then echo "::error::could not compute EXPO_ROUTER_APP_ROOT (got '$REL')"; exit 1; fi
           echo "EXPO_ROUTER_APP_ROOT=$REL" >> "$GITHUB_ENV"
           echo "Computed EXPO_ROUTER_APP_ROOT=$REL"
 
