@@ -2,6 +2,7 @@ export { Screen } from './Screen';
 export { AppHeader } from './AppHeader';
 export { Button } from './Button';
 export { Card } from './Card';
+export { Gradient } from './Gradient';
 export { Input } from './Input';
 export { TextArea } from './TextArea';
 export { Select, type Option } from './Select';
