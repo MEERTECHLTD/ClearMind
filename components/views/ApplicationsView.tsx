@@ -30,7 +30,7 @@ import {
   FileText, Check, Clock, XCircle, Send, FolderOpen, ArrowUpDown, Layers, Award,
   Search, Bell, Tag as TagIcon, Users, ListChecks, LayoutGrid, List, ChevronDown,
   ChevronRight, CircleDollarSign, Hash, Building2,
-  Share2, Crown, UserPlus, Globe, Lock, Mail,
+  Share2, Crown, UserPlus, Globe, Lock, Mail, Link2,
 } from 'lucide-react';
 
 const PREFS_KEY = 'application-preferences';
@@ -144,18 +144,37 @@ const ApplicationsView: React.FC = () => {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Subscribe to the user's workspaces (owned + shared) once auth resolves.
+  // Subscribe to the user's workspaces (owned + shared) once auth resolves, and
+  // honour an incoming invite link (?joinWorkspace=<id>) by joining + opening it.
   useEffect(() => {
     if (!isFirebaseConfigured()) return;
+    const params = new URLSearchParams(window.location.search);
+    let pendingJoin = params.get('joinWorkspace');
+    if (pendingJoin) {
+      params.delete('joinWorkspace');
+      window.history.replaceState({}, '', window.location.pathname + (params.toString() ? `?${params}` : ''));
+    }
     let unsubWs: (() => void) | null = null;
-    const unsubAuth = firebaseService.onAuthChange((user) => {
+    const unsubAuth = firebaseService.onAuthChange(async (user) => {
       unsubWs?.();
       unsubWs = null;
       if (user?.email) {
         unsubWs = workspaceService.subscribe(setWorkspaces);
+        if (pendingJoin) {
+          const id = pendingJoin;
+          pendingJoin = null;
+          try {
+            await workspaceService.join(id);
+            setToast('Joined shared workspace');
+          } catch (e) {
+            console.warn('join workspace:', e); // already a member / denied — still try to open it
+          }
+          setActiveWsId(id);
+        }
       } else {
         setWorkspaces([]);
         setActiveWsId(null);
+        if (pendingJoin) setToast('Sign in with an email account to join the shared workspace');
       }
     });
     return () => {
@@ -347,6 +366,17 @@ const ApplicationsView: React.FC = () => {
     setToast('Workspace deleted');
   };
 
+  const copyInviteLink = async () => {
+    if (!activeWorkspace) return;
+    const link = workspaceService.inviteLink(activeWorkspace.id);
+    try {
+      await navigator.clipboard.writeText(link);
+      setToast('Invite link copied — anyone you send it to can join');
+    } catch {
+      setToast(link); // clipboard blocked — surface the link so it can be copied manually
+    }
+  };
+
   const processedApplications = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = applications.filter((app) => {
@@ -472,6 +502,9 @@ const ApplicationsView: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={copyInviteLink} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+              <Link2 size={13} /> Copy link
+            </button>
             <button onClick={() => setShowMembers(true)} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 hover:bg-gray-200 dark:hover:bg-gray-700">
               <Users size={13} /> Members
             </button>

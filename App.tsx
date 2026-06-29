@@ -57,7 +57,11 @@ const getViewFromHash = (): ViewState => {
 };
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<ViewState>(getViewFromHash()); 
+  const [currentView, setCurrentView] = useState<ViewState>(
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('joinWorkspace')
+      ? 'applications' // an invite link opens straight to Applications, which handles the join
+      : getViewFromHash()
+  );
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -337,7 +341,7 @@ const App: React.FC = () => {
 
   // Download the signed Android APK (replaces the PWA install prompt).
   const ANDROID_APK_URL =
-    'https://github.com/MEERTECHLTD/ClearMind/releases/download/mobile-v0.0.19/clearmind-19.apk';
+    'https://github.com/MEERTECHLTD/ClearMind/releases/download/mobile-v0.0.20/clearmind-20.apk';
   const handleInstallApp = useCallback(() => {
     window.open(ANDROID_APK_URL, '_blank', 'noopener,noreferrer');
   }, []);

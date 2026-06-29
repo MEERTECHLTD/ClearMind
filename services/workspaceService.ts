@@ -11,6 +11,7 @@ import {
   setWorkspaceMembers as fsSetMembers,
   renameWorkspace as fsRename,
   deleteWorkspace as fsDelete,
+  joinWorkspace as fsJoin,
   subscribeWorkspaceApplications as fsSubscribeApps,
   putWorkspaceApplication as fsPutApp,
   deleteWorkspaceApplication as fsDeleteApp,
@@ -70,6 +71,19 @@ export const workspaceService = {
   async remove(wsId: string): Promise<void> {
     if (!db) throw new Error('Firebase not configured');
     await fsDelete(db, wsId);
+  },
+
+  /** Join a workspace from its invite link (adds the signed-in user). */
+  async join(wsId: string): Promise<void> {
+    const email = auth?.currentUser?.email;
+    if (!db || !email) throw new Error('Sign in with an email or Google account to join a shared workspace.');
+    await fsJoin(db, wsId, email, nowIso());
+  },
+
+  /** A shareable invite link that adds whoever opens it (signed in) to the workspace. */
+  inviteLink(wsId: string): string {
+    const base = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
+    return `${base}?joinWorkspace=${wsId}`;
   },
 
   subscribeApplications(wsId: string, onUpdate: (apps: Application[]) => void): () => void {

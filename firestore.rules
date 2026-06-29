@@ -31,20 +31,28 @@ service cloud.firestore {
     match /workspaces/{wsId} {
       allow read: if isWsMember(resource.data);
 
-      // Creator must own it and be a member (so the array-contains list query sees it).
+      // Owner is identified by uid (robust to email casing). The client seeds
+      // memberEmails with the owner's (normalized) email so the list query finds it.
       allow create: if request.auth != null
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.auth.token.email != null
-        && request.auth.token.email in request.resource.data.memberEmails;
+        && request.resource.data.ownerUid == request.auth.uid;
 
-      // Members may update the doc (e.g. rename); ownership is immutable and only
-      // the owner may change the member list.
-      allow update: if isWsMember(resource.data)
+      // Owner can update freely; ownership is immutable.
+      allow update: if request.auth != null
+        && request.auth.uid == resource.data.ownerUid
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+
+      // JOIN VIA LINK: any signed-in user may add ONLY their own email to the member
+      // list (nothing else but updatedAt changes). This is the "anyone with the link
+      // can join" capability — the workspace id is an unguessable token.
+      allow update: if request.auth != null
+        && request.auth.token.email != null
         && request.resource.data.ownerUid == resource.data.ownerUid
-        && (
-          request.auth.uid == resource.data.ownerUid
-          || request.resource.data.memberEmails == resource.data.memberEmails
-        );
+        && request.resource.data.ownerEmail == resource.data.ownerEmail
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.memberEmails.hasAll(resource.data.memberEmails)
+        && request.resource.data.memberEmails.size() == resource.data.memberEmails.size() + 1
+        && request.auth.token.email in request.resource.data.memberEmails
+        && !(request.auth.token.email in resource.data.memberEmails);
 
       allow delete: if request.auth != null && request.auth.uid == resource.data.ownerUid;
 
