@@ -12,7 +12,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'ClearMind',
   slug: 'clearmind',
   scheme: 'clearmind',
-  version: '0.0.22', // versionName — bump per release (see README Play checklist)
+  version: '0.0.23', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
@@ -34,6 +34,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     googleServicesFile: './google-services.json',
     // Play requires versionCode to rise per build; CI sets it from the run number.
     versionCode: Number(process.env.ANDROID_VERSION_CODE ?? 1),
+    // Strip Play-sensitive permissions the app does NOT use (prebuild/RN add these
+    // by default): the dev-only overlay SYSTEM_ALERT_WINDOW, and legacy storage —
+    // the Excel import/export uses scoped access (document-picker/file-system/sharing),
+    // so no storage permission is required. INTERNET + VIBRATE + (notifications)
+    // remain. blockedPermissions adds tools:node="remove" so the merger drops them.
+    blockedPermissions: [
+      'android.permission.SYSTEM_ALERT_WINDOW',
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+    ],
     // Edge-to-edge needs the react-native-edge-to-edge package (Theme.EdgeToEdge);
     // disabled for the skeleton build. Re-enable + `expo install react-native-edge-to-edge`
     // for production (Android 15 / Play increasingly expects edge-to-edge).
