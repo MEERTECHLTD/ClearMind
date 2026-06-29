@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Application, ApplicationContact, ApplicationRequirement } from '../../types';
+import { Application, ApplicationContact, ApplicationRequirement, Workspace } from '../../types';
 import { dbService, STORES } from '../../services/db';
+import { workspaceService } from '../../services/workspaceService';
+import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
 import {
   AppType,
   AppStatus,
@@ -28,6 +30,7 @@ import {
   FileText, Check, Clock, XCircle, Send, FolderOpen, ArrowUpDown, Layers, Award,
   Search, Bell, Tag as TagIcon, Users, ListChecks, LayoutGrid, List, ChevronDown,
   ChevronRight, CircleDollarSign, Hash, Building2,
+  Share2, Crown, UserPlus, Globe, Lock, Mail,
 } from 'lucide-react';
 
 const PREFS_KEY = 'application-preferences';
@@ -112,6 +115,13 @@ const ApplicationsView: React.FC = () => {
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState<string | null>(null);
 
+  // Collaboration: shared workspaces (null active = personal local-first list).
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWsId, setActiveWsId] = useState<string | null>(null);
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const activeWorkspace = activeWsId ? workspaces.find((w) => w.id === activeWsId) ?? null : null;
+
   const readPref = <T,>(key: string, fallback: T): T => {
     const saved = localStorage.getItem(PREFS_KEY);
     if (saved) { try { return (JSON.parse(saved)[key] as T) ?? fallback; } catch { return fallback; } }
@@ -134,25 +144,63 @@ const ApplicationsView: React.FC = () => {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Subscribe to the user's workspaces (owned + shared) once auth resolves.
   useEffect(() => {
-    const loadApplications = async () => {
+    if (!isFirebaseConfigured()) return;
+    let unsubWs: (() => void) | null = null;
+    const unsubAuth = firebaseService.onAuthChange((user) => {
+      unsubWs?.();
+      unsubWs = null;
+      if (user?.email) {
+        unsubWs = workspaceService.subscribe(setWorkspaces);
+      } else {
+        setWorkspaces([]);
+        setActiveWsId(null);
+      }
+    });
+    return () => {
+      unsubAuth();
+      unsubWs?.();
+    };
+  }, []);
+
+  // If the active workspace is deleted or access is revoked, fall back to personal.
+  useEffect(() => {
+    if (activeWsId && !workspaces.some((w) => w.id === activeWsId)) setActiveWsId(null);
+  }, [workspaces, activeWsId]);
+
+  // Data source: personal (local-first) when no workspace is active; otherwise a
+  // LIVE Firestore subscription to the shared workspace's applications.
+  useEffect(() => {
+    setIsLoading(true);
+    if (activeWsId) {
+      const unsub = workspaceService.subscribeApplications(activeWsId, (apps) => {
+        setApplications(apps);
+        setIsLoading(false);
+      });
+      return unsub;
+    }
+    let cancelled = false;
+    const loadLocal = async () => {
       try {
         const data = await dbService.getAll<Application>(STORES.APPLICATIONS);
-        setApplications(data);
+        if (!cancelled) setApplications(data);
       } catch (err) {
         console.error('Failed to load applications', err);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
-    loadApplications();
-
+    loadLocal();
     const handleSync = (e: CustomEvent) => {
-      if (e.detail?.store === 'applications') loadApplications();
+      if (e.detail?.store === 'applications') loadLocal();
     };
     window.addEventListener('clearmind-sync', handleSync as EventListener);
-    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
-  }, []);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('clearmind-sync', handleSync as EventListener);
+    };
+  }, [activeWsId]);
 
   const openAddModal = () => {
     setFormData(emptyForm());
@@ -213,47 +261,90 @@ const ApplicationsView: React.FC = () => {
       : undefined,
   });
 
+  // Persist to the active source: the personal local-first store, or — when a
+  // shared workspace is active — the live Firestore workspace (onSnapshot also
+  // reconciles, but we update optimistically for snappiness).
+  const persistApp = async (app: Application, opts?: { rearm?: boolean }) => {
+    if (activeWsId) {
+      await workspaceService.putApplication(activeWsId, app);
+    } else {
+      if (opts?.rearm) clearReminderKeys(app.id);
+      await dbService.put(STORES.APPLICATIONS, app);
+    }
+    setApplications((prev) =>
+      prev.some((a) => a.id === app.id) ? prev.map((a) => (a.id === app.id ? app : a)) : [app, ...prev]
+    );
+  };
+
   const handleSave = async () => {
     if (!formData.name.trim()) return;
     const cleaned = cleanForm();
-
-    if (editingApplication) {
-      const updated: Application = { ...editingApplication, ...cleaned } as Application;
-      // Re-arm reminders if the deadline or the lead-time ladder changed.
-      const deadlineChanged = applicationDeadline(editingApplication) !== applicationDeadline(updated);
-      const leadChanged = JSON.stringify(editingApplication.reminderLeadDays ?? null) !== JSON.stringify(updated.reminderLeadDays ?? null);
-      if (deadlineChanged || leadChanged) clearReminderKeys(updated.id);
-      await dbService.put(STORES.APPLICATIONS, updated);
-      setApplications((prev) => prev.map((a) => (a.id === editingApplication.id ? updated : a)));
-      setToast('Application updated');
-    } else {
-      const newApp: Application = {
-        id: newId(),
-        ...cleaned,
-        createdAt: new Date().toISOString(),
-      } as Application;
-      await dbService.put(STORES.APPLICATIONS, newApp);
-      setApplications((prev) => [newApp, ...prev]);
-      setToast(isReminderEligible(newApp) ? 'Application added · reminder armed' : 'Application added');
+    try {
+      if (editingApplication) {
+        const updated: Application = { ...editingApplication, ...cleaned, updatedAt: new Date().toISOString() } as Application;
+        // Re-arm reminders (personal only) if the deadline or lead-time ladder changed.
+        const deadlineChanged = applicationDeadline(editingApplication) !== applicationDeadline(updated);
+        const leadChanged = JSON.stringify(editingApplication.reminderLeadDays ?? null) !== JSON.stringify(updated.reminderLeadDays ?? null);
+        await persistApp(updated, { rearm: deadlineChanged || leadChanged });
+        setToast('Application updated');
+      } else {
+        const newApp: Application = { id: newId(), ...cleaned, createdAt: new Date().toISOString() } as Application;
+        await persistApp(newApp);
+        setToast(!activeWsId && isReminderEligible(newApp) ? 'Application added · reminder armed' : 'Application added');
+      }
+      setShowModal(false);
+      setEditingApplication(null);
+    } catch (e) {
+      console.error('Save failed', e);
+      setToast('Could not save — check your connection');
     }
-
-    setShowModal(false);
-    setEditingApplication(null);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this application?')) return;
-    clearReminderKeys(id);
-    await dbService.delete(STORES.APPLICATIONS, id);
-    setApplications((prev) => prev.filter((a) => a.id !== id));
+    try {
+      if (activeWsId) {
+        await workspaceService.deleteApplication(activeWsId, id);
+      } else {
+        clearReminderKeys(id);
+        await dbService.delete(STORES.APPLICATIONS, id);
+      }
+      setApplications((prev) => prev.filter((a) => a.id !== id));
+    } catch (e) {
+      console.error('Delete failed', e);
+      setToast('Could not delete — check your connection');
+    }
   };
 
   // Inline status change from a card (advance through the pipeline without the modal).
   const changeStatus = async (app: Application, status: AppStatus) => {
     if (app.status === status) return;
-    const updated: Application = { ...app, status };
-    await dbService.put(STORES.APPLICATIONS, updated);
-    setApplications((prev) => prev.map((a) => (a.id === app.id ? updated : a)));
+    await persistApp({ ...app, status, updatedAt: new Date().toISOString() });
+  };
+
+  // ---- Workspace (collaboration) actions ----
+  const handleCreateWorkspace = async (name: string, emails: string[], seed: boolean) => {
+    const seedApps = seed ? await dbService.getAll<Application>(STORES.APPLICATIONS) : [];
+    const ws = await workspaceService.create(name, emails, seedApps);
+    setShowNewWorkspace(false);
+    setActiveWsId(ws.id);
+    setToast(`Workspace “${ws.name}” created${emails.length ? ` · invited ${emails.length}` : ''}`);
+  };
+
+  const handleSetMembers = async (emails: string[]) => {
+    if (!activeWorkspace) return;
+    await workspaceService.setMembers(activeWorkspace, emails);
+    setToast('Members updated');
+  };
+
+  const handleDeleteWorkspace = async () => {
+    if (!activeWorkspace) return;
+    if (!confirm(`Delete the shared workspace “${activeWorkspace.name}” for everyone? This cannot be undone.`)) return;
+    const id = activeWorkspace.id;
+    setActiveWsId(null);
+    setShowMembers(false);
+    await workspaceService.remove(id);
+    setToast('Workspace deleted');
   };
 
   const processedApplications = useMemo(() => {
@@ -319,6 +410,9 @@ const ApplicationsView: React.FC = () => {
   }
 
   const selectClass = 'bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500';
+  const chip = (active: boolean) =>
+    `inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${active ? 'bg-blue-600 text-white border-blue-600' : 'dark:border-gray-700 border-gray-300 text-gray-400 hover:text-gray-200'}`;
+  const showWorkspaceBar = isFirebaseConfigured() && (workspaces.length > 0 || workspaceService.supported());
 
   return (
     <div className="p-8 h-full overflow-y-auto animate-fade-in">
@@ -335,6 +429,60 @@ const ApplicationsView: React.FC = () => {
           New Application
         </button>
       </div>
+
+      {/* Workspace switcher (collaboration) */}
+      {showWorkspaceBar && (
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <span className="text-xs text-gray-500 mr-1">Workspace</span>
+          <button onClick={() => setActiveWsId(null)} className={chip(!activeWsId)}>
+            <Lock size={12} /> My Applications
+          </button>
+          {workspaces.map((ws) => (
+            <button key={ws.id} onClick={() => setActiveWsId(ws.id)} className={chip(activeWsId === ws.id)} title={ws.name}>
+              <Users size={12} /> <span className="max-w-[140px] truncate">{ws.name}</span>
+            </button>
+          ))}
+          <button
+            onClick={() => setShowNewWorkspace(true)}
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border border-dashed dark:border-gray-700 border-gray-300 text-gray-400 hover:text-blue-400 hover:border-blue-400 transition-colors"
+          >
+            <Share2 size={12} /> Share / New
+          </button>
+        </div>
+      )}
+
+      {/* Active workspace banner */}
+      {activeWorkspace && (
+        <div className="mb-5 rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center">
+              <Share2 size={16} className="text-blue-400" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold dark:text-white text-gray-900 flex items-center gap-2">
+                {activeWorkspace.name}
+                {workspaceService.isOwner(activeWorkspace) && (
+                  <span className="text-[11px] text-amber-400 inline-flex items-center gap-1"><Crown size={11} /> owner</span>
+                )}
+                <span className="text-[11px] text-emerald-400 inline-flex items-center gap-1"><Globe size={11} /> live</span>
+              </p>
+              <p className="text-xs text-gray-500">
+                {activeWorkspace.memberEmails.length} member{activeWorkspace.memberEmails.length !== 1 ? 's' : ''} · everyone can edit
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowMembers(true)} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 hover:bg-gray-200 dark:hover:bg-gray-700">
+              <Users size={13} /> Members
+            </button>
+            {workspaceService.isOwner(activeWorkspace) && (
+              <button onClick={handleDeleteWorkspace} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-red-400 hover:bg-red-500/10">
+                <Trash2 size={13} /> Delete
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Search + view toggle */}
       <div className="flex flex-wrap gap-3 mb-4 items-center">
@@ -462,6 +610,24 @@ const ApplicationsView: React.FC = () => {
 
       {/* Add/Edit Modal */}
       {showModal && renderModal()}
+
+      {/* Workspace modals */}
+      {showNewWorkspace && (
+        <NewWorkspaceModal
+          supported={workspaceService.supported()}
+          onCancel={() => setShowNewWorkspace(false)}
+          onCreate={handleCreateWorkspace}
+        />
+      )}
+      {showMembers && activeWorkspace && (
+        <MembersModal
+          workspace={activeWorkspace}
+          isOwner={workspaceService.isOwner(activeWorkspace)}
+          currentEmail={workspaceService.currentEmail()}
+          onCancel={() => setShowMembers(false)}
+          onSave={handleSetMembers}
+        />
+      )}
 
       {/* Toast */}
       {toast && (
@@ -821,6 +987,184 @@ const BoardCard: React.FC<{ app: Application; onEdit: () => void }> = ({ app, on
           <Calendar size={11} /> {relativeDeadline(deadline)}
         </p>
       )}
+    </div>
+  );
+};
+
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+const NewWorkspaceModal: React.FC<{
+  supported: boolean;
+  onCancel: () => void;
+  onCreate: (name: string, emails: string[], seed: boolean) => Promise<void>;
+}> = ({ supported, onCancel, onCreate }) => {
+  const [name, setName] = useState('');
+  const [emails, setEmails] = useState<string[]>([]);
+  const [seed, setSeed] = useState(true);
+  const [personalCount, setPersonalCount] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    dbService.getAll<Application>(STORES.APPLICATIONS).then((a) => setPersonalCount(a.length)).catch(() => {});
+  }, []);
+
+  const addEmail = (raw: string) => {
+    const e = raw.trim().toLowerCase();
+    if (e && EMAIL_RE.test(e) && !emails.includes(e)) setEmails([...emails, e]);
+  };
+  const submit = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onCreate(name.trim(), emails, seed);
+    } catch (e: any) {
+      setError(e?.message || 'Could not create workspace');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-xl font-bold dark:text-white text-gray-900 flex items-center gap-2"><Share2 size={18} className="text-blue-400" /> Share a workspace</h3>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-white"><X size={22} /></button>
+        </div>
+
+        {!supported ? (
+          <div className="text-sm text-gray-400 space-y-4">
+            <p>Sign in with an email or Google account to create a shared workspace others can join and collaborate in.</p>
+            <button onClick={onCancel} className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-medium">Got it</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Field label="Workspace name">
+              <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Grants 2026" autoFocus />
+            </Field>
+            <Field label="Invite by email (optional)">
+              {emails.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {emails.map((e) => (
+                    <span key={e} className="text-xs px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 flex items-center gap-1">
+                      <Mail size={10} /> {e}
+                      <button onClick={() => setEmails(emails.filter((x) => x !== e))} className="hover:text-white"><X size={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <input
+                className={inputClass}
+                placeholder="name@example.com — press Enter"
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ',') {
+                    ev.preventDefault();
+                    addEmail((ev.target as HTMLInputElement).value);
+                    (ev.target as HTMLInputElement).value = '';
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">They'll see this workspace next time they open ClearMind signed in with that email.</p>
+            </Field>
+            <label className="flex items-center gap-2 text-sm dark:text-gray-300 text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={seed} onChange={(e) => setSeed(e.target.checked)} className="accent-blue-600" />
+              Copy my {personalCount} current application{personalCount !== 1 ? 's' : ''} into it
+            </label>
+            {error && <p className="text-sm text-red-400">{error}</p>}
+            <div className="flex gap-3 pt-1">
+              <button onClick={submit} disabled={!name.trim() || busy} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2">
+                <Share2 size={16} /> {busy ? 'Creating…' : 'Create & share'}
+              </button>
+              <button onClick={onCancel} className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700">Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const MembersModal: React.FC<{
+  workspace: Workspace;
+  isOwner: boolean;
+  currentEmail: string | null;
+  onCancel: () => void;
+  onSave: (emails: string[]) => Promise<void>;
+}> = ({ workspace, isOwner, currentEmail, onCancel, onSave }) => {
+  const [invitees, setInvitees] = useState<string[]>(workspace.memberEmails.filter((e) => e !== workspace.ownerEmail));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const addEmail = (raw: string) => {
+    const e = raw.trim().toLowerCase();
+    if (e && EMAIL_RE.test(e) && e !== workspace.ownerEmail && !invitees.includes(e)) setInvitees([...invitees, e]);
+  };
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(invitees);
+      onCancel();
+    } catch (e: any) {
+      setError(e?.message || 'Could not update members');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold dark:text-white text-gray-900 flex items-center gap-2"><Users size={18} className="text-blue-400" /> Members</h3>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-white"><X size={22} /></button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">{workspace.name} · everyone listed can view and edit every application.</p>
+
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center justify-between text-sm dark:text-white text-gray-900 px-3 py-2 rounded-lg dark:bg-gray-800/60 bg-gray-100">
+            <span className="flex items-center gap-2"><Mail size={13} className="text-gray-400" /> {workspace.ownerEmail}</span>
+            <span className="text-[11px] text-amber-400 inline-flex items-center gap-1"><Crown size={11} /> owner{currentEmail === workspace.ownerEmail ? ' · you' : ''}</span>
+          </div>
+          {invitees.map((e) => (
+            <div key={e} className="flex items-center justify-between text-sm dark:text-white text-gray-900 px-3 py-2 rounded-lg dark:bg-gray-800/40 bg-gray-50">
+              <span className="flex items-center gap-2"><Mail size={13} className="text-gray-400" /> {e}{currentEmail === e ? ' · you' : ''}</span>
+              {isOwner && (
+                <button onClick={() => setInvitees(invitees.filter((x) => x !== e))} className="text-gray-400 hover:text-red-500"><X size={14} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {isOwner ? (
+          <>
+            <div className="flex items-center gap-2 mb-4">
+              <UserPlus size={15} className="text-gray-400" />
+              <input
+                className={`${inputClass} py-2`}
+                placeholder="Invite by email — press Enter"
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ',') {
+                    ev.preventDefault();
+                    addEmail((ev.target as HTMLInputElement).value);
+                    (ev.target as HTMLInputElement).value = '';
+                  }
+                }}
+              />
+            </div>
+            {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
+            <div className="flex gap-3">
+              <button onClick={save} disabled={busy} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg font-medium">{busy ? 'Saving…' : 'Save members'}</button>
+              <button onClick={onCancel} className="px-4 py-2.5 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700">Cancel</button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">Only the owner can change who's in this workspace.</p>
+            <button onClick={onCancel} className="w-full dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 px-4 py-2.5 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700">Close</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

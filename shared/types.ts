@@ -310,6 +310,21 @@ export interface ApplicationPreferences {
   groupBy: 'none' | 'type' | 'status' | 'priority';
 }
 
+// A shared, collaborative Applications workspace. Lives in Firestore at
+// `workspaces/{id}` with applications under `workspaces/{id}/applications/{appId}`.
+// Membership is by email (the auth token carries it), so no uid lookup / Cloud
+// Function is needed to invite someone — the owner just adds their email.
+// Every member has FULL edit access to the applications (no viewer/editor roles).
+export interface Workspace {
+  id: string;
+  name: string;
+  ownerUid: string;
+  ownerEmail: string;
+  memberEmails: string[]; // lowercased; always includes the owner
+  createdAt: string;
+  updatedAt?: string;
+}
+
 // Learning Vault Types
 export type LearningContentType = 'video' | 'audio';
 export type LearningContentStatus = 'unwatched' | 'in-progress' | 'completed';

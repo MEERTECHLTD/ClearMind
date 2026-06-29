@@ -19,5 +19,8 @@ export * from './sync/merge';
 // Firestore read/write/subscribe ops (inject db + uid). Pulls in firebase.
 export * from './data/firestore';
 
+// Shared collaborative Applications workspaces (inject db; membership by email).
+export * from './data/workspaces';
+
 // Gemini AI core (inject apiKey). Pulls in @google/genai.
 export * from './ai/geminiCore';
