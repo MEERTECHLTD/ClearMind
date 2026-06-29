@@ -17,6 +17,7 @@
  *   workspaces/{wsId}/applications/{appId} -> Application (+ updatedByEmail)
  */
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -108,6 +109,20 @@ export async function setWorkspaceMembers(
   await setDoc(
     doc(db, WS, ws.id),
     { memberEmails: memberSet(ws.ownerEmail, invitees), updatedAt: nowIso },
+    { merge: true }
+  );
+}
+
+/**
+ * Join a workspace via its invite link — adds ONLY the caller's own (normalized)
+ * email to the member list. Permitted by the self-join security rule even though
+ * the caller can't yet read the workspace doc. No-op-ish if already a member
+ * (the rule rejects a same-size update; callers treat that as "already in").
+ */
+export async function joinWorkspace(db: Firestore, wsId: string, email: string, nowIso: string): Promise<void> {
+  await setDoc(
+    doc(db, WS, wsId),
+    { memberEmails: arrayUnion(normalizeEmail(email)), updatedAt: nowIso },
     { merge: true }
   );
 }

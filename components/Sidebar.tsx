@@ -1,6 +1,7 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
+import { Avatar } from './Avatar';
+import {
+  LayoutDashboard,
   Folder, 
   CheckSquare, 
   FileText, 
@@ -106,17 +107,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isCollapse
       {/* Footer / User Profile */}
       <div className="p-4 border-t dark:border-gray-800 border-gray-200">
          <div className="flex items-center gap-3">
-            {user.githubUsername ? (
-               <img 
-                 src={`https://github.com/${user.githubUsername}.png`} 
-                 alt={user.nickname}
-                 className="w-8 h-8 rounded-full border dark:border-gray-700 border-gray-200 bg-midnight"
-               />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-xs font-bold text-white uppercase">
-                {user.nickname.substring(0, 2)}
-              </div>
-            )}
+            <Avatar
+              nickname={user.nickname}
+              photoURL={user.photoURL}
+              githubUsername={user.githubUsername}
+              email={user.email}
+            />
             
             {(!isCollapsed || isMobileOpen) && (
               <div className="flex-1 min-w-0">

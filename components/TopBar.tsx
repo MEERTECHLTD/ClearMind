@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Moon, Sun, Download, Bell, Menu, LogOut, Settings, Clock } from 'lucide-react';
 import { UserProfile, ViewState, Task, Project, Note } from '../types';
 import { dbService, STORES } from '../services/db';
+import { Avatar } from './Avatar';
 
 interface SearchResult {
   type: 'task' | 'project' | 'note';
@@ -281,17 +282,14 @@ const TopBar: React.FC<TopBarProps> = ({
             onClick={() => setIsProfileOpen(!isProfileOpen)}
             className="relative block focus:outline-none"
           >
-            {user.githubUsername ? (
-                <img 
-                  src={`https://github.com/${user.githubUsername}.png`} 
-                  alt="Profile" 
-                  className={`w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 object-cover hover:border-blue-500 transition-colors ${isProfileOpen ? 'ring-2 ring-blue-500' : ''}`}
-                />
-            ) : (
-                <div className={`w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-xs font-bold text-white uppercase hover:ring-2 hover:ring-blue-500 transition-all ${isProfileOpen ? 'ring-2 ring-blue-500' : ''}`}>
-                    {user.nickname.substring(0, 2)}
-                </div>
-            )}
+            <Avatar
+              nickname={user.nickname}
+              photoURL={user.photoURL}
+              githubUsername={user.githubUsername}
+              email={user.email}
+              ring={isProfileOpen}
+              className="hover:ring-2 hover:ring-blue-500 transition-all"
+            />
           </button>
 
           {isProfileOpen && (
