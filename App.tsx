@@ -341,7 +341,7 @@ const App: React.FC = () => {
 
   // Download the signed Android APK (replaces the PWA install prompt).
   const ANDROID_APK_URL =
-    'https://github.com/MEERTECHLTD/ClearMind/releases/download/mobile-v0.0.22/clearmind-22.apk';
+    'https://github.com/MEERTECHLTD/ClearMind/releases/download/mobile-v0.0.23/clearmind-23.apk';
   const handleInstallApp = useCallback(() => {
     window.open(ANDROID_APK_URL, '_blank', 'noopener,noreferrer');
   }, []);
