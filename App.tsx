@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
-import { ViewState, UserProfile, Task, CalendarEvent, Application } from './types';
+import { ViewState, UserProfile, Task, CalendarEvent } from './types';
 import { dbService, STORES, getLocalStoreName, getAllFirestoreCollections } from './services/db';
 import { firebaseService, isFirebaseConfigured, FirebaseUser } from './services/firebase';
 import { handleRealtimeUpdate, syncDeletedItems, dispatchSyncEvent } from './services/syncService';
@@ -223,7 +223,6 @@ const App: React.FC = () => {
 
       const tasks = await dbService.getAll<Task>(STORES.TASKS);
       const events = await dbService.getAll<CalendarEvent>(STORES.EVENTS);
-      const applications = await dbService.getAll<Application>(STORES.APPLICATIONS);
       const today = new Date().toISOString().split('T')[0];
       const now = new Date();
       const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -297,47 +296,10 @@ const App: React.FC = () => {
         }
       }
 
-      // Check application deadlines
-      for (const app of applications) {
-        // Skip closed/submitted/accepted/rejected
-        if (['closed', 'submitted', 'accepted', 'rejected'].includes(app.status)) continue;
-        
-        const deadline = app.submissionDeadline || app.closingDate;
-        if (!deadline) continue;
-
-        const deadlineDate = new Date(deadline);
-        const daysUntilDeadline = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        const notifiedKey = `app-deadline-${app.id}-${daysUntilDeadline}`;
-        const alreadyNotified = localStorage.getItem(notifiedKey);
-
-        // Notify at 1 day, 3 days, and 7 days before deadline
-        if (!alreadyNotified && (daysUntilDeadline === 1 || daysUntilDeadline === 3 || daysUntilDeadline === 7)) {
-          const typeLabel = app.type.charAt(0).toUpperCase() + app.type.slice(1);
-          const urgency = daysUntilDeadline === 1 ? '🚨' : daysUntilDeadline === 3 ? '⚠️' : '📋';
-          
-          await showNotification(`${urgency} ${typeLabel} Deadline`, {
-            body: `${app.name}: ${daysUntilDeadline} day${daysUntilDeadline > 1 ? 's' : ''} left to apply!`,
-            tag: `app-${app.id}-${daysUntilDeadline}`,
-            data: { type: 'application', id: app.id }
-          });
-          
-          localStorage.setItem(notifiedKey, 'true');
-        }
-
-        // Notify on the deadline day
-        if (deadline === today && now.getHours() >= 8 && now.getHours() < 9) {
-          const dayNotifiedKey = `app-deadline-today-${app.id}`;
-          if (!localStorage.getItem(dayNotifiedKey)) {
-            const typeLabel = app.type.charAt(0).toUpperCase() + app.type.slice(1);
-            await showNotification(`🚨 ${typeLabel} Deadline TODAY`, {
-              body: `${app.name} - Submit before end of day!`,
-              tag: `app-today-${app.id}`,
-              data: { type: 'application', id: app.id }
-            });
-            localStorage.setItem(dayNotifiedKey, 'true');
-          }
-        }
-      }
+      // NOTE: application-deadline notifications are owned solely by
+      // notificationService.checkApplicationDeadlines (a single engine, driven by
+      // each application's reminderLeadDays). The duplicate loop that used to live
+      // here was removed to stop double-firing. See services/notificationService.ts.
     };
 
     // Initialize notification service
@@ -373,19 +335,12 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
+  // Download the signed Android APK (replaces the PWA install prompt).
+  const ANDROID_APK_URL =
+    'https://github.com/MEERTECHLTD/ClearMind/releases/download/mobile-v0.0.19/clearmind-19.apk';
   const handleInstallApp = useCallback(() => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then((choiceResult: any) => {
-        if (choiceResult.outcome === 'accepted') {
-          console.log('User accepted the install prompt');
-          localStorage.setItem('pwa-installed', 'true');
-          setIsAppInstalled(true);
-        }
-        setDeferredPrompt(null);
-      });
-    }
-  }, [deferredPrompt]);
+    window.open(ANDROID_APK_URL, '_blank', 'noopener,noreferrer');
+  }, []);
 
   const handleLogout = useCallback(async () => {
       if(confirm("Are you sure you want to sign out? This will return you to the login screen.")) {
@@ -603,7 +558,7 @@ const App: React.FC = () => {
           toggleTheme={toggleTheme} 
           isDarkMode={isDarkMode}
           onInstallApp={handleInstallApp}
-          canInstall={!!deferredPrompt && !isAppInstalled}
+          canInstall={true}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onLogout={handleLogout}
           onNavigate={handleViewChange}

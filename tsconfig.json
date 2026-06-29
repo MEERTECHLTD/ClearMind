@@ -20,11 +20,22 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
+      "@clearmind/shared": [
+        "./shared/index.ts"
+      ],
+      "@clearmind/shared/*": [
+        "./shared/*"
+      ],
       "@/*": [
         "./*"
       ]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "apps",
+    "dist",
+    "node_modules"
+  ]
 }

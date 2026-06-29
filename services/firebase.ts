@@ -13,19 +13,24 @@ import {
   GithubAuthProvider,
   User
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs,
-  writeBatch,
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
   serverTimestamp,
-  onSnapshot,
-  query,
   Unsubscribe
 } from 'firebase/firestore';
+// Firestore read/write/subscribe logic lives in the shared core (injected db+uid).
+// These thin wrappers keep firebaseService's public signatures unchanged while
+// the implementation is shared verbatim with mobile. (See DECISIONS.md, D4.)
+import {
+  pushItemToCloud as fsPushItem,
+  deleteItemFromCloud as fsDeleteItem,
+  fetchFromCloud as fsFetch,
+  syncToCloud as fsSyncToCloud,
+  subscribeToCollection as fsSubscribe,
+} from '@clearmind/shared/data/firestore';
 
 // Firebase config - Replace with your Firebase project config
 const firebaseConfig = {
@@ -57,27 +62,8 @@ if (isFirebaseConfigured()) {
 const googleProvider = new GoogleAuthProvider();
 const githubProvider = new GithubAuthProvider();
 
-// Helper function to remove undefined values from objects (Firestore doesn't accept undefined)
-const sanitizeForFirestore = <T extends object>(obj: T): T => {
-  const sanitized: any = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      // Convert undefined to null (Firestore accepts null)
-      sanitized[key] = null;
-    } else if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
-      // Recursively sanitize nested objects
-      sanitized[key] = sanitizeForFirestore(value);
-    } else if (Array.isArray(value)) {
-      // Sanitize array items
-      sanitized[key] = value.map(item => 
-        item !== null && typeof item === 'object' ? sanitizeForFirestore(item) : (item === undefined ? null : item)
-      );
-    } else {
-      sanitized[key] = value;
-    }
-  }
-  return sanitized as T;
-};
+// (sanitizeForFirestore moved to @clearmind/shared/data/firestore — the cloud
+// write paths below delegate there, so no local copy is needed.)
 
 export interface FirebaseUser {
   uid: string;
@@ -259,41 +245,12 @@ export const firebaseService = {
     await setDoc(doc(db, 'users', uid), data, { merge: true });
   },
 
-  // Sync data to cloud - optimized with batch chunking
+  // Sync data to cloud - batch chunking lives in the shared core.
   async syncToCloud<T extends { id: string }>(storeName: string, items: T[]): Promise<void> {
     if (!auth || !db) throw new Error('Firebase not configured');
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
-
-    if (items.length === 0) return;
-
-    const collectionRef = collection(db, `users/${user.uid}/${storeName}`);
-    
-    // Firestore batch limit is 500 operations - chunk if needed
-    const BATCH_LIMIT = 450; // Leave some margin
-    const chunks: T[][] = [];
-    
-    for (let i = 0; i < items.length; i += BATCH_LIMIT) {
-      chunks.push(items.slice(i, i + BATCH_LIMIT));
-    }
-    
-    // Process chunks in parallel (limit to 3 concurrent batches)
-    const CONCURRENT_BATCHES = 3;
-    for (let i = 0; i < chunks.length; i += CONCURRENT_BATCHES) {
-      const batchChunks = chunks.slice(i, i + CONCURRENT_BATCHES);
-      
-      await Promise.all(batchChunks.map(async (chunk) => {
-        const batch = writeBatch(db);
-        
-        chunk.forEach(item => {
-          const docRef = doc(collectionRef, item.id);
-          const sanitizedItem = sanitizeForFirestore({ ...item, syncedAt: new Date().toISOString() });
-          batch.set(docRef, sanitizedItem);
-        });
-        
-        await batch.commit();
-      }));
-    }
+    await fsSyncToCloud(db, user.uid, storeName, items);
   },
 
   // Fetch from cloud
@@ -301,11 +258,7 @@ export const firebaseService = {
     if (!auth || !db) throw new Error('Firebase not configured');
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
-
-    const collectionRef = collection(db, `users/${user.uid}/${storeName}`);
-    const snapshot = await getDocs(collectionRef);
-    
-    return snapshot.docs.map(doc => doc.data() as T);
+    return fsFetch<T>(db, user.uid, storeName);
   },
 
   // Full sync (merge local and cloud)
@@ -355,29 +308,14 @@ export const firebaseService = {
       console.warn('Firebase not configured - real-time sync disabled');
       return () => {};
     }
-    
+
     const user = auth.currentUser;
     if (!user) {
       console.warn('Not authenticated - real-time sync disabled');
       return () => {};
     }
 
-    const collectionRef = collection(db, `users/${user.uid}/${storeName}`);
-    const q = query(collectionRef);
-    
-    return onSnapshot(q, (snapshot) => {
-      const items: T[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data() as any;
-        // Filter out soft-deleted items
-        if (!data.deleted) {
-          items.push(data as T);
-        }
-      });
-      onUpdate(items);
-    }, (error) => {
-      console.error(`Real-time sync error for ${storeName}:`, error);
-    });
+    return fsSubscribe<T>(db, user.uid, storeName, onUpdate, { includeDeleted: false });
   },
 
   // Subscribe to all collections for full real-time sync
@@ -411,25 +349,14 @@ export const firebaseService = {
       console.warn('Firebase not configured - real-time sync disabled');
       return () => {};
     }
-    
+
     const user = auth.currentUser;
     if (!user) {
       console.warn('Not authenticated - real-time sync disabled');
       return () => {};
     }
 
-    const collectionRef = collection(db, `users/${user.uid}/${storeName}`);
-    const q = query(collectionRef);
-    
-    return onSnapshot(q, (snapshot) => {
-      const items: T[] = [];
-      snapshot.forEach((doc) => {
-        items.push(doc.data() as T);
-      });
-      onUpdate(items);
-    }, (error) => {
-      console.error(`Real-time sync error for ${storeName}:`, error);
-    });
+    return fsSubscribe<T>(db, user.uid, storeName, onUpdate, { includeDeleted: true });
   },
 
   // Push a single item to cloud (for instant sync)
@@ -437,10 +364,7 @@ export const firebaseService = {
     if (!auth || !db) throw new Error('Firebase not configured');
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
-
-    const docRef = doc(db, `users/${user.uid}/${storeName}`, item.id);
-    const sanitizedItem = sanitizeForFirestore({ ...item, syncedAt: new Date().toISOString() });
-    await setDoc(docRef, sanitizedItem);
+    await fsPushItem(db, user.uid, storeName, item);
   },
 
   // Delete a single item from cloud
@@ -448,10 +372,7 @@ export const firebaseService = {
     if (!auth || !db) throw new Error('Firebase not configured');
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
-
-    const { deleteDoc } = await import('firebase/firestore');
-    const docRef = doc(db, `users/${user.uid}/${storeName}`, itemId);
-    await deleteDoc(docRef);
+    await fsDeleteItem(db, user.uid, storeName, itemId);
   }
 };
 

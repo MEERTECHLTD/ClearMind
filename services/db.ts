@@ -4,72 +4,22 @@ import { firebaseService, isFirebaseConfigured } from './firebase';
 const DB_NAME = 'ClearMindDB';
 const DB_VERSION = 9; // Incremented version to add daily mapper templates store
 
-export const STORES = {
-  PROJECTS: 'projects',
-  TASKS: 'tasks',
-  NOTES: 'notes',
-  HABITS: 'habits',
-  GOALS: 'goals',
-  MILESTONES: 'milestones',
-  LOGS: 'logs',
-  PROFILE: 'profile',
-  RANTS: 'rants',
-  MINDMAPS: 'mindmaps',
-  EVENTS: 'events',
-  DAILY_MAPPER: 'dailymapper',
-  DAILY_MAPPER_TEMPLATES: 'dailymappertemplates',
-  APPLICATIONS: 'applications',
-  IRIS_CONVERSATIONS: 'iris_conversations',
-  LEARNING_RESOURCES: 'learningresources',
-  LEARNING_FOLDERS: 'learningfolders',
-};
+// Store names + the canonical store->collection mapping are the single source of
+// truth in @clearmind/shared, imported by both web and mobile. They are
+// re-exported here so existing web imports (`from './db'` / `'../services/db'`)
+// keep working with zero edits. (See DECISIONS.md.)
+export {
+  STORES,
+  getFirestoreCollectionName,
+  getLocalStoreName,
+  getAllFirestoreCollections,
+  getSyncableStores,
+} from '@clearmind/shared/data/collections';
 
-// Canonical mapping: IndexedDB store name -> Firestore collection name
-// This is the SINGLE SOURCE OF TRUTH for all sync operations
-const STORE_TO_FIRESTORE: Record<string, string> = {
-  [STORES.TASKS]: 'tasks',
-  [STORES.PROJECTS]: 'projects',
-  [STORES.NOTES]: 'notes',
-  [STORES.HABITS]: 'habits',
-  [STORES.GOALS]: 'goals',
-  [STORES.MILESTONES]: 'milestones',
-  [STORES.LOGS]: 'dailyLogs',
-  [STORES.RANTS]: 'rants',
-  [STORES.EVENTS]: 'events',
-  [STORES.DAILY_MAPPER]: 'timeblocks',
-  [STORES.DAILY_MAPPER_TEMPLATES]: 'timeblocktemplates',
-  [STORES.MINDMAPS]: 'mindmaps',
-  [STORES.APPLICATIONS]: 'applications',
-  [STORES.IRIS_CONVERSATIONS]: 'iris_conversations',
-  [STORES.LEARNING_RESOURCES]: 'learningResources',
-  [STORES.LEARNING_FOLDERS]: 'learningFolders'
-};
-
-// Reverse mapping: Firestore collection name -> IndexedDB store name
-const FIRESTORE_TO_STORE: Record<string, string> = Object.entries(STORE_TO_FIRESTORE)
-  .reduce((acc, [local, firestore]) => {
-    acc[firestore] = local;
-    return acc;
-  }, {} as Record<string, string>);
-
-// Export mappings for use by other services
-export const getFirestoreCollectionName = (localStoreName: string): string => {
-  return STORE_TO_FIRESTORE[localStoreName] || localStoreName;
-};
-
-export const getLocalStoreName = (firestoreCollection: string): string => {
-  return FIRESTORE_TO_STORE[firestoreCollection] || firestoreCollection;
-};
-
-// Get all Firestore collection names (for real-time sync)
-export const getAllFirestoreCollections = (): string[] => {
-  return Object.values(STORE_TO_FIRESTORE);
-};
-
-// Get all syncable stores (excludes profile)
-export const getSyncableStores = (): string[] => {
-  return Object.keys(STORE_TO_FIRESTORE);
-};
+import {
+  STORES,
+  getFirestoreCollectionName,
+} from '@clearmind/shared/data/collections';
 
 class DatabaseService {
   private dbPromise: Promise<IDBDatabase> | null = null;

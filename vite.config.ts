@@ -18,6 +18,11 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
+          // Shared platform-agnostic core, resolved straight to TS source (see
+          // DECISIONS.md D2). Order matters: the more specific alias is unused
+          // because Vite does prefix replacement, but listing the package root
+          // is enough — `@clearmind/shared/data/collections` -> shared/data/collections.
+          '@clearmind/shared': path.resolve(__dirname, 'shared'),
           '@': path.resolve(__dirname, '.'),
         }
       },

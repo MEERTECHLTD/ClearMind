@@ -1,0 +1,59 @@
+rules_version = '2';
+
+// ClearMind Firestore security rules.
+//
+//   users/{uid}/…        — personal local-first data; strictly the owner.
+//   workspaces/{wsId}    — shared, collaborative Applications workspaces.
+//   workspaces/{wsId}/applications/{appId} — the shared applications.
+//
+// Membership is by EMAIL: the auth token carries `email`, so the owner can invite
+// someone just by adding their email to memberEmails — no uid lookup needed. Every
+// member has full read/write on the applications (no viewer/editor roles).
+//
+// Deploy:  firebase deploy --only firestore:rules
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Personal data: strictly the signed-in owner ----
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ---- Shared, collaborative workspaces ----
+    function isWsMember(ws) {
+      return request.auth != null && (
+        request.auth.uid == ws.ownerUid ||
+        (request.auth.token.email != null && request.auth.token.email in ws.memberEmails)
+      );
+    }
+
+    match /workspaces/{wsId} {
+      allow read: if isWsMember(resource.data);
+
+      // Creator must own it and be a member (so the array-contains list query sees it).
+      allow create: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.auth.token.email != null
+        && request.auth.token.email in request.resource.data.memberEmails;
+
+      // Members may update the doc (e.g. rename); ownership is immutable and only
+      // the owner may change the member list.
+      allow update: if isWsMember(resource.data)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && (
+          request.auth.uid == resource.data.ownerUid
+          || request.resource.data.memberEmails == resource.data.memberEmails
+        );
+
+      allow delete: if request.auth != null && request.auth.uid == resource.data.ownerUid;
+
+      // Applications inside a workspace: any member has full read/write.
+      match /applications/{appId} {
+        allow read, write: if isWsMember(
+          get(/databases/$(database)/documents/workspaces/$(wsId)).data
+        );
+      }
+    }
+  }
+}
