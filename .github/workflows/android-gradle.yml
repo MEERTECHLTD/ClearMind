@@ -210,6 +210,6 @@ jobs:
         run: |
           # Attach whatever was produced (APK always; AAB if bundletool succeeded).
           gh release create "${GITHUB_REF_NAME}" out/* \
-            --title "ClearMind Mobile ${GITHUB_REF_NAME} (skeleton)" \
-            --notes "Signed Android build (Gradle CI). Phase-2 skeleton: branded splash + placeholder home; full views land in Phases 3-9. APK = sideload install; AAB (if present) = Play Store." \
+            --title "ClearMind Mobile ${GITHUB_REF_NAME}" \
+            --notes "Signed Android build (Gradle CI). clearmind-*.apk = direct install (sideload); clearmind-*.aab = Google Play upload. Includes all views, local-first + cloud sync, AI, deadline reminders, and collaborative shared workspaces (Applications & Projects)." \
             --target "${GITHUB_SHA}"

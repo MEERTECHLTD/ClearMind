@@ -92,7 +92,13 @@ import {
 // Applications fire reminders at multiple lead times, so we persist an ARRAY of
 // scheduled notification ids (vs Tasks' single reminderId) to cancel/reschedule.
 // reminderIds is mobile-local — it rides the JSON blob to web where it's ignored.
-type MApplication = Application & { reminderIds?: string[] };
+type MApplication = Application & { reminderIds?: string[]; __wsId?: string };
+
+// Strip the view-only origin tag before persisting to storage.
+const stripWs = (a: MApplication): MApplication => {
+  const { __wsId, ...rest } = a;
+  return rest as MApplication;
+};
 
 type TypeFilter = 'all' | AppType;
 type StatusFilter = 'all' | AppStatus;
@@ -178,19 +184,26 @@ export default function ApplicationsScreen() {
     return workspaceService.subscribe(setWorkspaces);
   }, []);
 
-  // If the active workspace is deleted / access revoked, fall back to personal.
-  useEffect(() => {
-    if (activeWsId && !workspaces.some((w) => w.id === activeWsId)) setActiveWsId(null);
-  }, [workspaces, activeWsId]);
-
-  // Live subscription to the active workspace's applications.
+  // Live subscription to the active workspace's applications. Items are tagged with
+  // their origin (__wsId) so writes route correctly even if the selection changes.
+  // NOTE: we deliberately do NOT auto-reset activeWsId from the async workspaces list
+  // — that raced with create/join and silently dropped you to the personal list
+  // (deleting a "shared" item then hit personal). Access loss is handled by onError.
   useEffect(() => {
     if (!activeWsId) return;
+    const wsId = activeWsId;
     setWsLoading(true);
-    return workspaceService.subscribeApplications(activeWsId, (apps) => {
-      setWsItems(apps as MApplication[]);
-      setWsLoading(false);
-    });
+    return workspaceService.subscribeApplications(
+      wsId,
+      (apps) => {
+        setWsItems(apps.map((a) => ({ ...a, __wsId: wsId })) as MApplication[]);
+        setWsLoading(false);
+      },
+      () => {
+        setActiveWsId(null);
+        toast.show('That shared workspace is no longer available', 'info');
+      }
+    );
   }, [activeWsId]);
 
   const items = activeWsId ? wsItems : personal.items;
@@ -290,8 +303,8 @@ export default function ApplicationsScreen() {
       })
     ) {
       try {
-        if (activeWsId) {
-          await workspaceService.deleteApplication(activeWsId, app.id);
+        if (app.__wsId) {
+          await workspaceService.deleteApplication(app.__wsId, app.id);
         } else {
           await cancelReminders(app.reminderIds);
           personal.remove(app.id);
@@ -313,8 +326,8 @@ export default function ApplicationsScreen() {
     setStatusPickerFor(null);
     if (app.status === status) return;
     const now = new Date().toISOString();
-    if (activeWsId) {
-      await workspaceService.putApplication(activeWsId, { ...app, status, updatedAt: now });
+    if (app.__wsId) {
+      await workspaceService.putApplication(app.__wsId, stripWs({ ...app, status, updatedAt: now }));
       return;
     }
     await cancelReminders(app.reminderIds);
@@ -351,13 +364,16 @@ export default function ApplicationsScreen() {
       requirements: data.requirements.length ? data.requirements : undefined,
     };
 
+    // Route by the item's origin (edits) / the active workspace (new) — never an
+    // ambiguous selection, so a shared-workspace save can't land in the personal list.
+    const target = editing ? editing.__wsId ?? null : activeWsId;
     try {
-      if (activeWsId) {
+      if (target) {
         // Shared workspace: live Firestore, no per-device reminders.
         const base: MApplication = editing
           ? { ...editing, ...fields, updatedAt: now }
           : { id: newId(), ...fields, createdAt: now };
-        await workspaceService.putApplication(activeWsId, base);
+        await workspaceService.putApplication(target, stripWs(base));
         toast.show(editing ? 'Application updated' : 'Application added', 'success');
       } else if (editing) {
         await cancelReminders(editing.reminderIds);
