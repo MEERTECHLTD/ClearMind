@@ -343,7 +343,11 @@ const ApplicationsView: React.FC = () => {
 
   // ---- Workspace (collaboration) actions ----
   const handleCreateWorkspace = async (name: string, emails: string[], seed: boolean) => {
-    const seedApps = seed ? await dbService.getAll<Application>(STORES.APPLICATIONS) : [];
+    // Seed with COPIES that get fresh ids — the shared workspace is fully independent
+    // of your personal list, so editing/deleting in one never touches the other.
+    const seedApps = seed
+      ? (await dbService.getAll<Application>(STORES.APPLICATIONS)).map((a) => ({ ...a, id: newId() }))
+      : [];
     const ws = await workspaceService.create(name, emails, seedApps);
     setShowNewWorkspace(false);
     setActiveWsId(ws.id);

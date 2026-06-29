@@ -378,7 +378,8 @@ export default function ApplicationsScreen() {
 
   // ---- Workspace (collaboration) actions ----
   const handleCreateWorkspace = async (name: string, emails: string[], seed: boolean) => {
-    const seedApps = seed ? personal.items.map(({ reminderIds, ...a }) => a) : [];
+    // Fresh ids so the shared copies are fully independent of the personal list.
+    const seedApps = seed ? personal.items.map(({ reminderIds, ...a }) => ({ ...a, id: newId() })) : [];
     const ws = await workspaceService.create(name, emails, seedApps);
     setShowNewWorkspace(false);
     setActiveWsId(ws.id);
