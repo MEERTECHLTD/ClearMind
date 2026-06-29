@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Project, ProjectMilestone, ProjectCategory, TeamCheckIn, ProjectAlignment, PerformanceMetric, ProjectPhase, ProjectRisk, ProjectResource } from '../../types';
+import { Project, ProjectMilestone, ProjectCategory, TeamCheckIn, ProjectAlignment, PerformanceMetric, ProjectPhase, ProjectRisk, ProjectResource, Workspace } from '../../types';
 import { dbService, STORES } from '../../services/db';
+import { workspaceService } from '../../services/workspaceService';
+import { firebaseService, isFirebaseConfigured } from '../../services/firebase';
+import { WorkspaceBar, WorkspaceBanner, NewWorkspaceModal, MembersModal } from '../WorkspaceShareUI';
 import { Plus, Calendar, Code, ExternalLink, Edit3, Trash2, Check, X, Clock, Users, Flag, ChevronDown, ChevronUp, Zap, DollarSign, Leaf, Heart, Monitor, GraduationCap, Building, Factory, ShoppingBag, Megaphone, FlaskConical, Landmark, HandHeart, Rocket, User, FolderOpen, MessageSquare, UserCheck, AlertCircle, Target, TrendingUp, TrendingDown, Minus, BarChart3, Compass, Layers, FileText, AlertTriangle, Wallet, PlayCircle, PauseCircle, CheckCircle2, XCircle, CircleDot, ChevronRight, Copy, Download, Upload } from 'lucide-react';
 import { PROJECT_TEMPLATES, ProjectTemplate, generatePhasesFromTemplate, generateRisksFromTemplate, generateMetricsFromTemplate } from '../../utils/projectTemplates';
 import * as XLSX from 'xlsx';
@@ -31,6 +34,28 @@ const getCategoryInfo = (category?: ProjectCategory) => {
 
 const ProjectsView: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
+
+  // Collaboration: shared workspaces (null active = personal local-first list).
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWsId, setActiveWsId] = useState<string | null>(null);
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const [wsToast, setWsToast] = useState<string | null>(null);
+  const [personalProjectCount, setPersonalProjectCount] = useState(0);
+  const activeWorkspace = activeWsId ? workspaces.find((w) => w.id === activeWsId) ?? null : null;
+
+  // Origin-routed project writes: a project tagged with __wsId persists to THAT shared
+  // workspace; otherwise to the personal store. Every project save site funnels here,
+  // so a shared-workspace edit/delete can never touch the personal copy.
+  const projectWsId = (p: Project): string | null => (p as { __wsId?: string }).__wsId ?? null;
+  const persistProjectWrite = async (project: Project): Promise<void> => {
+    const wsId = projectWsId(project);
+    const { __wsId, ...clean } = project as Project & { __wsId?: string };
+    if (wsId) await workspaceService.putProject(wsId, clean as Project);
+    else await dbService.put(STORES.PROJECTS, clean as Project);
+  };
+  const projNewId = (): string =>
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const [isLoading, setIsLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Project | null>(null);
@@ -312,7 +337,7 @@ const ProjectsView: React.FC = () => {
           createdAt: new Date().toISOString()
         };
 
-        await dbService.put(STORES.PROJECTS, project);
+        await persistProjectWrite(project);
         importedCount++;
       }
 
@@ -340,28 +365,63 @@ const ProjectsView: React.FC = () => {
     }
   };
 
+  // Subscribe to the user's workspaces (owned + shared) once auth resolves.
   useEffect(() => {
-    const loadProjects = async () => {
+    if (!isFirebaseConfigured()) return;
+    let unsubWs: (() => void) | null = null;
+    const unsubAuth = firebaseService.onAuthChange((user) => {
+      unsubWs?.();
+      unsubWs = null;
+      if (user?.email) unsubWs = workspaceService.subscribe(setWorkspaces);
+      else { setWorkspaces([]); setActiveWsId(null); }
+    });
+    return () => { unsubAuth(); unsubWs?.(); };
+  }, []);
+
+  // Data source: personal (local-first) when no workspace is active; otherwise a LIVE
+  // Firestore subscription to the shared workspace's projects. Items are origin-tagged
+  // (__wsId) so every write routes correctly even if the selection changes underneath.
+  useEffect(() => {
+    setIsLoading(true);
+    if (activeWsId) {
+      const wsId = activeWsId;
+      const unsub = workspaceService.subscribeProjects(
+        wsId,
+        (list) => { setProjects(list.map((p) => ({ ...p, __wsId: wsId } as Project))); setIsLoading(false); },
+        () => { setActiveWsId(null); setWsToast('That shared workspace is no longer available'); }
+      );
+      return unsub;
+    }
+    let cancelled = false;
+    const loadLocal = async () => {
       try {
         const data = await dbService.getAll<Project>(STORES.PROJECTS);
-        setProjects(data);
+        if (!cancelled) {
+          setProjects(data);
+          setPersonalProjectCount(data.length);
+        }
       } catch (err) {
-        console.error("Failed to load projects", err);
+        console.error('Failed to load projects', err);
       } finally {
-        setTimeout(() => setIsLoading(false), 500);
+        if (!cancelled) setIsLoading(false);
       }
     };
-    loadProjects();
-
-    // Listen for sync events to reload data
+    loadLocal();
     const handleSync = (e: CustomEvent) => {
-      if (e.detail?.store === 'projects') {
-        loadProjects();
-      }
+      if (e.detail?.store === 'projects') loadLocal();
     };
     window.addEventListener('clearmind-sync', handleSync as EventListener);
-    return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
-  }, []);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('clearmind-sync', handleSync as EventListener);
+    };
+  }, [activeWsId]);
+
+  useEffect(() => {
+    if (!wsToast) return;
+    const t = setTimeout(() => setWsToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [wsToast]);
 
   const handleAddProject = async () => {
     if (!newProject.title.trim()) return;
@@ -388,8 +448,9 @@ const ProjectsView: React.FC = () => {
       createdAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, project);
-    setProjects(prev => [...prev, project]);
+    const tagged = activeWsId ? ({ ...project, __wsId: activeWsId } as Project) : project;
+    await persistProjectWrite(tagged);
+    setProjects(prev => [...prev, tagged]);
     setNewProject({ 
       title: '', 
       description: '', 
@@ -429,7 +490,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
     setShowCheckInModal(null);
     setNewCheckIn({
@@ -459,7 +520,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
     setShowAlignmentModal(null);
     setNewAlignment({
@@ -480,7 +541,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -504,7 +565,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
     setShowMetricsModal(null);
     setNewMetric({
@@ -527,7 +588,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -551,7 +612,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -588,7 +649,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
     setNewPhase({ name: '', description: '', order: 1, deliverables: [], startDate: '', endDate: '' });
   };
@@ -616,7 +677,7 @@ const ProjectsView: React.FC = () => {
       updatedProject.progress = Math.round(totalProgress / phases.length);
     }
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -634,7 +695,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -659,7 +720,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
     setNewRisk({ title: '', description: '', severity: 'Medium', likelihood: 'Medium', mitigation: '' });
   };
@@ -675,7 +736,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -690,7 +751,7 @@ const ProjectsView: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -720,7 +781,7 @@ const ProjectsView: React.FC = () => {
       updatedProject.budgetUsed = (updatedProject.budgetUsed || 0) + resource.used;
     }
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
     setNewResource({ name: '', type: 'Budget', allocated: 0, used: 0, unit: '$' });
   };
@@ -741,7 +802,7 @@ const ProjectsView: React.FC = () => {
       ?.filter(r => r.type === 'Budget')
       .reduce((acc, r) => acc + r.used, 0) || 0;
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -763,7 +824,7 @@ const ProjectsView: React.FC = () => {
       updatedProject.budgetUsed = (updatedProject.budgetUsed || 0) - resourceToDelete.used;
     }
 
-    await dbService.put(STORES.PROJECTS, updatedProject);
+    await persistProjectWrite(updatedProject);
     setProjects(projects.map(p => p.id === projectId ? updatedProject : p));
   };
 
@@ -811,8 +872,9 @@ const ProjectsView: React.FC = () => {
       createdAt: new Date().toISOString()
     };
 
-    await dbService.put(STORES.PROJECTS, project);
-    setProjects(prev => [...prev, project]);
+    const tagged = activeWsId ? ({ ...project, __wsId: activeWsId } as Project) : project;
+    await persistProjectWrite(tagged);
+    setProjects(prev => [...prev, tagged]);
     setShowTemplateModal(false);
   };
 
@@ -848,7 +910,7 @@ const ProjectsView: React.FC = () => {
 
   const handleSaveEdit = async () => {
     if (!editForm) return;
-    await dbService.put(STORES.PROJECTS, editForm);
+    await persistProjectWrite(editForm);
     setProjects(projects.map(p => p.id === editForm.id ? editForm : p));
     setEditingId(null);
     setEditForm(null);
@@ -861,8 +923,53 @@ const ProjectsView: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this project?')) return;
-    await dbService.delete(STORES.PROJECTS, id);
-    setProjects(projects.filter(p => p.id !== id));
+    try {
+      const project = projects.find(p => p.id === id);
+      const wsId = project ? projectWsId(project) : null;
+      if (wsId) await workspaceService.deleteProject(wsId, id);
+      else await dbService.delete(STORES.PROJECTS, id);
+      setProjects(projects.filter(p => p.id !== id));
+    } catch (e) {
+      console.error('Delete project failed', e);
+      setWsToast('Could not delete — check your connection');
+    }
+  };
+
+  // ---- Workspace (collaboration) actions ----
+  const handleCreateWorkspace = async (name: string, emails: string[], seed: boolean) => {
+    const ws = await workspaceService.create(name, emails, []);
+    if (seed) {
+      const personal = await dbService.getAll<Project>(STORES.PROJECTS);
+      // Fresh ids so the shared copies are fully independent of the personal list.
+      await workspaceService.seedProjects(ws.id, personal.map((p) => ({ ...p, id: projNewId() })));
+    }
+    setShowNewWorkspace(false);
+    setActiveWsId(ws.id);
+    setWsToast(`Workspace “${ws.name}” created${emails.length ? ` · invited ${emails.length}` : ''}`);
+  };
+  const handleSetMembers = async (emails: string[]) => {
+    if (!activeWorkspace) return;
+    await workspaceService.setMembers(activeWorkspace, emails);
+    setWsToast('Members updated');
+  };
+  const handleDeleteWorkspace = async () => {
+    if (!activeWorkspace) return;
+    if (!confirm(`Delete the shared workspace “${activeWorkspace.name}” for everyone? This cannot be undone.`)) return;
+    const id = activeWorkspace.id;
+    setActiveWsId(null);
+    setShowMembers(false);
+    await workspaceService.remove(id);
+    setWsToast('Workspace deleted');
+  };
+  const copyWorkspaceLink = async () => {
+    if (!activeWorkspace) return;
+    const link = workspaceService.inviteLink(activeWorkspace.id);
+    try {
+      await navigator.clipboard.writeText(link);
+      setWsToast('Invite link copied — anyone you send it to can join');
+    } catch {
+      setWsToast(link);
+    }
   };
 
   const statuses: Project['status'][] = ['Not Started', 'Planning', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
@@ -945,6 +1052,49 @@ const ProjectsView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Workspace switcher + sharing (collaboration) */}
+      {isFirebaseConfigured() && (workspaces.length > 0 || workspaceService.supported()) && (
+        <WorkspaceBar
+          workspaces={workspaces}
+          activeWsId={activeWsId}
+          personalLabel="My Projects"
+          onSelect={setActiveWsId}
+          onShareNew={() => setShowNewWorkspace(true)}
+        />
+      )}
+      {activeWorkspace && (
+        <WorkspaceBanner
+          workspace={activeWorkspace}
+          isOwner={workspaceService.isOwner(activeWorkspace)}
+          onCopyLink={copyWorkspaceLink}
+          onMembers={() => setShowMembers(true)}
+          onDelete={handleDeleteWorkspace}
+        />
+      )}
+      {showNewWorkspace && (
+        <NewWorkspaceModal
+          supported={workspaceService.supported()}
+          seedCount={personalProjectCount}
+          seedNoun="project"
+          onCancel={() => setShowNewWorkspace(false)}
+          onCreate={handleCreateWorkspace}
+        />
+      )}
+      {showMembers && activeWorkspace && (
+        <MembersModal
+          workspace={activeWorkspace}
+          isOwner={workspaceService.isOwner(activeWorkspace)}
+          currentEmail={workspaceService.currentEmail()}
+          onCancel={() => setShowMembers(false)}
+          onSave={handleSetMembers}
+        />
+      )}
+      {wsToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl animate-fade-in">
+          {wsToast}
+        </div>
+      )}
 
       {/* Import Status Messages */}
       {importError && (

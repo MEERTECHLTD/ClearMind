@@ -15,8 +15,12 @@ import {
   subscribeWorkspaceApplications as fsSubscribeApps,
   putWorkspaceApplication as fsPutApp,
   deleteWorkspaceApplication as fsDeleteApp,
+  subscribeWorkspaceProjects as fsSubscribeProjects,
+  putWorkspaceProject as fsPutProject,
+  deleteWorkspaceProject as fsDeleteProject,
+  seedWorkspaceProjects as fsSeedProjects,
 } from '@clearmind/shared/data/workspaces';
-import type { Application, Workspace } from '../types';
+import type { Application, Project, Workspace } from '../types';
 
 const newId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -103,5 +107,28 @@ export const workspaceService = {
   async deleteApplication(wsId: string, appId: string): Promise<void> {
     if (!db) throw new Error('Firebase not configured');
     await fsDeleteApp(db, wsId, appId);
+  },
+
+  // ---- Shared projects ----
+  subscribeProjects(wsId: string, onUpdate: (projects: Project[]) => void, onError?: (err: unknown) => void): () => void {
+    if (!db) {
+      onUpdate([]);
+      return () => {};
+    }
+    return fsSubscribeProjects(db, wsId, onUpdate, onError);
+  },
+  async putProject(wsId: string, project: Project): Promise<void> {
+    const email = auth?.currentUser?.email;
+    if (!db || !email) throw new Error('Not authenticated');
+    await fsPutProject(db, wsId, project, email);
+  },
+  async deleteProject(wsId: string, projectId: string): Promise<void> {
+    if (!db) throw new Error('Firebase not configured');
+    await fsDeleteProject(db, wsId, projectId);
+  },
+  async seedProjects(wsId: string, projects: Project[]): Promise<void> {
+    const email = auth?.currentUser?.email;
+    if (!db || !email) throw new Error('Not authenticated');
+    await fsSeedProjects(db, wsId, projects, email);
   },
 };

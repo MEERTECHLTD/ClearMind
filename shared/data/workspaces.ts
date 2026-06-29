@@ -31,19 +31,23 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { sanitizeForFirestore } from './firestore';
-import type { Application, Workspace } from '../types';
+import type { Application, Project, Workspace } from '../types';
 
-// Applications inside a workspace carry who last touched them (collaboration
-// attribution); the field rides the JSON doc and is ignored elsewhere.
+// Items inside a workspace carry who last touched them (collaboration attribution);
+// the field rides the JSON doc and is ignored elsewhere.
 export type WorkspaceApplication = Application & { updatedByEmail?: string };
+export type WorkspaceProject = Project & { updatedByEmail?: string };
 
 const WS = 'workspaces';
 const APPS = 'applications';
+const PROJECTS = 'projects';
 
 export const normalizeEmail = (e: string): string => e.trim().toLowerCase();
 
 const appsCol = (db: Firestore, wsId: string) => collection(db, WS, wsId, APPS);
 const appDoc = (db: Firestore, wsId: string, appId: string) => doc(db, WS, wsId, APPS, appId);
+const projectsCol = (db: Firestore, wsId: string) => collection(db, WS, wsId, PROJECTS);
+const projectDoc = (db: Firestore, wsId: string, projectId: string) => doc(db, WS, wsId, PROJECTS, projectId);
 
 /** Owner + invitees, de-duped and lowercased; the owner is always a member. */
 const memberSet = (ownerEmail: string, invitees: string[]): string[] =>
@@ -131,13 +135,15 @@ export async function renameWorkspace(db: Firestore, wsId: string, name: string,
   await setDoc(doc(db, WS, wsId), { name: name.trim() || 'Shared workspace', updatedAt: nowIso }, { merge: true });
 }
 
-/** Delete the workspace and all its applications (owner-only per the rules). */
+/** Delete the workspace and all its applications + projects (owner-only per rules). */
 export async function deleteWorkspace(db: Firestore, wsId: string): Promise<void> {
-  const snap = await getDocs(appsCol(db, wsId));
-  for (let i = 0; i < snap.docs.length; i += 400) {
-    const batch = writeBatch(db);
-    for (const d of snap.docs.slice(i, i + 400)) batch.delete(d.ref);
-    await batch.commit();
+  for (const col of [appsCol(db, wsId), projectsCol(db, wsId)]) {
+    const snap = await getDocs(col);
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const batch = writeBatch(db);
+      for (const d of snap.docs.slice(i, i + 400)) batch.delete(d.ref);
+      await batch.commit();
+    }
   }
   await deleteDoc(doc(db, WS, wsId));
 }
@@ -171,4 +177,48 @@ export async function putWorkspaceApplication(
 
 export async function deleteWorkspaceApplication(db: Firestore, wsId: string, appId: string): Promise<void> {
   await deleteDoc(appDoc(db, wsId, appId));
+}
+
+// ---- Shared projects (workspaces/{wsId}/projects) — mirrors the application ops ----
+
+/** Seed a workspace with copies of the user's projects (fresh ids supplied by caller). */
+export async function seedWorkspaceProjects(
+  db: Firestore,
+  wsId: string,
+  projects: Project[],
+  editorEmail: string
+): Promise<void> {
+  if (!projects.length) return;
+  const editor = normalizeEmail(editorEmail);
+  for (let i = 0; i < projects.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const p of projects.slice(i, i + 400)) {
+      batch.set(projectDoc(db, wsId, p.id), sanitizeForFirestore({ ...p, updatedByEmail: editor } as WorkspaceProject));
+    }
+    await batch.commit();
+  }
+}
+
+export function subscribeWorkspaceProjects(
+  db: Firestore,
+  wsId: string,
+  onUpdate: (projects: WorkspaceProject[]) => void,
+  onError?: (err: unknown) => void
+): Unsubscribe {
+  return onSnapshot(
+    projectsCol(db, wsId),
+    (snap) => onUpdate(snap.docs.map((d) => d.data() as WorkspaceProject)),
+    (err) => {
+      console.error('Workspace projects sync error:', err);
+      onError?.(err);
+    }
+  );
+}
+
+export async function putWorkspaceProject(db: Firestore, wsId: string, project: Project, editorEmail: string): Promise<void> {
+  await setDoc(projectDoc(db, wsId, project.id), sanitizeForFirestore({ ...project, updatedByEmail: normalizeEmail(editorEmail) } as WorkspaceProject));
+}
+
+export async function deleteWorkspaceProject(db: Firestore, wsId: string, projectId: string): Promise<void> {
+  await deleteDoc(projectDoc(db, wsId, projectId));
 }
