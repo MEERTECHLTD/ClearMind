@@ -1,5 +1,10 @@
 import { dbService, STORES } from './db';
 import { Task, Application, CalendarEvent } from '../types';
+import {
+  applicationDeadline,
+  DEFAULT_REMINDER_LEAD_DAYS,
+  REMINDER_SKIP_STATUSES,
+} from '@clearmind/shared/applications';
 
 // Notification preferences storage key
 const NOTIFICATION_PREFS_KEY = 'clearmind-notification-prefs';
@@ -204,20 +209,12 @@ export const checkApplicationDeadlines = async (): Promise<void> => {
   try {
     const applications = await dbService.getAll<Application>(STORES.APPLICATIONS);
     const now = new Date();
-    const advanceMs = prefs.advanceNoticeHours * 60 * 60 * 1000;
-
-    // Also notify 1 day, 3 days, and 7 days before for applications
-    const notifyThresholds = [
-      { hours: 24, label: '1 day' },
-      { hours: 72, label: '3 days' },
-      { hours: 168, label: '1 week' }
-    ];
 
     for (const app of applications) {
-      // Skip closed/submitted/accepted/rejected applications
-      if (['closed', 'submitted', 'accepted', 'rejected'].includes(app.status)) continue;
-      
-      const deadline = app.submissionDeadline || app.closingDate;
+      // Skip statuses where a deadline reminder no longer applies.
+      if (REMINDER_SKIP_STATUSES.includes(app.status)) continue;
+
+      const deadline = applicationDeadline(app);
       if (!deadline) continue;
 
       const deadlineDate = new Date(`${deadline}T23:59:59`);
@@ -226,22 +223,29 @@ export const checkApplicationDeadlines = async (): Promise<void> => {
       // Skip if already past
       if (timeTillDeadline < 0) continue;
 
-      // Check each threshold
-      for (const threshold of notifyThresholds) {
-        const thresholdMs = threshold.hours * 60 * 60 * 1000;
-        const notifiedKey = `app-notified-${app.id}-${threshold.hours}`;
-        const alreadyNotified = localStorage.getItem(notifiedKey);
+      // Per-application lead days. `[]` (the "Off" preset) means no reminders;
+      // null/undefined (or a cloud-synced record) falls back to the default ladder.
+      const leadDays = Array.isArray(app.reminderLeadDays)
+        ? app.reminderLeadDays
+        : DEFAULT_REMINDER_LEAD_DAYS;
 
-        if (!alreadyNotified && timeTillDeadline <= thresholdMs) {
+      for (const days of leadDays) {
+        const thresholdMs = days * 24 * 60 * 60 * 1000;
+        // Dedupe key is per-day; the Applications view clears these keys when the
+        // deadline or lead days change, so a pushed-out deadline re-arms.
+        const notifiedKey = `app-notified-${app.id}-${days}`;
+        if (localStorage.getItem(notifiedKey)) continue;
+
+        if (timeTillDeadline <= thresholdMs) {
           const typeLabel = app.type.charAt(0).toUpperCase() + app.type.slice(1);
-          
+          const label = days === 1 ? '1 day' : days === 7 ? '1 week' : `${days} days`;
+
           await showNotification(`📋 ${typeLabel} Deadline: ${app.name}`, {
-            body: `${threshold.label} left to apply! Deadline: ${formatDate(deadline)}`,
-            tag: `app-${app.id}-${threshold.hours}`,
+            body: `${label} left to apply! Deadline: ${formatDate(deadline)}`,
+            tag: `app-${app.id}-${days}`,
             data: { type: 'application', id: app.id }
           });
 
-          // Mark this threshold as notified
           localStorage.setItem(notifiedKey, 'true');
         }
       }

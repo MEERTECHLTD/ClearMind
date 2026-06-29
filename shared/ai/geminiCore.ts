@@ -101,6 +101,11 @@ export interface ParsedApplication {
   closingDate?: string;
   priority?: 'High' | 'Medium' | 'Low';
   notes?: string;
+  // Grant/scholarship detail fields the AI may fill in.
+  funder?: string;
+  awardAmount?: string;
+  referenceNumber?: string;
+  tags?: string[];
 }
 
 // Interface for parsed log entry
@@ -333,6 +338,10 @@ export const parseActionCommands = (response: string): ParsedActions => {
         closingDate: data.closingDate,
         priority: ['High', 'Medium', 'Low'].includes(data.priority) ? data.priority : 'Medium',
         notes: data.notes,
+        funder: data.funder,
+        awardAmount: data.awardAmount,
+        referenceNumber: data.referenceNumber,
+        tags: Array.isArray(data.tags) ? data.tags : undefined,
       });
     } catch (e) {
       console.error('Failed to parse application command:', e);
@@ -787,8 +796,10 @@ Example: [CREATE_MILESTONE: {"title": "Launched beta version", "date": "${today}
 Example: [CREATE_EVENT: {"title": "Team Meeting", "date": "${tomorrow}", "startTime": "10:00", "endTime": "11:00", "location": "Zoom", "reminder": true}]
 
 8. CREATE APPLICATION (Job/Grant/Scholarship tracker):
-[CREATE_APPLICATION: {"name": "Application name", "organization": "Company/Org name", "type": "job|grant|scholarship|other", "link": "https://...", "submissionDeadline": "YYYY-MM-DD", "priority": "High|Medium|Low", "notes": "any notes"}]
-Example: [CREATE_APPLICATION: {"name": "Software Engineer", "organization": "Google", "type": "job", "submissionDeadline": "2026-02-15", "priority": "High"}]
+[CREATE_APPLICATION: {"name": "Application name", "organization": "Company/Org name", "type": "job|grant|scholarship|other", "link": "https://...", "openingDate": "YYYY-MM-DD", "closingDate": "YYYY-MM-DD", "submissionDeadline": "YYYY-MM-DD", "priority": "High|Medium|Low", "notes": "any notes", "funder": "Awarding body (grants)", "awardAmount": "e.g. $50,000", "referenceNumber": "portal/ref number", "tags": ["tag1","tag2"]}]
+For grants/scholarships also fill funder, awardAmount and referenceNumber when the user mentions them. Keep this JSON FLAT — never nest objects or arrays of objects.
+Example (job): [CREATE_APPLICATION: {"name": "Software Engineer", "organization": "Google", "type": "job", "submissionDeadline": "2026-02-15", "priority": "High"}]
+Example (grant): [CREATE_APPLICATION: {"name": "Climate Resilience Grant", "organization": "MIT", "type": "grant", "funder": "NSF", "awardAmount": "$50,000", "referenceNumber": "NSF-2026-1187", "submissionDeadline": "2026-03-30", "priority": "High"}]
 
 9. CREATE DAILY LOG:
 [CREATE_LOG: {"content": "What happened today...", "mood": "Productive|Neutral|Frustrated|Flow State", "date": "YYYY-MM-DD"}]

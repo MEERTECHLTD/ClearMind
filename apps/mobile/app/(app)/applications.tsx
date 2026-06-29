@@ -8,7 +8,9 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
   Linking,
+  TextInput,
 } from 'react-native';
 import {
   Plus,
@@ -25,10 +27,45 @@ import {
   Send,
   FolderOpen,
   Award,
+  Search,
+  Bell,
+  Tag as TagIcon,
+  Users,
+  ListChecks,
+  CircleDollarSign,
+  Hash,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  X,
 } from 'lucide-react-native';
-import type { Application } from '@clearmind/shared';
+import type { Application, ApplicationContact, ApplicationRequirement } from '@clearmind/shared';
+import {
+  AppType,
+  AppStatus,
+  AppPriority,
+  APPLICATION_TYPES,
+  APPLICATION_STATUSES,
+  APPLICATION_PRIORITIES,
+  STATUS_COLOR,
+  STATUS_LABEL,
+  TYPE_COLOR,
+  priorityValue,
+  showGrantFields,
+  showFunderField,
+  applicationDeadline,
+  isReminderEligible,
+  isDeadlineSoon,
+  relativeDeadline,
+  REMINDER_PRESETS,
+  reminderPresetKey,
+  reminderDaysForKey,
+  DEFAULT_REMINDER_LEAD_DAYS,
+} from '@clearmind/shared/applications';
 import { STORES } from '../../services/db';
 import { newId } from '../../lib/id';
+import { getFlag } from '../../lib/flags';
+import { scheduleReminder, cancelReminder, toDateTime } from '../../services/notifications';
 import { useCollection } from '../../hooks/useCollection';
 import {
   Screen,
@@ -45,82 +82,108 @@ import {
   useToast,
 } from '../../components/ui';
 
-type AppType = Application['type'];
-type AppStatus = Application['status'];
-type Priority = Application['priority'];
+// Applications fire reminders at multiple lead times, so we persist an ARRAY of
+// scheduled notification ids (vs Tasks' single reminderId) to cancel/reschedule.
+// reminderIds is mobile-local — it rides the JSON blob to web where it's ignored.
+type MApplication = Application & { reminderIds?: string[] };
+
 type TypeFilter = 'all' | AppType;
 type StatusFilter = 'all' | AppStatus;
 type SortKey = 'deadline' | 'priority' | 'created' | 'name';
 type GroupKey = 'none' | 'type' | 'status' | 'priority';
 
-// ---- Style/icon maps (ported from the web view) ----
-const TYPE_META: Record<AppType, { icon: any; color: string }> = {
-  job: { icon: Briefcase, color: '#3B82F6' },
-  grant: { icon: GraduationCap, color: '#10b981' },
-  scholarship: { icon: Award, color: '#a855f7' },
-  other: { icon: FileText, color: '#9ca3af' },
+// ---- Icon maps (icons can't live in the platform-agnostic shared core) ----
+const TYPE_ICON: Record<AppType, any> = {
+  job: Briefcase,
+  grant: GraduationCap,
+  scholarship: Award,
+  other: FileText,
+};
+const STATUS_ICON: Record<AppStatus, any> = {
+  draft: FileText,
+  open: FolderOpen,
+  submitted: Send,
+  closed: Clock,
+  accepted: Check,
+  rejected: CircleX,
+};
+const PRIORITY_COLOR: Record<AppPriority, string> = {
+  High: '#f87171',
+  Medium: '#fbbf24',
+  Low: '#34d399',
 };
 
-const STATUS_META: Record<AppStatus, { bg: string; fg: string; icon: any; color: string; label: string }> = {
-  draft: { bg: 'bg-gray-500/15', fg: 'text-gray-300', icon: FileText, color: '#9ca3af', label: 'Draft' },
-  open: { bg: 'bg-blue-500/15', fg: 'text-blue-400', icon: FolderOpen, color: '#60a5fa', label: 'Open' },
-  submitted: { bg: 'bg-purple-500/15', fg: 'text-purple-400', icon: Send, color: '#c084fc', label: 'Submitted' },
-  closed: { bg: 'bg-amber-500/15', fg: 'text-amber-400', icon: Clock, color: '#fbbf24', label: 'Closed' },
-  accepted: { bg: 'bg-emerald-500/15', fg: 'text-emerald-400', icon: Check, color: '#34d399', label: 'Accepted' },
-  rejected: { bg: 'bg-red-500/15', fg: 'text-red-400', icon: CircleX, color: '#f87171', label: 'Rejected' },
-};
-
-const PRIORITY_META: Record<Priority, { bg: string; fg: string }> = {
-  High: { bg: 'bg-red-500/15', fg: 'text-red-400' },
-  Medium: { bg: 'bg-amber-500/15', fg: 'text-amber-400' },
-  Low: { bg: 'bg-emerald-500/15', fg: 'text-emerald-400' },
-};
-
-const priorityValue = (p?: Priority): number => (p === 'High' ? 3 : p === 'Medium' ? 2 : p === 'Low' ? 1 : 0);
-
-const formatDate = (dateStr?: string): string | null => {
-  if (!dateStr) return null;
+const fmtDate = (s?: string): string | null => {
+  if (!s) return null;
   try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
-    return dateStr;
+    return s;
   }
 };
 
-const isDeadlineSoon = (deadline?: string): boolean => {
-  if (!deadline) return false;
-  const diffDays = Math.ceil((new Date(deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  return diffDays >= 0 && diffDays <= 7;
+const withAlpha = (hex: string, alpha: string) => `${hex}${alpha}`;
+
+// ---- Reminder scheduling (schedule-on-write, mirrors tasks.tsx) ----
+const cancelReminders = async (ids?: string[]): Promise<void> => {
+  for (const id of ids ?? []) await cancelReminder(id);
+};
+
+const scheduleDeadlineReminders = async (app: MApplication): Promise<string[]> => {
+  if (!getFlag('reminders') || !isReminderEligible(app)) return [];
+  const deadline = applicationDeadline(app);
+  if (!deadline) return [];
+  const leadDays = Array.isArray(app.reminderLeadDays) ? app.reminderLeadDays : DEFAULT_REMINDER_LEAD_DAYS;
+  const ids: string[] = [];
+  for (const days of leadDays) {
+    const when = toDateTime(deadline); // 9am on the deadline day
+    if (!when) continue;
+    when.setDate(when.getDate() - days);
+    const body = `${app.name} — due in ${days} day${days > 1 ? 's' : ''}`;
+    const id = await scheduleReminder('Application deadline', body, when); // no-ops for past times
+    if (id) ids.push(id);
+  }
+  return ids;
 };
 
 // Flattened FlatList rows (supports optional grouping while staying a FlatList).
 type Row =
   | { kind: 'header'; key: string; title: string; count: number }
-  | { kind: 'item'; key: string; app: Application };
+  | { kind: 'item'; key: string; app: MApplication };
 
 export default function ApplicationsScreen() {
-  const { items, loading, create, update, remove } = useCollection<Application>(STORES.APPLICATIONS);
+  const { items, loading, create, update, remove } = useCollection<MApplication>(STORES.APPLICATIONS);
   const toast = useToast();
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortBy, setSortBy] = useState<SortKey>('deadline');
   const [groupBy, setGroupBy] = useState<GroupKey>('none');
+  const [query, setQuery] = useState('');
 
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Application | null>(null);
+  const [editing, setEditing] = useState<MApplication | null>(null);
+  const [statusPickerFor, setStatusPickerFor] = useState<MApplication | null>(null);
 
   const processed = useMemo(() => {
+    const q = query.trim().toLowerCase();
     const filtered = items.filter((app) => {
       if (typeFilter !== 'all' && app.type !== typeFilter) return false;
       if (statusFilter !== 'all' && app.status !== statusFilter) return false;
+      if (q) {
+        const hay = [app.name, app.organization, app.funder, app.referenceNumber, app.notes, ...(app.tags || [])]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
     filtered.sort((a, b) => {
       switch (sortBy) {
         case 'deadline': {
-          const da = a.submissionDeadline ? new Date(a.submissionDeadline).getTime() : Infinity;
-          const db = b.submissionDeadline ? new Date(b.submissionDeadline).getTime() : Infinity;
+          const da = applicationDeadline(a) ? new Date(applicationDeadline(a)!).getTime() : Infinity;
+          const db = applicationDeadline(b) ? new Date(applicationDeadline(b)!).getTime() : Infinity;
           return da - db;
         }
         case 'priority':
@@ -133,13 +196,13 @@ export default function ApplicationsScreen() {
       }
     });
     return filtered;
-  }, [items, typeFilter, statusFilter, sortBy]);
+  }, [items, typeFilter, statusFilter, query, sortBy]);
 
   const rows = useMemo<Row[]>(() => {
     if (groupBy === 'none') {
       return processed.map((app) => ({ kind: 'item', key: `i:${app.id}`, app }));
     }
-    const groups = new Map<string, Application[]>();
+    const groups = new Map<string, MApplication[]>();
     for (const app of processed) {
       let key: string;
       switch (groupBy) {
@@ -147,7 +210,7 @@ export default function ApplicationsScreen() {
           key = app.type.charAt(0).toUpperCase() + app.type.slice(1);
           break;
         case 'status':
-          key = app.status.charAt(0).toUpperCase() + app.status.slice(1);
+          key = STATUS_LABEL[app.status] ?? app.status;
           break;
         case 'priority':
           key = `${app.priority || 'Medium'} Priority`;
@@ -171,12 +234,12 @@ export default function ApplicationsScreen() {
     setEditing(null);
     setFormOpen(true);
   };
-  const openEdit = (app: Application) => {
+  const openEdit = (app: MApplication) => {
     setEditing(app);
     setFormOpen(true);
   };
 
-  const onDelete = async (app: Application) => {
+  const onDelete = async (app: MApplication) => {
     if (
       await confirmDialog({
         title: 'Delete application',
@@ -185,6 +248,7 @@ export default function ApplicationsScreen() {
         destructive: true,
       })
     ) {
+      await cancelReminders(app.reminderIds);
       remove(app.id);
       toast.show('Application deleted', 'info');
     }
@@ -195,78 +259,93 @@ export default function ApplicationsScreen() {
     Linking.openURL(link).catch(() => toast.show('Could not open link', 'error'));
   };
 
-  const handleSave = (data: FormValues) => {
-    const now = new Date().toISOString();
-    if (editing) {
-      update({
-        ...editing,
-        name: data.name,
-        organization: data.organization || undefined,
-        link: data.link || undefined,
-        type: data.type,
-        status: data.status,
-        priority: data.priority,
-        openingDate: data.openingDate,
-        closingDate: data.closingDate,
-        submissionDeadline: data.submissionDeadline,
-        submittedDate: data.submittedDate,
-        notes: data.notes || undefined,
-        updatedAt: now,
-      });
-      toast.show('Application updated', 'success');
-    } else {
-      create({
-        id: newId(),
-        name: data.name,
-        organization: data.organization || undefined,
-        link: data.link || undefined,
-        type: data.type,
-        status: data.status,
-        priority: data.priority,
-        openingDate: data.openingDate,
-        closingDate: data.closingDate,
-        submissionDeadline: data.submissionDeadline,
-        submittedDate: data.submittedDate,
-        notes: data.notes || undefined,
-        createdAt: now,
-      });
-      toast.show('Application added', 'success');
-    }
+  // Inline status change (advance through the pipeline without opening the form).
+  const changeStatus = async (app: MApplication, status: AppStatus) => {
+    setStatusPickerFor(null);
+    if (app.status === status) return;
+    await cancelReminders(app.reminderIds);
+    const base: MApplication = { ...app, status, updatedAt: new Date().toISOString() };
+    const reminderIds = await scheduleDeadlineReminders(base);
+    update({ ...base, reminderIds });
+  };
+
+  const handleSave = async (data: FormValues) => {
+    // Close + dismiss the keyboard FIRST so the action feels instant and the
+    // (rare) permission prompt never blocks the sheet from dismissing.
+    Keyboard.dismiss();
     setFormOpen(false);
+
+    const now = new Date().toISOString();
+    const fields = {
+      name: data.name,
+      organization: data.organization || undefined,
+      link: data.link || undefined,
+      type: data.type,
+      status: data.status,
+      priority: data.priority,
+      openingDate: data.openingDate,
+      closingDate: data.closingDate,
+      submissionDeadline: data.submissionDeadline,
+      submittedDate: data.submittedDate,
+      notes: data.notes || undefined,
+      funder: showFunderField(data.type) ? data.funder || undefined : undefined,
+      awardAmount: showGrantFields(data.type) ? data.awardAmount || undefined : undefined,
+      referenceNumber: showGrantFields(data.type) ? data.referenceNumber || undefined : undefined,
+      reminderLeadDays: data.reminderLeadDays,
+      tags: data.tags.length ? data.tags : undefined,
+      contacts: data.contacts.length ? data.contacts : undefined,
+      requirements: data.requirements.length ? data.requirements : undefined,
+    };
+
+    if (editing) {
+      await cancelReminders(editing.reminderIds);
+      const base: MApplication = { ...editing, ...fields, updatedAt: now };
+      const reminderIds = await scheduleDeadlineReminders(base);
+      update({ ...base, reminderIds });
+      toast.show(reminderIds.length ? 'Application updated · reminder set' : 'Application updated', 'success');
+    } else {
+      const base: MApplication = { id: newId(), ...fields, createdAt: now };
+      const reminderIds = await scheduleDeadlineReminders(base);
+      create({ ...base, reminderIds });
+      toast.show(reminderIds.length ? 'Application added · reminder set' : 'Application added', 'success');
+    }
   };
 
   if (loading) return <Spinner label="Loading applications…" />;
 
   const Controls = (
     <View className="px-4 pt-4 pb-2">
+      {/* Search */}
+      <View className="flex-row items-center bg-midnight-light rounded-2xl px-3 mb-3 border border-hairline">
+        <Search size={16} color="#9ca3af" />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search name, organization, funder, tags…"
+          placeholderTextColor="#6b7280"
+          className="flex-1 text-ink text-base px-2 py-3"
+        />
+        {query ? (
+          <Pressable onPress={() => setQuery('')} hitSlop={8}>
+            <X size={16} color="#9ca3af" />
+          </Pressable>
+        ) : null}
+      </View>
+
       <View className="flex-row flex-wrap" style={{ gap: 12 }}>
         <Select<TypeFilter>
           label="Type"
           value={typeFilter}
           onChange={setTypeFilter}
           className="w-[47%]"
-          options={[
-            { label: 'All Types', value: 'all' },
-            { label: 'Jobs', value: 'job' },
-            { label: 'Grants', value: 'grant' },
-            { label: 'Scholarships', value: 'scholarship' },
-            { label: 'Other', value: 'other' },
-          ]}
+          options={[{ label: 'All Types', value: 'all' }, ...APPLICATION_TYPES.map((t) => ({ label: t.label, value: t.value }))]}
         />
         <Select<StatusFilter>
           label="Status"
           value={statusFilter}
           onChange={setStatusFilter}
           className="w-[47%]"
-          options={[
-            { label: 'All Statuses', value: 'all' },
-            { label: 'Draft', value: 'draft' },
-            { label: 'Open', value: 'open' },
-            { label: 'Submitted', value: 'submitted' },
-            { label: 'Closed', value: 'closed' },
-            { label: 'Accepted', value: 'accepted' },
-            { label: 'Rejected', value: 'rejected' },
-          ]}
+          options={[{ label: 'All Statuses', value: 'all' }, ...APPLICATION_STATUSES.map((s) => ({ label: s.label, value: s.value }))]}
         />
         <Select<SortKey>
           label="Sort by"
@@ -281,14 +360,14 @@ export default function ApplicationsScreen() {
           ]}
         />
         <Select<GroupKey>
-          label="Group by"
+          label="Group by (stages)"
           value={groupBy}
           onChange={setGroupBy}
           className="w-[47%]"
           options={[
             { label: 'No Grouping', value: 'none' },
+            { label: 'By Stage (status)', value: 'status' },
             { label: 'By Type', value: 'type' },
-            { label: 'By Status', value: 'status' },
             { label: 'By Priority', value: 'priority' },
           ]}
         />
@@ -320,15 +399,13 @@ export default function ApplicationsScreen() {
           ListEmptyComponent={
             <View className="items-center py-16 px-8">
               <Briefcase size={40} color="#6b7280" />
-              <Text className="text-ink-muted text-sm text-center mt-4">
-                No applications match your filters.
-              </Text>
+              <Text className="text-ink-muted text-sm text-center mt-4">No applications match your filters.</Text>
             </View>
           }
           renderItem={({ item }) =>
             item.kind === 'header' ? (
               <View className="flex-row items-center mt-5 mb-2">
-                <View className="w-2 h-2 rounded-full bg-accent mr-2" />
+                <View className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: STATUS_COLOR[item.title.toLowerCase() as AppStatus] ?? '#3B82F6' }} />
                 <Text className="text-ink text-base font-semibold">{item.title}</Text>
                 <Text className="text-ink-muted text-xs ml-2">({item.count})</Text>
               </View>
@@ -339,6 +416,7 @@ export default function ApplicationsScreen() {
                   onEdit={() => openEdit(item.app)}
                   onDelete={() => onDelete(item.app)}
                   onOpenLink={() => onOpenLink(item.app.link)}
+                  onStatusPress={() => setStatusPickerFor(item.app)}
                 />
               </View>
             )
@@ -354,26 +432,45 @@ export default function ApplicationsScreen() {
         onCancel={() => setFormOpen(false)}
         onSave={handleSave}
       />
+
+      <StatusPickerModal
+        app={statusPickerFor}
+        onCancel={() => setStatusPickerFor(null)}
+        onPick={(s) => statusPickerFor && changeStatus(statusPickerFor, s)}
+      />
     </Screen>
   );
 }
 
-function StatusPill({ status }: { status: AppStatus }) {
-  const meta = STATUS_META[status];
-  const Icon = meta.icon;
-  return (
-    <View className={`flex-row items-center rounded-full px-2.5 py-1 ${meta.bg}`}>
-      <Icon size={12} color={meta.color} />
-      <Text className={`text-xs font-semibold ml-1 ${meta.fg}`}>{meta.label}</Text>
+function StatusPill({ status, onPress }: { status: AppStatus; onPress?: () => void }) {
+  const color = STATUS_COLOR[status] ?? '#9ca3af';
+  const label = STATUS_LABEL[status] ?? status;
+  const Icon = STATUS_ICON[status] ?? FileText;
+  const body = (
+    <View className="flex-row items-center rounded-full px-2.5 py-1" style={{ backgroundColor: withAlpha(color, '26') }}>
+      <Icon size={12} color={color} />
+      <Text className="text-xs font-semibold ml-1" style={{ color }}>
+        {label}
+      </Text>
+      {onPress ? <ChevronDown size={12} color={color} /> : null}
     </View>
+  );
+  return onPress ? (
+    <Pressable onPress={onPress} hitSlop={6} className="active:opacity-70">
+      {body}
+    </Pressable>
+  ) : (
+    body
   );
 }
 
-function PriorityPill({ priority }: { priority: Priority }) {
-  const meta = PRIORITY_META[priority];
+function PriorityPill({ priority }: { priority: AppPriority }) {
+  const color = PRIORITY_COLOR[priority] ?? '#9ca3af';
   return (
-    <View className={`rounded-full px-2.5 py-1 ${meta.bg}`}>
-      <Text className={`text-xs font-semibold ${meta.fg}`}>{priority}</Text>
+    <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: withAlpha(color, '26') }}>
+      <Text className="text-xs font-semibold" style={{ color }}>
+        {priority}
+      </Text>
     </View>
   );
 }
@@ -383,22 +480,31 @@ function ApplicationCard({
   onEdit,
   onDelete,
   onOpenLink,
+  onStatusPress,
 }: {
-  app: Application;
+  app: MApplication;
   onEdit: () => void;
   onDelete: () => void;
   onOpenLink: () => void;
+  onStatusPress: () => void;
 }) {
-  const TypeIcon = TYPE_META[app.type].icon;
-  const deadlineSoon = isDeadlineSoon(app.submissionDeadline);
+  const TypeIcon = TYPE_ICON[app.type] ?? FileText;
+  const typeColor = TYPE_COLOR[app.type] ?? '#9ca3af';
+  const deadline = applicationDeadline(app);
+  const soon = isDeadlineSoon(deadline);
+  const armed = isReminderEligible(app) && (!Array.isArray(app.reminderLeadDays) || app.reminderLeadDays.length > 0);
+  const reqDone = app.requirements?.filter((r) => r.done).length ?? 0;
+  const reqTotal = app.requirements?.length ?? 0;
+
   return (
     <Card>
       <View className="flex-row items-start justify-between">
         <View className="flex-row items-center">
-          <TypeIcon size={16} color={TYPE_META[app.type].color} />
+          <TypeIcon size={16} color={typeColor} />
           <Text className="text-ink-muted text-xs uppercase ml-1.5" style={{ letterSpacing: 1 }}>
             {app.type}
           </Text>
+          {armed ? <Bell size={12} color="#60a5fa" style={{ marginLeft: 6 }} /> : null}
         </View>
         <View className="flex-row items-center -mr-1">
           <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
@@ -412,41 +518,88 @@ function ApplicationCard({
 
       <Text className="text-ink text-base font-semibold mt-2">{app.name}</Text>
       {app.organization ? <Text className="text-ink-muted text-sm mt-0.5">{app.organization}</Text> : null}
+      {app.funder ? (
+        <View className="flex-row items-center mt-1">
+          <Building2 size={11} color="#9ca3af" />
+          <Text className="text-ink-muted text-xs ml-1">Funder: {app.funder}</Text>
+        </View>
+      ) : null}
 
       <View className="flex-row items-center flex-wrap mt-3" style={{ gap: 8 }}>
-        <StatusPill status={app.status} />
+        <StatusPill status={app.status} onPress={onStatusPress} />
         {app.priority ? <PriorityPill priority={app.priority} /> : null}
+        {app.awardAmount ? (
+          <View className="flex-row items-center rounded-full px-2.5 py-1" style={{ backgroundColor: 'rgba(16,185,129,0.15)' }}>
+            <CircleDollarSign size={11} color="#34d399" />
+            <Text className="text-emerald-400 text-xs font-semibold ml-1">{app.awardAmount}</Text>
+          </View>
+        ) : null}
       </View>
 
+      {app.referenceNumber ? (
+        <View className="flex-row items-center mt-2">
+          <Hash size={11} color="#9ca3af" />
+          <Text className="text-ink-muted text-xs ml-1">{app.referenceNumber}</Text>
+        </View>
+      ) : null}
+
       <View className="mt-3" style={{ gap: 6 }}>
-        {app.submissionDeadline ? (
+        {deadline ? (
           <View className="flex-row items-center">
-            <Calendar size={12} color={deadlineSoon ? '#f97316' : '#9ca3af'} />
-            <Text className={`text-xs ml-2 ${deadlineSoon ? 'text-orange-400' : 'text-ink-muted'}`}>
-              Deadline: {formatDate(app.submissionDeadline)}
-              {deadlineSoon ? '  •  Soon!' : ''}
+            <Calendar size={12} color={soon ? '#f97316' : '#9ca3af'} />
+            <Text className={`text-xs ml-2 ${soon ? 'text-orange-400' : 'text-ink-muted'}`}>
+              Deadline: {fmtDate(deadline)} · {relativeDeadline(deadline)}
             </Text>
           </View>
         ) : null}
         {app.openingDate ? (
           <View className="flex-row items-center">
             <Clock size={12} color="#9ca3af" />
-            <Text className="text-ink-muted text-xs ml-2">Opens: {formatDate(app.openingDate)}</Text>
-          </View>
-        ) : null}
-        {app.closingDate ? (
-          <View className="flex-row items-center">
-            <Clock size={12} color="#9ca3af" />
-            <Text className="text-ink-muted text-xs ml-2">Closes: {formatDate(app.closingDate)}</Text>
+            <Text className="text-ink-muted text-xs ml-2">Opens: {fmtDate(app.openingDate)}</Text>
           </View>
         ) : null}
         {app.submittedDate ? (
           <View className="flex-row items-center">
             <Send size={12} color="#34d399" />
-            <Text className="text-emerald-400 text-xs ml-2">Submitted: {formatDate(app.submittedDate)}</Text>
+            <Text className="text-emerald-400 text-xs ml-2">Submitted: {fmtDate(app.submittedDate)}</Text>
           </View>
         ) : null}
       </View>
+
+      {reqTotal > 0 ? (
+        <View className="mt-3">
+          <View className="flex-row items-center justify-between mb-1">
+            <View className="flex-row items-center">
+              <ListChecks size={12} color="#9ca3af" />
+              <Text className="text-ink-muted text-xs ml-1">Requirements</Text>
+            </View>
+            <Text className="text-ink-muted text-xs">
+              {reqDone}/{reqTotal}
+            </Text>
+          </View>
+          <View className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(148,163,184,0.25)' }}>
+            <View className="h-full bg-accent rounded-full" style={{ width: `${reqTotal ? (reqDone / reqTotal) * 100 : 0}%` }} />
+          </View>
+        </View>
+      ) : null}
+
+      {app.tags && app.tags.length > 0 ? (
+        <View className="flex-row flex-wrap mt-3" style={{ gap: 6 }}>
+          {app.tags.map((t) => (
+            <View key={t} className="flex-row items-center rounded-full px-2 py-0.5" style={{ backgroundColor: 'rgba(148,163,184,0.18)' }}>
+              <TagIcon size={9} color="#9ca3af" />
+              <Text className="text-ink-muted text-xs ml-1">{t}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {app.contacts && app.contacts.length > 0 ? (
+        <View className="flex-row items-center mt-3">
+          <Users size={11} color="#9ca3af" />
+          <Text className="text-ink-muted text-xs ml-1">{app.contacts.map((c) => c.name).join(', ')}</Text>
+        </View>
+      ) : null}
 
       {app.notes ? (
         <Text className="text-ink-muted text-sm mt-3" numberOfLines={2}>
@@ -464,18 +617,62 @@ function ApplicationCard({
   );
 }
 
+function StatusPickerModal({
+  app,
+  onCancel,
+  onPick,
+}: {
+  app: MApplication | null;
+  onCancel: () => void;
+  onPick: (s: AppStatus) => void;
+}) {
+  return (
+    <Modal visible={!!app} transparent animationType="fade" onRequestClose={onCancel}>
+      <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
+        <Pressable className="bg-midnight-light rounded-t-3xl border-t border-hairline pb-8 pt-2" onPress={() => {}}>
+          <Text className="text-ink-muted text-xs text-center py-2">Move to stage</Text>
+          {APPLICATION_STATUSES.map((s) => {
+            const sel = app?.status === s.value;
+            const color = STATUS_COLOR[s.value];
+            return (
+              <Pressable
+                key={s.value}
+                onPress={() => onPick(s.value)}
+                className="flex-row items-center justify-between px-6 py-4 active:bg-midnight-lighter"
+              >
+                <View className="flex-row items-center">
+                  <View className="w-2.5 h-2.5 rounded-full mr-3" style={{ backgroundColor: color }} />
+                  <Text className={`text-base ${sel ? 'text-accent font-semibold' : 'text-ink'}`}>{s.label}</Text>
+                </View>
+                {sel ? <Check size={18} color="#3B82F6" /> : null}
+              </Pressable>
+            );
+          })}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 type FormValues = {
   name: string;
   organization: string;
   link: string;
   type: AppType;
   status: AppStatus;
-  priority: Priority;
+  priority: AppPriority;
   openingDate?: string;
   closingDate?: string;
   submissionDeadline?: string;
   submittedDate?: string;
   notes: string;
+  funder: string;
+  awardAmount: string;
+  referenceNumber: string;
+  reminderLeadDays: number[];
+  tags: string[];
+  contacts: ApplicationContact[];
+  requirements: ApplicationRequirement[];
 };
 
 function ApplicationFormModal({
@@ -485,7 +682,7 @@ function ApplicationFormModal({
   onSave,
 }: {
   visible: boolean;
-  initial: Application | null;
+  initial: MApplication | null;
   onCancel: () => void;
   onSave: (values: FormValues) => void;
 }) {
@@ -494,12 +691,21 @@ function ApplicationFormModal({
   const [link, setLink] = useState('');
   const [type, setType] = useState<AppType>('job');
   const [status, setStatus] = useState<AppStatus>('draft');
-  const [priority, setPriority] = useState<Priority>('Medium');
+  const [priority, setPriority] = useState<AppPriority>('Medium');
   const [openingDate, setOpeningDate] = useState<string | undefined>(undefined);
   const [closingDate, setClosingDate] = useState<string | undefined>(undefined);
   const [submissionDeadline, setSubmissionDeadline] = useState<string | undefined>(undefined);
   const [submittedDate, setSubmittedDate] = useState<string | undefined>(undefined);
   const [notes, setNotes] = useState('');
+  const [funder, setFunder] = useState('');
+  const [awardAmount, setAwardAmount] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [reminderLeadDays, setReminderLeadDays] = useState<number[]>([...DEFAULT_REMINDER_LEAD_DAYS]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState('');
+  const [contacts, setContacts] = useState<ApplicationContact[]>([]);
+  const [requirements, setRequirements] = useState<ApplicationRequirement[]>([]);
+  const [showMoreDates, setShowMoreDates] = useState(false);
 
   // Reset fields whenever the modal (re)opens.
   const [lastVisible, setLastVisible] = useState(false);
@@ -517,8 +723,27 @@ function ApplicationFormModal({
       setSubmissionDeadline(initial?.submissionDeadline || undefined);
       setSubmittedDate(initial?.submittedDate || undefined);
       setNotes(initial?.notes ?? '');
+      setFunder(initial?.funder ?? '');
+      setAwardAmount(initial?.awardAmount ?? '');
+      setReferenceNumber(initial?.referenceNumber ?? '');
+      setReminderLeadDays(initial?.reminderLeadDays ?? [...DEFAULT_REMINDER_LEAD_DAYS]);
+      setTags(initial?.tags ? [...initial.tags] : []);
+      setTagDraft('');
+      setContacts(initial?.contacts ? initial.contacts.map((c) => ({ ...c })) : []);
+      setRequirements(initial?.requirements ? initial.requirements.map((r) => ({ ...r })) : []);
+      setShowMoreDates(!!(initial?.closingDate || initial?.submittedDate || (initial?.type !== 'grant' && initial?.openingDate)));
     }
   }
+
+  const grant = showGrantFields(type);
+  const funderShown = showFunderField(type);
+  const hasDeadline = !!(submissionDeadline || closingDate);
+
+  const addTag = () => {
+    const t = tagDraft.trim();
+    if (t && !tags.includes(t)) setTags([...tags, t]);
+    setTagDraft('');
+  };
 
   const save = () => {
     if (!name.trim()) return;
@@ -534,119 +759,179 @@ function ApplicationFormModal({
       submissionDeadline,
       submittedDate,
       notes: notes.trim(),
+      funder: funder.trim(),
+      awardAmount: awardAmount.trim(),
+      referenceNumber: referenceNumber.trim(),
+      reminderLeadDays,
+      tags,
+      contacts: contacts.filter((c) => c.name.trim()),
+      requirements: requirements.filter((r) => r.label.trim()),
     });
   };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable
-            className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5"
-            style={{ maxHeight: '90%' }}
-            onPress={() => {}}
-          >
-            <Text className="text-ink text-lg font-bold mb-4">
-              {initial ? 'Edit Application' : 'New Application'}
-            </Text>
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5" style={{ maxHeight: '92%' }} onPress={() => {}}>
+            <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit Application' : 'New Application'}</Text>
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              <Input
-                label="Application Name *"
-                placeholder="Software Engineer at Google"
-                value={name}
-                onChangeText={setName}
-                className="mb-3"
-              />
-              <Input
-                label="Organization"
-                placeholder="Company or organization name"
-                value={organization}
-                onChangeText={setOrganization}
-                className="mb-3"
-              />
-              <Input
-                label="Application Link"
-                placeholder="https://..."
-                value={link}
-                onChangeText={setLink}
-                autoCapitalize="none"
-                keyboardType="url"
-                className="mb-3"
-              />
+              {/* Identity first */}
+              <Input label="Application Name *" placeholder="e.g. Software Engineer at Google" value={name} onChangeText={setName} className="mb-3" />
+              <Input label="Organization" placeholder="Company or host organization" value={organization} onChangeText={setOrganization} className="mb-3" />
 
               <Select<AppType>
                 label="Type"
                 value={type}
                 onChange={setType}
                 className="mb-3"
-                options={[
-                  { label: 'Job', value: 'job' },
-                  { label: 'Grant', value: 'grant' },
-                  { label: 'Scholarship', value: 'scholarship' },
-                  { label: 'Other', value: 'other' },
-                ]}
+                options={APPLICATION_TYPES.map((t) => ({ label: t.label, value: t.value }))}
               />
-              <Select<AppStatus>
-                label="Status"
-                value={status}
-                onChange={setStatus}
-                className="mb-3"
-                options={[
-                  { label: 'Draft', value: 'draft' },
-                  { label: 'Open', value: 'open' },
-                  { label: 'Submitted', value: 'submitted' },
-                  { label: 'Closed', value: 'closed' },
-                  { label: 'Accepted', value: 'accepted' },
-                  { label: 'Rejected', value: 'rejected' },
-                ]}
-              />
-              <Select<Priority>
-                label="Priority"
-                value={priority}
-                onChange={setPriority}
-                className="mb-3"
-                options={[
-                  { label: 'High', value: 'High' },
-                  { label: 'Medium', value: 'Medium' },
-                  { label: 'Low', value: 'Low' },
-                ]}
-              />
-
-              <View className="mb-3">
-                <DateField label="Opening Date" value={openingDate} onChange={setOpeningDate} />
-              </View>
-              <View className="mb-3">
-                <DateField label="Closing Date" value={closingDate} onChange={setClosingDate} />
-              </View>
-              <View className="mb-3">
-                <DateField
-                  label="Submission Deadline"
-                  value={submissionDeadline}
-                  onChange={setSubmissionDeadline}
+              <View className="flex-row mb-3" style={{ gap: 12 }}>
+                <Select<AppStatus>
+                  label="Status"
+                  value={status}
+                  onChange={setStatus}
+                  className="flex-1"
+                  options={APPLICATION_STATUSES.map((s) => ({ label: s.label, value: s.value }))}
+                />
+                <Select<AppPriority>
+                  label="Priority"
+                  value={priority}
+                  onChange={setPriority}
+                  className="flex-1"
+                  options={APPLICATION_PRIORITIES.map((p) => ({ label: p.label, value: p.value }))}
                 />
               </View>
+
+              {/* Grant identity: opening date right under type for grants */}
+              {grant ? (
+                <View className="mb-3">
+                  <DateField label="Opening Date" value={openingDate} onChange={setOpeningDate} />
+                </View>
+              ) : null}
+
+              {/* Type-specific detail block */}
+              {grant ? (
+                <View className="rounded-2xl border border-hairline p-3 mb-3" style={{ gap: 12 }}>
+                  <Text className="text-ink-muted text-xs uppercase">{type === 'grant' ? 'Grant details' : 'Scholarship details'}</Text>
+                  {funderShown ? (
+                    <Input label="Funder / Awarding Body" placeholder="e.g. NSF, Gates Foundation" value={funder} onChangeText={setFunder} />
+                  ) : null}
+                  <View className="flex-row" style={{ gap: 12 }}>
+                    <View className="flex-1">
+                      <Input label="Award Amount" placeholder="$50,000" value={awardAmount} onChangeText={setAwardAmount} />
+                    </View>
+                    <View className="flex-1">
+                      <Input label="Reference No." placeholder="NSF-2026-1187" value={referenceNumber} onChangeText={setReferenceNumber} />
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              <Input label="Application Link" placeholder="https://..." value={link} onChangeText={setLink} autoCapitalize="none" keyboardType="url" className="mb-3" />
+
+              {/* Deadline + reminder (always visible) */}
               <View className="mb-3">
-                <DateField label="Submitted Date" value={submittedDate} onChange={setSubmittedDate} />
+                <DateField label="Submission Deadline" value={submissionDeadline} onChange={setSubmissionDeadline} />
+              </View>
+              {hasDeadline ? (
+                <Select<string>
+                  label="Remind me"
+                  value={reminderPresetKey(reminderLeadDays)}
+                  onChange={(k) => setReminderLeadDays(reminderDaysForKey(k))}
+                  className="mb-3"
+                  options={REMINDER_PRESETS.map((p) => ({ label: p.label, value: p.key }))}
+                />
+              ) : null}
+
+              {/* More dates (collapsed) */}
+              <Pressable onPress={() => setShowMoreDates((v) => !v)} className="flex-row items-center mb-3 active:opacity-70">
+                {showMoreDates ? <ChevronDown size={16} color="#60a5fa" /> : <ChevronRight size={16} color="#60a5fa" />}
+                <Text className="text-accent text-sm ml-1">More dates</Text>
+              </Pressable>
+              {showMoreDates ? (
+                <View className="mb-3" style={{ gap: 12 }}>
+                  {!grant ? <DateField label="Opening Date" value={openingDate} onChange={setOpeningDate} /> : null}
+                  <DateField label="Closing Date" value={closingDate} onChange={setClosingDate} />
+                  <DateField label="Submitted Date" value={submittedDate} onChange={setSubmittedDate} />
+                </View>
+              ) : null}
+
+              {/* Tags */}
+              <Text className="text-ink-muted text-xs mb-1.5 ml-1">Tags</Text>
+              {tags.length ? (
+                <View className="flex-row flex-wrap mb-2" style={{ gap: 6 }}>
+                  {tags.map((t) => (
+                    <Pressable key={t} onPress={() => setTags(tags.filter((x) => x !== t))} className="flex-row items-center rounded-full px-2.5 py-1 active:opacity-70" style={{ backgroundColor: 'rgba(59,130,246,0.18)' }}>
+                      <Text className="text-accent text-xs mr-1">{t}</Text>
+                      <X size={11} color="#60a5fa" />
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              <View className="flex-row items-center mb-3" style={{ gap: 8 }}>
+                <View className="flex-1">
+                  <Input placeholder="Add a tag" value={tagDraft} onChangeText={setTagDraft} onSubmitEditing={addTag} returnKeyType="done" />
+                </View>
+                <Pressable onPress={addTag} className="px-4 py-3 rounded-2xl bg-midnight-lighter active:opacity-80">
+                  <Plus size={18} color="#e5e7eb" />
+                </Pressable>
               </View>
 
-              <TextArea
-                label="Notes"
-                placeholder="Additional notes about this application..."
-                value={notes}
-                onChangeText={setNotes}
-                minHeight={90}
-                className="mb-2"
-              />
+              {/* Requirements checklist */}
+              <Text className="text-ink-muted text-xs mb-1.5 ml-1">Requirements / Documents</Text>
+              <View className="mb-3" style={{ gap: 8 }}>
+                {requirements.map((r, i) => (
+                  <View key={r.id} className="flex-row items-center" style={{ gap: 8 }}>
+                    <Pressable
+                      onPress={() => setRequirements(requirements.map((x, j) => (j === i ? { ...x, done: !x.done } : x)))}
+                      hitSlop={6}
+                      className="active:opacity-70"
+                    >
+                      {r.done ? <Check size={20} color="#34d399" /> : <View className="w-5 h-5 rounded border border-hairline" />}
+                    </Pressable>
+                    <View className="flex-1">
+                      <Input placeholder="e.g. CV, cover letter…" value={r.label} onChangeText={(v) => setRequirements(requirements.map((x, j) => (j === i ? { ...x, label: v } : x)))} />
+                    </View>
+                    <Pressable onPress={() => setRequirements(requirements.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70">
+                      <Trash2 size={16} color="#9ca3af" />
+                    </Pressable>
+                  </View>
+                ))}
+                <Pressable onPress={() => setRequirements([...requirements, { id: newId(), label: '', done: false }])} className="flex-row items-center active:opacity-70">
+                  <Plus size={16} color="#60a5fa" />
+                  <Text className="text-accent text-sm ml-1">Add requirement</Text>
+                </Pressable>
+              </View>
+
+              {/* Contacts */}
+              <Text className="text-ink-muted text-xs mb-1.5 ml-1">Contacts</Text>
+              <View className="mb-3" style={{ gap: 8 }}>
+                {contacts.map((c, i) => (
+                  <View key={c.id} className="flex-row items-center" style={{ gap: 8 }}>
+                    <View className="flex-1">
+                      <Input placeholder="Name" value={c.name} onChangeText={(v) => setContacts(contacts.map((x, j) => (j === i ? { ...x, name: v } : x)))} />
+                    </View>
+                    <View className="flex-1">
+                      <Input placeholder="Email / role" value={c.email ?? ''} onChangeText={(v) => setContacts(contacts.map((x, j) => (j === i ? { ...x, email: v } : x)))} autoCapitalize="none" />
+                    </View>
+                    <Pressable onPress={() => setContacts(contacts.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70">
+                      <Trash2 size={16} color="#9ca3af" />
+                    </Pressable>
+                  </View>
+                ))}
+                <Pressable onPress={() => setContacts([...contacts, { id: newId(), name: '' }])} className="flex-row items-center active:opacity-70">
+                  <Plus size={16} color="#60a5fa" />
+                  <Text className="text-accent text-sm ml-1">Add contact</Text>
+                </Pressable>
+              </View>
+
+              <TextArea label="Notes" placeholder="Additional notes about this application..." value={notes} onChangeText={setNotes} minHeight={90} className="mb-2" />
             </ScrollView>
 
             <View className="flex-row mt-4 mb-8" style={{ gap: 12 }}>
-              <Pressable
-                onPress={onCancel}
-                className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80"
-              >
+              <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
                 <Text className="text-ink font-semibold">Cancel</Text>
               </Pressable>
               <Pressable
@@ -654,9 +939,7 @@ function ApplicationFormModal({
                 disabled={!name.trim()}
                 className={`flex-1 items-center py-3.5 rounded-full ${name.trim() ? 'bg-accent active:bg-accent-hover' : 'bg-midnight-lighter'}`}
               >
-                <Text className={`font-bold ${name.trim() ? 'text-white' : 'text-ink-muted'}`}>
-                  {initial ? 'Update' : 'Create'}
-                </Text>
+                <Text className={`font-bold ${name.trim() ? 'text-white' : 'text-ink-muted'}`}>{initial ? 'Update' : 'Create'}</Text>
               </Pressable>
             </View>
           </Pressable>

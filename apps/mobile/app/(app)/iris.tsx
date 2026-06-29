@@ -271,6 +271,10 @@ async function executeActions(actions: ParsedActions): Promise<ActionsSummary> {
       closingDate: app.closingDate,
       priority: app.priority || 'Medium',
       notes: app.notes,
+      funder: app.funder,
+      awardAmount: app.awardAmount,
+      referenceNumber: app.referenceNumber,
+      tags: app.tags,
       createdAt: now(),
     };
     await dbService.put(STORES.APPLICATIONS, newApplication);

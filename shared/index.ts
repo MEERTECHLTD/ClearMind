@@ -7,6 +7,9 @@
 // The data model — the contract both apps share.
 export * from './types';
 
+// Applications domain helpers (option lists, colours, reminder presets, deadline rules).
+export * from './applications';
+
 // Canonical store/collection naming — single source of truth for sync.
 export * from './data/collections';
 

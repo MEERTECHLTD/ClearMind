@@ -8,6 +8,7 @@
   "exports": {
     ".": "./index.ts",
     "./types": "./types.ts",
+    "./applications": "./applications.ts",
     "./data/collections": "./data/collections.ts",
     "./sync/merge": "./sync/merge.ts",
     "./data/firestore": "./data/firestore.ts",

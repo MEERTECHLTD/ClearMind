@@ -262,6 +262,21 @@ export interface Rant {
   mood?: 'frustrated' | 'angry' | 'overwhelmed' | 'confused' | 'venting';
 }
 
+// A person attached to an application (recruiter, program officer, referee…).
+export interface ApplicationContact {
+  id: string;
+  name: string;
+  email?: string;
+  role?: string; // e.g. "Recruiter", "Program Officer"
+}
+
+// A requirement/document checklist item (CV, cover letter, references…).
+export interface ApplicationRequirement {
+  id: string;
+  label: string;
+  done: boolean;
+}
+
 export interface Application {
   id: string;
   name: string;
@@ -275,6 +290,16 @@ export interface Application {
   submittedDate?: string;
   notes?: string;
   organization?: string;
+  // Type-specific detail fields (surfaced for grant / scholarship).
+  funder?: string; // awarding body, often distinct from the host organization
+  awardAmount?: string; // free-text so it can hold currency symbols / ranges ("$50,000", "£10k–15k")
+  referenceNumber?: string; // portal / solicitation reference number
+  // Power-tracker fields (all types).
+  tags?: string[];
+  contacts?: ApplicationContact[];
+  requirements?: ApplicationRequirement[];
+  // Deadline reminders: which days-before-deadline to alert. Absent => default [7,3,1].
+  reminderLeadDays?: number[];
   createdAt: string;
   updatedAt?: string;
 }

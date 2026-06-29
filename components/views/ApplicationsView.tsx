@@ -1,52 +1,138 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Application, ApplicationPreferences } from '../../types';
+import { Application, ApplicationContact, ApplicationRequirement } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Plus, ExternalLink, Edit2, Trash2, X, Save, Calendar, Briefcase, GraduationCap, FileText, Check, Clock, XCircle, Send, FolderOpen, ArrowUpDown, Layers, Award } from 'lucide-react';
+import {
+  AppType,
+  AppStatus,
+  APPLICATION_TYPES,
+  APPLICATION_STATUSES,
+  APPLICATION_PRIORITIES,
+  STATUS_COLOR,
+  STATUS_LABEL,
+  STATUS_BOARD_ORDER,
+  TYPE_COLOR,
+  priorityValue,
+  showGrantFields,
+  showFunderField,
+  applicationDeadline,
+  isReminderEligible,
+  isDeadlineSoon,
+  relativeDeadline,
+  REMINDER_PRESETS,
+  reminderPresetKey,
+  reminderDaysForKey,
+  DEFAULT_REMINDER_LEAD_DAYS,
+} from '@clearmind/shared/applications';
+import {
+  Plus, ExternalLink, Edit2, Trash2, X, Save, Calendar, Briefcase, GraduationCap,
+  FileText, Check, Clock, XCircle, Send, FolderOpen, ArrowUpDown, Layers, Award,
+  Search, Bell, Tag as TagIcon, Users, ListChecks, LayoutGrid, List, ChevronDown,
+  ChevronRight, CircleDollarSign, Hash, Building2,
+} from 'lucide-react';
 
 const PREFS_KEY = 'application-preferences';
+
+// Collision-resistant id (Date.now() alone collides on same-millisecond creates).
+const newId = (): string =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+// Web icon maps (lucide-react components can't live in the platform-agnostic shared
+// core). Colours/labels/options DO come from @clearmind/shared. Read-time fallbacks
+// keep any legacy/out-of-union value from throwing.
+const TYPE_ICON: Record<AppType, React.FC<{ size?: number; className?: string }>> = {
+  job: Briefcase, grant: GraduationCap, scholarship: Award, other: FileText,
+};
+const STATUS_ICON: Record<AppStatus, React.FC<{ size?: number }>> = {
+  draft: FileText, open: FolderOpen, submitted: Send, closed: Clock, accepted: Check, rejected: XCircle,
+};
+const PRIORITY_COLOR: Record<Application['priority'], string> = {
+  High: '#f87171', Medium: '#fbbf24', Low: '#34d399',
+};
+
+type FormData = {
+  name: string;
+  link: string;
+  type: AppType;
+  status: AppStatus;
+  priority: Application['priority'];
+  openingDate: string;
+  closingDate: string;
+  submissionDeadline: string;
+  submittedDate: string;
+  notes: string;
+  organization: string;
+  funder: string;
+  awardAmount: string;
+  referenceNumber: string;
+  reminderLeadDays: number[];
+  tags: string[];
+  contacts: ApplicationContact[];
+  requirements: ApplicationRequirement[];
+};
+
+const emptyForm = (): FormData => ({
+  name: '', link: '', type: 'job', status: 'draft', priority: 'Medium',
+  openingDate: '', closingDate: '', submissionDeadline: '', submittedDate: '',
+  notes: '', organization: '', funder: '', awardAmount: '', referenceNumber: '',
+  reminderLeadDays: [...DEFAULT_REMINDER_LEAD_DAYS], tags: [], contacts: [], requirements: [],
+});
+
+// Clear all dedupe keys for an application so a changed deadline / lead-time re-arms.
+const clearReminderKeys = (id: string): void => {
+  try {
+    const remove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith(`app-notified-${id}-`) || k.startsWith(`app-deadline-${id}-`) || k === `app-deadline-today-${id}`)) {
+        remove.push(k);
+      }
+    }
+    remove.forEach((k) => localStorage.removeItem(k));
+  } catch { /* ignore */ }
+};
+
+const formatDate = (dateStr?: string): string | null => {
+  if (!dateStr) return null;
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
 
 const ApplicationsView: React.FC = () => {
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingApplication, setEditingApplication] = useState<Application | null>(null);
-  const [filter, setFilter] = useState<'all' | Application['type']>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | Application['status']>('all');
-  
-  // Sorting and Grouping preferences (saved to localStorage)
-  const [sortBy, setSortBy] = useState<'deadline' | 'priority' | 'created' | 'name'>(() => {
-    const saved = localStorage.getItem(PREFS_KEY);
-    if (saved) {
-      try { return JSON.parse(saved).sortBy || 'deadline'; } catch { return 'deadline'; }
-    }
-    return 'deadline';
-  });
-  const [groupBy, setGroupBy] = useState<'none' | 'type' | 'status' | 'priority'>(() => {
-    const saved = localStorage.getItem(PREFS_KEY);
-    if (saved) {
-      try { return JSON.parse(saved).groupBy || 'none'; } catch { return 'none'; }
-    }
-    return 'none';
-  });
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    link: '',
-    type: 'job' as Application['type'],
-    status: 'draft' as Application['status'],
-    priority: 'Medium' as Application['priority'],
-    openingDate: '',
-    closingDate: '',
-    submissionDeadline: '',
-    submittedDate: '',
-    notes: '',
-    organization: ''
-  });
+  const [filter, setFilter] = useState<'all' | AppType>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | AppStatus>('all');
+  const [query, setQuery] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
 
-  // Save preferences to localStorage whenever they change
+  const readPref = <T,>(key: string, fallback: T): T => {
+    const saved = localStorage.getItem(PREFS_KEY);
+    if (saved) { try { return (JSON.parse(saved)[key] as T) ?? fallback; } catch { return fallback; } }
+    return fallback;
+  };
+  const [sortBy, setSortBy] = useState<'deadline' | 'priority' | 'created' | 'name'>(() => readPref('sortBy', 'deadline'));
+  const [groupBy, setGroupBy] = useState<'none' | 'type' | 'status' | 'priority'>(() => readPref('groupBy', 'none'));
+  const [viewMode, setViewMode] = useState<'cards' | 'board'>(() => readPref('viewMode', 'cards'));
+
+  const [formData, setFormData] = useState<FormData>(emptyForm);
+  const [showMoreDates, setShowMoreDates] = useState(false);
+
   useEffect(() => {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ sortBy, groupBy }));
-  }, [sortBy, groupBy]);
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ sortBy, groupBy, viewMode }));
+  }, [sortBy, groupBy, viewMode]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2400);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     const loadApplications = async () => {
@@ -54,41 +140,23 @@ const ApplicationsView: React.FC = () => {
         const data = await dbService.getAll<Application>(STORES.APPLICATIONS);
         setApplications(data);
       } catch (err) {
-        console.error("Failed to load applications", err);
+        console.error('Failed to load applications', err);
       } finally {
-        setTimeout(() => setIsLoading(false), 500);
+        setIsLoading(false);
       }
     };
     loadApplications();
 
-    // Listen for sync events to reload data
     const handleSync = (e: CustomEvent) => {
-      if (e.detail?.store === 'applications') {
-        loadApplications();
-      }
+      if (e.detail?.store === 'applications') loadApplications();
     };
     window.addEventListener('clearmind-sync', handleSync as EventListener);
     return () => window.removeEventListener('clearmind-sync', handleSync as EventListener);
   }, []);
 
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      link: '',
-      type: 'job',
-      status: 'draft',
-      priority: 'Medium',
-      openingDate: '',
-      closingDate: '',
-      submissionDeadline: '',
-      submittedDate: '',
-      notes: '',
-      organization: ''
-    });
-  };
-
   const openAddModal = () => {
-    resetForm();
+    setFormData(emptyForm());
+    setShowMoreDates(false);
     setEditingApplication(null);
     setShowModal(true);
   };
@@ -105,137 +173,113 @@ const ApplicationsView: React.FC = () => {
       submissionDeadline: app.submissionDeadline || '',
       submittedDate: app.submittedDate || '',
       notes: app.notes || '',
-      organization: app.organization || ''
+      organization: app.organization || '',
+      funder: app.funder || '',
+      awardAmount: app.awardAmount || '',
+      referenceNumber: app.referenceNumber || '',
+      reminderLeadDays: app.reminderLeadDays ?? [...DEFAULT_REMINDER_LEAD_DAYS],
+      tags: app.tags ? [...app.tags] : [],
+      contacts: app.contacts ? app.contacts.map((c) => ({ ...c })) : [],
+      requirements: app.requirements ? app.requirements.map((r) => ({ ...r })) : [],
     });
+    setShowMoreDates(!!(app.closingDate || app.submittedDate || (app.type !== 'grant' && app.openingDate)));
     setEditingApplication(app);
     setShowModal(true);
   };
 
+  // Trim empties so we never persist blank tags/contacts/requirements.
+  const cleanForm = (): Partial<Application> => ({
+    name: formData.name.trim(),
+    link: formData.link.trim() || undefined,
+    type: formData.type,
+    status: formData.status,
+    priority: formData.priority,
+    openingDate: formData.openingDate || undefined,
+    closingDate: formData.closingDate || undefined,
+    submissionDeadline: formData.submissionDeadline || undefined,
+    submittedDate: formData.submittedDate || undefined,
+    notes: formData.notes.trim() || undefined,
+    organization: formData.organization.trim() || undefined,
+    funder: showFunderField(formData.type) ? (formData.funder.trim() || undefined) : undefined,
+    awardAmount: showGrantFields(formData.type) ? (formData.awardAmount.trim() || undefined) : undefined,
+    referenceNumber: showGrantFields(formData.type) ? (formData.referenceNumber.trim() || undefined) : undefined,
+    reminderLeadDays: formData.reminderLeadDays,
+    tags: formData.tags.length ? formData.tags : undefined,
+    contacts: formData.contacts.filter((c) => c.name.trim()).length
+      ? formData.contacts.filter((c) => c.name.trim())
+      : undefined,
+    requirements: formData.requirements.filter((r) => r.label.trim()).length
+      ? formData.requirements.filter((r) => r.label.trim())
+      : undefined,
+  });
+
   const handleSave = async () => {
     if (!formData.name.trim()) return;
+    const cleaned = cleanForm();
 
     if (editingApplication) {
-      const updated: Application = {
-        ...editingApplication,
-        ...formData,
-        updatedAt: new Date().toISOString()
-      };
+      const updated: Application = { ...editingApplication, ...cleaned } as Application;
+      // Re-arm reminders if the deadline or the lead-time ladder changed.
+      const deadlineChanged = applicationDeadline(editingApplication) !== applicationDeadline(updated);
+      const leadChanged = JSON.stringify(editingApplication.reminderLeadDays ?? null) !== JSON.stringify(updated.reminderLeadDays ?? null);
+      if (deadlineChanged || leadChanged) clearReminderKeys(updated.id);
       await dbService.put(STORES.APPLICATIONS, updated);
-      setApplications(applications.map(a => a.id === editingApplication.id ? updated : a));
+      setApplications((prev) => prev.map((a) => (a.id === editingApplication.id ? updated : a)));
+      setToast('Application updated');
     } else {
       const newApp: Application = {
-        id: Date.now().toString(),
-        ...formData,
-        createdAt: new Date().toISOString()
-      };
+        id: newId(),
+        ...cleaned,
+        createdAt: new Date().toISOString(),
+      } as Application;
       await dbService.put(STORES.APPLICATIONS, newApp);
-      setApplications([newApp, ...applications]);
+      setApplications((prev) => [newApp, ...prev]);
+      setToast(isReminderEligible(newApp) ? 'Application added · reminder armed' : 'Application added');
     }
 
     setShowModal(false);
     setEditingApplication(null);
-    resetForm();
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this application?')) return;
+    clearReminderKeys(id);
     await dbService.delete(STORES.APPLICATIONS, id);
-    setApplications(applications.filter(a => a.id !== id));
+    setApplications((prev) => prev.filter((a) => a.id !== id));
   };
 
-  const getTypeIcon = (type: Application['type']) => {
-    switch (type) {
-      case 'job': return <Briefcase size={16} className="text-blue-500" />;
-      case 'grant': return <GraduationCap size={16} className="text-green-500" />;
-      case 'scholarship': return <Award size={16} className="text-purple-500" />;
-      default: return <FileText size={16} className="text-gray-500" />;
-    }
+  // Inline status change from a card (advance through the pipeline without the modal).
+  const changeStatus = async (app: Application, status: AppStatus) => {
+    if (app.status === status) return;
+    const updated: Application = { ...app, status };
+    await dbService.put(STORES.APPLICATIONS, updated);
+    setApplications((prev) => prev.map((a) => (a.id === app.id ? updated : a)));
   };
 
-  const getPriorityBadge = (priority: Application['priority']) => {
-    const styles: Record<Application['priority'], string> = {
-      High: 'bg-red-500/20 text-red-400 border-red-500/30',
-      Medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      Low: 'bg-green-500/20 text-green-400 border-green-500/30'
-    };
-    return (
-      <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded border ${styles[priority]}`}>
-        {priority}
-      </span>
-    );
-  };
-
-  const getPriorityValue = (priority: Application['priority']): number => {
-    switch (priority) {
-      case 'High': return 3;
-      case 'Medium': return 2;
-      case 'Low': return 1;
-      default: return 0;
-    }
-  };
-
-  const getStatusBadge = (status: Application['status']) => {
-    const styles: Record<Application['status'], string> = {
-      draft: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-      open: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-      submitted: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-      closed: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      accepted: 'bg-green-500/20 text-green-400 border-green-500/30',
-      rejected: 'bg-red-500/20 text-red-400 border-red-500/30'
-    };
-
-    const icons: Record<Application['status'], React.ReactNode> = {
-      draft: <FileText size={12} />,
-      open: <FolderOpen size={12} />,
-      submitted: <Send size={12} />,
-      closed: <Clock size={12} />,
-      accepted: <Check size={12} />,
-      rejected: <XCircle size={12} />
-    };
-
-    return (
-      <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${styles[status]}`}>
-        {icons[status]}
-        {status.charAt(0).toUpperCase() + status.slice(1)}
-      </span>
-    );
-  };
-
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return null;
-    try {
-      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const isDeadlineSoon = (deadline?: string) => {
-    if (!deadline) return false;
-    const deadlineDate = new Date(deadline);
-    const today = new Date();
-    const diffDays = Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays >= 0 && diffDays <= 7;
-  };
-
-  // Filter, sort, and group applications
   const processedApplications = useMemo(() => {
-    // First filter
-    let filtered = applications.filter(app => {
+    const q = query.trim().toLowerCase();
+    const filtered = applications.filter((app) => {
       if (filter !== 'all' && app.type !== filter) return false;
       if (statusFilter !== 'all' && app.status !== statusFilter) return false;
+      if (q) {
+        const haystack = [
+          app.name, app.organization, app.funder, app.referenceNumber, app.notes,
+          ...(app.tags || []),
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
 
-    // Then sort
     filtered.sort((a, b) => {
       switch (sortBy) {
-        case 'deadline':
-          const dateA = a.submissionDeadline ? new Date(a.submissionDeadline).getTime() : Infinity;
-          const dateB = b.submissionDeadline ? new Date(b.submissionDeadline).getTime() : Infinity;
-          return dateA - dateB;
+        case 'deadline': {
+          const dA = applicationDeadline(a) ? new Date(applicationDeadline(a)!).getTime() : Infinity;
+          const dB = applicationDeadline(b) ? new Date(applicationDeadline(b)!).getTime() : Infinity;
+          return dA - dB;
+        }
         case 'priority':
-          return getPriorityValue(b.priority || 'Medium') - getPriorityValue(a.priority || 'Medium');
+          return priorityValue(b.priority) - priorityValue(a.priority);
         case 'name':
           return a.name.localeCompare(b.name);
         case 'created':
@@ -243,37 +287,24 @@ const ApplicationsView: React.FC = () => {
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
     });
-
     return filtered;
-  }, [applications, filter, statusFilter, sortBy]);
+  }, [applications, filter, statusFilter, query, sortBy]);
 
-  // Group applications if grouping is enabled
   const groupedApplications = useMemo(() => {
-    if (groupBy === 'none') return null;
-
+    if (groupBy === 'none' || viewMode === 'board') return null;
     const groups: Record<string, Application[]> = {};
-    
-    processedApplications.forEach(app => {
+    processedApplications.forEach((app) => {
       let key: string;
       switch (groupBy) {
-        case 'type':
-          key = app.type.charAt(0).toUpperCase() + app.type.slice(1);
-          break;
-        case 'status':
-          key = app.status.charAt(0).toUpperCase() + app.status.slice(1);
-          break;
-        case 'priority':
-          key = (app.priority || 'Medium') + ' Priority';
-          break;
-        default:
-          key = 'Other';
+        case 'type': key = app.type.charAt(0).toUpperCase() + app.type.slice(1); break;
+        case 'status': key = STATUS_LABEL[app.status] ?? app.status; break;
+        case 'priority': key = `${app.priority || 'Medium'} Priority`; break;
+        default: key = 'Other';
       }
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(app);
+      (groups[key] ||= []).push(app);
     });
-
     return groups;
-  }, [processedApplications, groupBy]);
+  }, [processedApplications, groupBy, viewMode]);
 
   if (isLoading) {
     return (
@@ -287,92 +318,123 @@ const ApplicationsView: React.FC = () => {
     );
   }
 
+  const selectClass = 'bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500';
+
   return (
     <div className="p-8 h-full overflow-y-auto animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex justify-between items-center mb-6 gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Applications</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm">Track your job, grant, and scholarship applications.</p>
         </div>
-        <button 
+        <button
           onClick={openAddModal}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors shadow-lg shadow-blue-600/20"
         >
           <Plus size={16} />
           New Application
         </button>
       </div>
 
+      {/* Search + view toggle */}
+      <div className="flex flex-wrap gap-3 mb-4 items-center">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name, organization, funder, tags…"
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-midnight-light border dark:border-gray-700 border-gray-300 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div className="flex items-center rounded-lg border dark:border-gray-700 border-gray-300 overflow-hidden">
+          <button
+            onClick={() => setViewMode('cards')}
+            className={`px-3 py-2 text-sm flex items-center gap-1.5 ${viewMode === 'cards' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            title="Card view"
+          >
+            <List size={15} /> Cards
+          </button>
+          <button
+            onClick={() => setViewMode('board')}
+            className={`px-3 py-2 text-sm flex items-center gap-1.5 ${viewMode === 'board' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            title="Board view (by stage)"
+          >
+            <LayoutGrid size={15} /> Board
+          </button>
+        </div>
+      </div>
+
       {/* Filters and Sorting */}
-      <div className="flex flex-wrap gap-4 mb-6">
+      <div className="flex flex-wrap gap-4 mb-6 items-center">
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-500">Type:</span>
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as typeof filter)}
-            className="bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
+          <select value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} className={selectClass}>
             <option value="all">All Types</option>
-            <option value="job">Jobs</option>
-            <option value="grant">Grants</option>
-            <option value="scholarship">Scholarships</option>
-            <option value="other">Other</option>
+            {APPLICATION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Status:</span>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
-            <option value="all">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="open">Open</option>
-            <option value="submitted">Submitted</option>
-            <option value="closed">Closed</option>
-            <option value="accepted">Accepted</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
+        {viewMode === 'cards' && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">Status:</span>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className={selectClass}>
+              <option value="all">All Statuses</option>
+              {APPLICATION_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <ArrowUpDown size={14} className="text-gray-400" />
           <span className="text-sm text-gray-500">Sort:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className={selectClass}>
             <option value="deadline">Deadline</option>
             <option value="priority">Priority</option>
             <option value="created">Created Date</option>
             <option value="name">Name</option>
           </select>
         </div>
-        <div className="flex items-center gap-2">
-          <Layers size={14} className="text-gray-400" />
-          <span className="text-sm text-gray-500">Group:</span>
-          <select
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
-            className="bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
-            <option value="none">No Grouping</option>
-            <option value="type">By Type</option>
-            <option value="status">By Status</option>
-            <option value="priority">By Priority</option>
-          </select>
-        </div>
+        {viewMode === 'cards' && (
+          <div className="flex items-center gap-2">
+            <Layers size={14} className="text-gray-400" />
+            <span className="text-sm text-gray-500">Group:</span>
+            <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as typeof groupBy)} className={selectClass}>
+              <option value="none">No Grouping</option>
+              <option value="type">By Type</option>
+              <option value="status">By Status</option>
+              <option value="priority">By Priority</option>
+            </select>
+          </div>
+        )}
         <div className="text-sm text-gray-500 ml-auto">
           {processedApplications.length} application{processedApplications.length !== 1 ? 's' : ''}
         </div>
       </div>
 
-      {/* Applications Grid - Grouped or Ungrouped */}
-      {groupedApplications ? (
-        // Grouped view
+      {/* BOARD VIEW — pipeline columns by status */}
+      {viewMode === 'board' ? (
+        <div className="flex gap-4 overflow-x-auto pb-4">
+          {STATUS_BOARD_ORDER.map((status) => {
+            const colApps = processedApplications.filter((a) => a.status === status);
+            return (
+              <div key={status} className="flex-shrink-0 w-72">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
+                  <h3 className="text-sm font-semibold dark:text-white text-gray-900">{STATUS_LABEL[status]}</h3>
+                  <span className="text-xs text-gray-500">({colApps.length})</span>
+                </div>
+                <div className="space-y-3">
+                  {colApps.map((app) => <BoardCard key={app.id} app={app} onEdit={() => openEditModal(app)} />)}
+                  {colApps.length === 0 && (
+                    <div className="text-xs text-gray-600 border border-dashed dark:border-gray-800 border-gray-200 rounded-lg p-4 text-center">Nothing here</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : groupedApplications ? (
         <div className="space-y-8">
-          {Object.entries(groupedApplications).map(([groupName, apps]: [string, Application[]]) => (
+          {Object.entries(groupedApplications).map(([groupName, apps]) => (
             <div key={groupName}>
               <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -380,286 +442,387 @@ const ApplicationsView: React.FC = () => {
                 <span className="text-sm font-normal text-gray-500">({apps.length})</span>
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {apps.map((app) => renderApplicationCard(app))}
+                {apps.map(renderApplicationCard)}
               </div>
             </div>
           ))}
         </div>
       ) : (
-        // Ungrouped view
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {processedApplications.map((app) => renderApplicationCard(app))}
+          {processedApplications.map(renderApplicationCard)}
         </div>
       )}
 
-      {processedApplications.length === 0 && (
+      {processedApplications.length === 0 && viewMode === 'cards' && (
         <div className="text-center py-12 text-gray-500">
           <Briefcase size={48} className="mx-auto mb-4 opacity-50" />
-          <p>No applications yet. Add your first application to track!</p>
+          <p>{query || filter !== 'all' || statusFilter !== 'all' ? 'No applications match your filters.' : 'No applications yet. Add your first application to track!'}</p>
         </div>
       )}
 
       {/* Add/Edit Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold dark:text-white text-gray-900">
-                {editingApplication ? 'Edit Application' : 'New Application'}
-              </h3>
-              <button 
-                onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
-              >
-                <X size={24} />
-              </button>
-            </div>
+      {showModal && renderModal()}
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Application Name *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Software Engineer at Google"
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Organization</label>
-                <input
-                  type="text"
-                  value={formData.organization}
-                  onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
-                  placeholder="Company or organization name"
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Application Link</label>
-                <input
-                  type="url"
-                  value={formData.link}
-                  onChange={(e) => setFormData({ ...formData, link: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Type</label>
-                  <select
-                    value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value as Application['type'] })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="job">Job</option>
-                    <option value="grant">Grant</option>
-                    <option value="scholarship">Scholarship</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Status</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value as Application['status'] })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="open">Open</option>
-                    <option value="submitted">Submitted</option>
-                    <option value="closed">Closed</option>
-                    <option value="accepted">Accepted</option>
-                    <option value="rejected">Rejected</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Priority</label>
-                  <select
-                    value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as Application['priority'] })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Opening Date</label>
-                  <input
-                    type="date"
-                    value={formData.openingDate}
-                    onChange={(e) => setFormData({ ...formData, openingDate: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Closing Date</label>
-                  <input
-                    type="date"
-                    value={formData.closingDate}
-                    onChange={(e) => setFormData({ ...formData, closingDate: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Submission Deadline</label>
-                  <input
-                    type="date"
-                    value={formData.submissionDeadline}
-                    onChange={(e) => setFormData({ ...formData, submissionDeadline: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Submitted Date</label>
-                  <input
-                    type="date"
-                    value={formData.submittedDate}
-                    onChange={(e) => setFormData({ ...formData, submittedDate: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Notes</label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Additional notes about this application..."
-                  rows={3}
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleSave}
-                disabled={!formData.name.trim()}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                <Save size={18} />
-                {editingApplication ? 'Update' : 'Create'}
-              </button>
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl animate-fade-in">
+          {toast}
         </div>
       )}
     </div>
   );
 
-  // Render individual application card
+  // ---------------- Card renderers ----------------
+
   function renderApplicationCard(app: Application) {
+    const TypeIcon = TYPE_ICON[app.type] ?? FileText;
+    const deadline = applicationDeadline(app);
+    const soon = isDeadlineSoon(deadline);
+    const armed = isReminderEligible(app) && (!Array.isArray(app.reminderLeadDays) || app.reminderLeadDays.length > 0);
+    const reqDone = app.requirements?.filter((r) => r.done).length ?? 0;
+    const reqTotal = app.requirements?.length ?? 0;
+
     return (
-      <div 
-        key={app.id} 
-        className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 hover:border-gray-400 dark:hover:border-gray-700 transition-all group shadow-sm dark:shadow-none"
-      >
+      <div key={app.id} className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 hover:border-gray-400 dark:hover:border-gray-700 transition-all group shadow-sm dark:shadow-none">
         <div className="flex justify-between items-start mb-4">
           <div className="flex items-center gap-2">
-            {getTypeIcon(app.type)}
+            <TypeIcon size={16} />
             <span className="text-xs uppercase tracking-wider text-gray-500">{app.type}</span>
+            {armed && <Bell size={12} className="text-blue-400" />}
           </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => openEditModal(app)}
-              className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100"
-              title="Edit application"
-            >
+            <button onClick={() => openEditModal(app)} className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100" title="Edit application">
               <Edit2 size={14} />
             </button>
-            <button
-              onClick={() => handleDelete(app.id)}
-              className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-              title="Delete application"
-            >
+            <button onClick={() => handleDelete(app.id)} className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Delete application">
               <Trash2 size={14} />
             </button>
           </div>
         </div>
 
-        <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-          {app.name}
-        </h3>
-        
-        {app.organization && (
-          <p className="text-sm text-gray-500 mb-3">{app.organization}</p>
-        )}
+        <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{app.name}</h3>
+        {app.organization && <p className="text-sm text-gray-500 mb-1">{app.organization}</p>}
+        {app.funder && <p className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Building2 size={11} /> Funder: {app.funder}</p>}
 
-        <div className="flex items-center gap-2 mb-4">
-          {getStatusBadge(app.status)}
-          {app.priority && getPriorityBadge(app.priority)}
+        <div className="flex items-center gap-2 mb-3 flex-wrap mt-2">
+          <StatusPill status={app.status} />
+          {app.priority && <PriorityPill priority={app.priority} />}
+          {app.awardAmount && (
+            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+              <CircleDollarSign size={11} /> {app.awardAmount}
+            </span>
+          )}
         </div>
 
-        {/* Dates */}
+        {app.referenceNumber && (
+          <p className="text-xs text-gray-500 mb-3 flex items-center gap-1"><Hash size={11} /> {app.referenceNumber}</p>
+        )}
+
         <div className="space-y-2 text-xs text-gray-500 mb-4">
-          {app.submissionDeadline && (
-            <div className={`flex items-center gap-2 ${isDeadlineSoon(app.submissionDeadline) ? 'text-orange-500' : ''}`}>
+          {deadline && (
+            <div className={`flex items-center gap-2 ${soon ? 'text-orange-500' : ''}`}>
               <Calendar size={12} />
-              <span>Deadline: {formatDate(app.submissionDeadline)}</span>
-              {isDeadlineSoon(app.submissionDeadline) && <span className="text-orange-500 font-medium">Soon!</span>}
+              <span>Deadline: {formatDate(deadline)}</span>
+              <span className={soon ? 'text-orange-500 font-medium' : 'text-gray-500'}>· {relativeDeadline(deadline)}</span>
             </div>
           )}
           {app.openingDate && (
-            <div className="flex items-center gap-2">
-              <Clock size={12} />
-              <span>Opens: {formatDate(app.openingDate)}</span>
-            </div>
-          )}
-          {app.closingDate && (
-            <div className="flex items-center gap-2">
-              <Clock size={12} />
-              <span>Closes: {formatDate(app.closingDate)}</span>
-            </div>
+            <div className="flex items-center gap-2"><Clock size={12} /><span>Opens: {formatDate(app.openingDate)}</span></div>
           )}
           {app.submittedDate && (
-            <div className="flex items-center gap-2 text-green-500">
-              <Send size={12} />
-              <span>Submitted: {formatDate(app.submittedDate)}</span>
-            </div>
+            <div className="flex items-center gap-2 text-green-500"><Send size={12} /><span>Submitted: {formatDate(app.submittedDate)}</span></div>
           )}
         </div>
 
-        {/* Notes preview */}
-        {app.notes && (
-          <p className="text-sm text-gray-400 line-clamp-2 mb-4">{app.notes}</p>
+        {reqTotal > 0 && (
+          <div className="mb-3">
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+              <span className="flex items-center gap-1"><ListChecks size={12} /> Requirements</span>
+              <span>{reqDone}/{reqTotal}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-700/40 overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${reqTotal ? (reqDone / reqTotal) * 100 : 0}%` }} />
+            </div>
+          </div>
         )}
 
-        {/* Link */}
-        {app.link && (
-          <a
-            href={app.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-400 transition-colors"
-          >
-            <ExternalLink size={14} />
-            Open Application
-          </a>
+        {app.tags && app.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {app.tags.map((t) => (
+              <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-gray-500/15 text-gray-400 flex items-center gap-1"><TagIcon size={10} />{t}</span>
+            ))}
+          </div>
         )}
+
+        {app.contacts && app.contacts.length > 0 && (
+          <p className="text-xs text-gray-500 mb-3 flex items-center gap-1"><Users size={11} /> {app.contacts.map((c) => c.name).join(', ')}</p>
+        )}
+
+        {app.notes && <p className="text-sm text-gray-400 line-clamp-2 mb-4">{app.notes}</p>}
+
+        <div className="flex items-center justify-between gap-2">
+          {app.link ? (
+            <a href={app.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-400 transition-colors">
+              <ExternalLink size={14} /> Open
+            </a>
+          ) : <span />}
+          {/* Quick status change */}
+          <select
+            value={app.status}
+            onChange={(e) => changeStatus(app, e.target.value as AppStatus)}
+            className="text-xs bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-2 py-1 dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
+            title="Change status"
+          >
+            {APPLICATION_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
       </div>
     );
   }
+
+  // ---------------- Modal ----------------
+
+  function renderModal() {
+    const grant = showGrantFields(formData.type);
+    const funder = showFunderField(formData.type);
+    const hasDeadline = !!(formData.submissionDeadline || formData.closingDate);
+
+    const addTag = (raw: string) => {
+      const t = raw.trim();
+      if (t && !formData.tags.includes(t)) setFormData({ ...formData, tags: [...formData.tags, t] });
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold dark:text-white text-gray-900">{editingApplication ? 'Edit Application' : 'New Application'}</h3>
+            <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white"><X size={24} /></button>
+          </div>
+
+          <div className="space-y-4">
+            {/* Identity first */}
+            <Field label="Application Name *">
+              <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Software Engineer at Google" className={inputClass} autoFocus />
+            </Field>
+            <Field label="Organization">
+              <input type="text" value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} placeholder="Company or host organization" className={inputClass} />
+            </Field>
+
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="Type">
+                <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as AppType })} className={inputClass}>
+                  {APPLICATION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Status">
+                <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as AppStatus })} className={inputClass}>
+                  {APPLICATION_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Priority">
+                <select value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: e.target.value as Application['priority'] })} className={inputClass}>
+                  {APPLICATION_PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+              </Field>
+            </div>
+
+            {/* Grant identity: opening date right under the type for grants */}
+            {grant && (
+              <Field label="Opening Date">
+                <input type="date" value={formData.openingDate} onChange={(e) => setFormData({ ...formData, openingDate: e.target.value })} className={inputClass} />
+              </Field>
+            )}
+
+            {/* Type-specific detail block */}
+            {grant && (
+              <div className="rounded-lg border dark:border-gray-700 border-gray-200 p-4 space-y-4">
+                <p className="text-xs uppercase tracking-wider text-gray-500 flex items-center gap-1"><GraduationCap size={13} /> {formData.type === 'grant' ? 'Grant details' : 'Scholarship details'}</p>
+                {funder && (
+                  <Field label="Funder / Awarding Body">
+                    <input type="text" value={formData.funder} onChange={(e) => setFormData({ ...formData, funder: e.target.value })} placeholder="e.g. NSF, Gates Foundation" className={inputClass} />
+                  </Field>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Award Amount">
+                    <input type="text" value={formData.awardAmount} onChange={(e) => setFormData({ ...formData, awardAmount: e.target.value })} placeholder="$50,000" className={inputClass} />
+                  </Field>
+                  <Field label="Reference No.">
+                    <input type="text" value={formData.referenceNumber} onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })} placeholder="NSF-2026-1187" className={inputClass} />
+                  </Field>
+                </div>
+              </div>
+            )}
+
+            <Field label="Application Link">
+              <input type="url" value={formData.link} onChange={(e) => setFormData({ ...formData, link: e.target.value })} placeholder="https://..." className={inputClass} />
+            </Field>
+
+            {/* Deadline + reminder (always visible — reminders hinge on this) */}
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Submission Deadline">
+                <input type="date" value={formData.submissionDeadline} onChange={(e) => setFormData({ ...formData, submissionDeadline: e.target.value })} className={inputClass} />
+              </Field>
+              <Field label="Remind Me">
+                <select
+                  value={reminderPresetKey(formData.reminderLeadDays)}
+                  onChange={(e) => setFormData({ ...formData, reminderLeadDays: reminderDaysForKey(e.target.value) })}
+                  disabled={!hasDeadline}
+                  className={`${inputClass} ${!hasDeadline ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={hasDeadline ? 'When to alert before the deadline' : 'Set a deadline first'}
+                >
+                  {REMINDER_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+              </Field>
+            </div>
+
+            {/* More dates (collapsed) */}
+            <button type="button" onClick={() => setShowMoreDates((v) => !v)} className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400">
+              {showMoreDates ? <ChevronDown size={15} /> : <ChevronRight size={15} />} More dates
+            </button>
+            {showMoreDates && (
+              <div className="grid grid-cols-2 gap-4">
+                {!grant && (
+                  <Field label="Opening Date">
+                    <input type="date" value={formData.openingDate} onChange={(e) => setFormData({ ...formData, openingDate: e.target.value })} className={inputClass} />
+                  </Field>
+                )}
+                <Field label="Closing Date">
+                  <input type="date" value={formData.closingDate} onChange={(e) => setFormData({ ...formData, closingDate: e.target.value })} className={inputClass} />
+                </Field>
+                <Field label="Submitted Date">
+                  <input type="date" value={formData.submittedDate} onChange={(e) => setFormData({ ...formData, submittedDate: e.target.value })} className={inputClass} />
+                </Field>
+              </div>
+            )}
+
+            {/* Tags */}
+            <Field label="Tags">
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {formData.tags.map((t) => (
+                  <span key={t} className="text-xs px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 flex items-center gap-1">
+                    {t}
+                    <button onClick={() => setFormData({ ...formData, tags: formData.tags.filter((x) => x !== t) })} className="hover:text-white"><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+              <input
+                type="text"
+                placeholder="Type a tag and press Enter"
+                className={inputClass}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addTag((e.target as HTMLInputElement).value);
+                    (e.target as HTMLInputElement).value = '';
+                  }
+                }}
+              />
+            </Field>
+
+            {/* Requirements checklist */}
+            <Field label="Requirements / Documents">
+              <div className="space-y-2">
+                {formData.requirements.map((r, i) => (
+                  <div key={r.id} className="flex items-center gap-2">
+                    <button onClick={() => updateReq(i, { done: !r.done })} className="text-gray-400 hover:text-blue-500">
+                      {r.done ? <Check size={16} className="text-emerald-500" /> : <span className="inline-block w-4 h-4 rounded border dark:border-gray-600 border-gray-400" />}
+                    </button>
+                    <input type="text" value={r.label} onChange={(e) => updateReq(i, { label: e.target.value })} placeholder="e.g. CV, cover letter…" className={`${inputClass} py-2 ${r.done ? 'line-through text-gray-500' : ''}`} />
+                    <button onClick={() => setFormData({ ...formData, requirements: formData.requirements.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+                <button onClick={() => setFormData({ ...formData, requirements: [...formData.requirements, { id: newId(), label: '', done: false }] })} className="text-sm text-blue-500 hover:text-blue-400 flex items-center gap-1"><Plus size={14} /> Add requirement</button>
+              </div>
+            </Field>
+
+            {/* Contacts */}
+            <Field label="Contacts">
+              <div className="space-y-2">
+                {formData.contacts.map((c, i) => (
+                  <div key={c.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                    <input type="text" value={c.name} onChange={(e) => updateContact(i, { name: e.target.value })} placeholder="Name" className={`${inputClass} py-2`} />
+                    <input type="text" value={c.email || ''} onChange={(e) => updateContact(i, { email: e.target.value })} placeholder="Email / role" className={`${inputClass} py-2`} />
+                    <button onClick={() => setFormData({ ...formData, contacts: formData.contacts.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+                <button onClick={() => setFormData({ ...formData, contacts: [...formData.contacts, { id: newId(), name: '' }] })} className="text-sm text-blue-500 hover:text-blue-400 flex items-center gap-1"><Plus size={14} /> Add contact</button>
+              </div>
+            </Field>
+
+            <Field label="Notes">
+              <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Additional notes about this application..." rows={3} className={`${inputClass} resize-none`} />
+            </Field>
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button onClick={handleSave} disabled={!formData.name.trim()} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
+              <Save size={18} /> {editingApplication ? 'Update' : 'Create'}
+            </button>
+            <button onClick={() => setShowModal(false)} className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function updateReq(i: number, patch: Partial<ApplicationRequirement>) {
+    setFormData((prev) => ({ ...prev, requirements: prev.requirements.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
+  }
+  function updateContact(i: number, patch: Partial<ApplicationContact>) {
+    setFormData((prev) => ({ ...prev, contacts: prev.contacts.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
+  }
+};
+
+const inputClass = 'w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div>
+    <label className="block text-sm text-gray-500 mb-1">{label}</label>
+    {children}
+  </div>
+);
+
+const StatusPill: React.FC<{ status: AppStatus }> = ({ status }) => {
+  const color = STATUS_COLOR[status] ?? '#9ca3af';
+  const Icon = STATUS_ICON[status] ?? FileText;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border" style={{ color, backgroundColor: `${color}22`, borderColor: `${color}55` }}>
+      <Icon size={12} />
+      {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+};
+
+const PriorityPill: React.FC<{ priority: Application['priority'] }> = ({ priority }) => {
+  const color = PRIORITY_COLOR[priority] ?? '#9ca3af';
+  return (
+    <span className="inline-flex items-center text-xs px-2 py-0.5 rounded border" style={{ color, backgroundColor: `${color}22`, borderColor: `${color}55` }}>
+      {priority}
+    </span>
+  );
+};
+
+const BoardCard: React.FC<{ app: Application; onEdit: () => void }> = ({ app, onEdit }) => {
+  const TypeIcon = TYPE_ICON[app.type] ?? FileText;
+  const deadline = applicationDeadline(app);
+  const soon = isDeadlineSoon(deadline);
+  return (
+    <div onClick={onEdit} className="cursor-pointer dark:bg-midnight bg-white border dark:border-gray-800 border-gray-200 rounded-lg p-3 hover:border-blue-500/50 transition-colors">
+      <div className="flex items-center gap-1.5 mb-1.5 text-gray-500">
+        <TypeIcon size={12} />
+        <span className="text-[10px] uppercase tracking-wider">{app.type}</span>
+        {app.priority && <span className="ml-auto"><PriorityPill priority={app.priority} /></span>}
+      </div>
+      <p className="text-sm font-medium dark:text-white text-gray-900 leading-snug">{app.name}</p>
+      {app.organization && <p className="text-xs text-gray-500 mt-0.5">{app.organization}</p>}
+      {deadline && (
+        <p className={`text-xs mt-2 flex items-center gap-1 ${soon ? 'text-orange-500' : 'text-gray-500'}`}>
+          <Calendar size={11} /> {relativeDeadline(deadline)}
+        </p>
+      )}
+    </div>
+  );
 };
 
 export default ApplicationsView;
