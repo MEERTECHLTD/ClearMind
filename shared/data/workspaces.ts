@@ -146,12 +146,16 @@ export async function deleteWorkspace(db: Firestore, wsId: string): Promise<void
 export function subscribeWorkspaceApplications(
   db: Firestore,
   wsId: string,
-  onUpdate: (apps: WorkspaceApplication[]) => void
+  onUpdate: (apps: WorkspaceApplication[]) => void,
+  onError?: (err: unknown) => void
 ): Unsubscribe {
   return onSnapshot(
     appsCol(db, wsId),
     (snap) => onUpdate(snap.docs.map((d) => d.data() as WorkspaceApplication)),
-    (err) => console.error('Workspace applications sync error:', err)
+    (err) => {
+      console.error('Workspace applications sync error:', err);
+      onError?.(err);
+    }
   );
 }
 

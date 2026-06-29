@@ -35,6 +35,11 @@ import {
 
 const PREFS_KEY = 'application-preferences';
 
+// A displayed application carries its ORIGIN (__wsId) so writes route to the right
+// place (a shared workspace vs the personal store) regardless of the current
+// selection — a deleted shared item can never touch the identically-named personal one.
+type ViewApp = Application & { __wsId?: string };
+
 // Collision-resistant id (Date.now() alone collides on same-millisecond creates).
 const newId = (): string =>
   (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
@@ -106,7 +111,7 @@ const formatDate = (dateStr?: string): string | null => {
 };
 
 const ApplicationsView: React.FC = () => {
-  const [applications, setApplications] = useState<Application[]>([]);
+  const [applications, setApplications] = useState<ViewApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingApplication, setEditingApplication] = useState<Application | null>(null);
@@ -183,20 +188,28 @@ const ApplicationsView: React.FC = () => {
     };
   }, []);
 
-  // If the active workspace is deleted or access is revoked, fall back to personal.
-  useEffect(() => {
-    if (activeWsId && !workspaces.some((w) => w.id === activeWsId)) setActiveWsId(null);
-  }, [workspaces, activeWsId]);
-
   // Data source: personal (local-first) when no workspace is active; otherwise a
-  // LIVE Firestore subscription to the shared workspace's applications.
+  // LIVE Firestore subscription to the shared workspace's applications. Each item is
+  // tagged with its origin (__wsId). NOTE: we deliberately do NOT auto-reset
+  // activeWsId when it's missing from the (async) workspaces list — that raced with
+  // create/join and silently dropped you back to the personal list. Access loss is
+  // detected precisely via the subscription's error callback below instead.
   useEffect(() => {
     setIsLoading(true);
     if (activeWsId) {
-      const unsub = workspaceService.subscribeApplications(activeWsId, (apps) => {
-        setApplications(apps);
-        setIsLoading(false);
-      });
+      const wsId = activeWsId;
+      const unsub = workspaceService.subscribeApplications(
+        wsId,
+        (apps) => {
+          setApplications(apps.map((a) => ({ ...a, __wsId: wsId })));
+          setIsLoading(false);
+        },
+        () => {
+          // Access lost (workspace deleted / removed as a member) — return to personal.
+          setActiveWsId(null);
+          setToast('That shared workspace is no longer available');
+        }
+      );
       return unsub;
     }
     let cancelled = false;
@@ -283,15 +296,19 @@ const ApplicationsView: React.FC = () => {
   // Persist to the active source: the personal local-first store, or — when a
   // shared workspace is active — the live Firestore workspace (onSnapshot also
   // reconciles, but we update optimistically for snappiness).
-  const persistApp = async (app: Application, opts?: { rearm?: boolean }) => {
-    if (activeWsId) {
-      await workspaceService.putApplication(activeWsId, app);
+  // Writes route to an EXPLICIT target (a workspace id, or null for personal) — never
+  // an ambiguous "current selection". The view-only __wsId tag is stripped before persisting.
+  const persistApp = async (app: Application, opts: { wsId: string | null; rearm?: boolean }) => {
+    const { __wsId, ...clean } = app as ViewApp;
+    if (opts.wsId) {
+      await workspaceService.putApplication(opts.wsId, clean);
     } else {
-      if (opts?.rearm) clearReminderKeys(app.id);
-      await dbService.put(STORES.APPLICATIONS, app);
+      if (opts.rearm) clearReminderKeys(clean.id);
+      await dbService.put(STORES.APPLICATIONS, clean);
     }
+    const tagged: ViewApp = { ...clean, __wsId: opts.wsId ?? undefined };
     setApplications((prev) =>
-      prev.some((a) => a.id === app.id) ? prev.map((a) => (a.id === app.id ? app : a)) : [app, ...prev]
+      prev.some((a) => a.id === clean.id) ? prev.map((a) => (a.id === clean.id ? tagged : a)) : [tagged, ...prev]
     );
   };
 
@@ -304,11 +321,11 @@ const ApplicationsView: React.FC = () => {
         // Re-arm reminders (personal only) if the deadline or lead-time ladder changed.
         const deadlineChanged = applicationDeadline(editingApplication) !== applicationDeadline(updated);
         const leadChanged = JSON.stringify(editingApplication.reminderLeadDays ?? null) !== JSON.stringify(updated.reminderLeadDays ?? null);
-        await persistApp(updated, { rearm: deadlineChanged || leadChanged });
+        await persistApp(updated, { wsId: (editingApplication as ViewApp).__wsId ?? null, rearm: deadlineChanged || leadChanged });
         setToast('Application updated');
       } else {
         const newApp: Application = { id: newId(), ...cleaned, createdAt: new Date().toISOString() } as Application;
-        await persistApp(newApp);
+        await persistApp(newApp, { wsId: activeWsId });
         setToast(!activeWsId && isReminderEligible(newApp) ? 'Application added · reminder armed' : 'Application added');
       }
       setShowModal(false);
@@ -319,16 +336,18 @@ const ApplicationsView: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  // Delete routes by the ITEM's origin (__wsId), not the current selection — so a
+  // shared-workspace delete can never remove the personal copy, even mid-state-change.
+  const handleDelete = async (app: ViewApp) => {
     if (!confirm('Are you sure you want to delete this application?')) return;
     try {
-      if (activeWsId) {
-        await workspaceService.deleteApplication(activeWsId, id);
+      if (app.__wsId) {
+        await workspaceService.deleteApplication(app.__wsId, app.id);
       } else {
-        clearReminderKeys(id);
-        await dbService.delete(STORES.APPLICATIONS, id);
+        clearReminderKeys(app.id);
+        await dbService.delete(STORES.APPLICATIONS, app.id);
       }
-      setApplications((prev) => prev.filter((a) => a.id !== id));
+      setApplications((prev) => prev.filter((a) => a.id !== app.id));
     } catch (e) {
       console.error('Delete failed', e);
       setToast('Could not delete — check your connection');
@@ -336,9 +355,9 @@ const ApplicationsView: React.FC = () => {
   };
 
   // Inline status change from a card (advance through the pipeline without the modal).
-  const changeStatus = async (app: Application, status: AppStatus) => {
+  const changeStatus = async (app: ViewApp, status: AppStatus) => {
     if (app.status === status) return;
-    await persistApp({ ...app, status, updatedAt: new Date().toISOString() });
+    await persistApp({ ...app, status, updatedAt: new Date().toISOString() }, { wsId: app.__wsId ?? null });
   };
 
   // ---- Workspace (collaboration) actions ----
@@ -697,7 +716,7 @@ const ApplicationsView: React.FC = () => {
             <button onClick={() => openEditModal(app)} className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100" title="Edit application">
               <Edit2 size={14} />
             </button>
-            <button onClick={() => handleDelete(app.id)} className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Delete application">
+            <button onClick={() => handleDelete(app)} className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Delete application">
               <Trash2 size={14} />
             </button>
           </div>

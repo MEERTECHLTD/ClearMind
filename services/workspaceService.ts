@@ -86,12 +86,12 @@ export const workspaceService = {
     return `${base}?joinWorkspace=${wsId}`;
   },
 
-  subscribeApplications(wsId: string, onUpdate: (apps: Application[]) => void): () => void {
+  subscribeApplications(wsId: string, onUpdate: (apps: Application[]) => void, onError?: (err: unknown) => void): () => void {
     if (!db) {
       onUpdate([]);
       return () => {};
     }
-    return fsSubscribeApps(db, wsId, onUpdate);
+    return fsSubscribeApps(db, wsId, onUpdate, onError);
   },
 
   async putApplication(wsId: string, app: Application): Promise<void> {
