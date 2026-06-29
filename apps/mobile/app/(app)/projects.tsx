@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, Modal, ScrollView } from 'react-native';
 import {
   FolderKanban, Plus, Pencil, Trash2, Calendar, Users, Download, Upload, FileText,
@@ -10,10 +10,20 @@ import * as XLSX from 'xlsx';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import type { Project, ProjectCategory } from '@clearmind/shared';
+import type { Project, ProjectCategory, Workspace } from '@clearmind/shared';
 import { STORES } from '../../services/db';
 import { newId } from '../../lib/id';
 import { useCollection } from '../../hooks/useCollection';
+import { workspaceService } from '../../services/workspaceService';
+import { isFirebaseConfigured } from '../../lib/firebase';
+import { WorkspaceBar, WorkspaceBanner, NewWorkspaceModal, MembersModal } from '../../components/ui/WorkspaceShare';
+
+// Origin-tagged project (where it lives — a shared workspace vs the personal store).
+type MProject = Project & { __wsId?: string };
+const stripWsP = (p: MProject): Project => {
+  const { __wsId, ...rest } = p;
+  return rest as Project;
+};
 import {
   Screen, AppHeader, Card, Input, TextArea, Select, DateField, SliderField, ProgressBar,
   Badge, Fab, EmptyState, Spinner, StatCard, confirmDialog, useToast,
@@ -124,14 +134,49 @@ const formFromProject = (p: Project): FormState => ({
 });
 
 export default function ProjectsScreen() {
-  const { items: projects, loading, create, update, remove } = useCollection<Project>(STORES.PROJECTS);
+  const personal = useCollection<MProject>(STORES.PROJECTS);
   const toast = useToast();
 
   const [filter, setFilter] = useState<ProjectCategory | 'All'>('All');
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Project | null>(null);
-  const [detail, setDetail] = useState<Project | null>(null);
+  const [editing, setEditing] = useState<MProject | null>(null);
+  const [detail, setDetail] = useState<MProject | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Collaboration: shared workspaces (null active = personal local-first list).
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWsId, setActiveWsId] = useState<string | null>(null);
+  const [wsItems, setWsItems] = useState<MProject[]>([]);
+  const [wsLoading, setWsLoading] = useState(false);
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const [wsToast, setWsToast] = useState<string | null>(null);
+  const activeWorkspace = activeWsId ? workspaces.find((w) => w.id === activeWsId) ?? null : null;
+
+  useEffect(() => {
+    if (!workspaceService.supported()) return;
+    return workspaceService.subscribe(setWorkspaces);
+  }, []);
+  // Live subscription to the active workspace's projects, origin-tagged so writes
+  // route correctly. Access loss handled via onError (no racy activeWsId reset).
+  useEffect(() => {
+    if (!activeWsId) return;
+    const wsId = activeWsId;
+    setWsLoading(true);
+    return workspaceService.subscribeProjects(
+      wsId,
+      (list) => { setWsItems(list.map((p) => ({ ...p, __wsId: wsId })) as MProject[]); setWsLoading(false); },
+      () => { setActiveWsId(null); setWsToast('That shared workspace is no longer available'); }
+    );
+  }, [activeWsId]);
+  useEffect(() => {
+    if (!wsToast) return;
+    const t = setTimeout(() => setWsToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [wsToast]);
+
+  const projects = activeWsId ? wsItems : personal.items;
+  const loading = activeWsId ? wsLoading : personal.loading;
 
   const filtered = useMemo(
     () => (filter === 'All' ? projects : projects.filter((p) => p.category === filter)),
@@ -152,24 +197,57 @@ export default function ProjectsScreen() {
   );
 
   const openAdd = () => { setEditing(null); setFormOpen(true); };
-  const openEdit = (p: Project) => { setEditing(p); setFormOpen(true); };
+  const openEdit = (p: MProject) => { setEditing(p); setFormOpen(true); };
 
-  const onDelete = async (p: Project) => {
+  const onDelete = async (p: MProject) => {
     if (await confirmDialog({ title: 'Delete project', message: `Delete “${p.title}”?`, confirmText: 'Delete', destructive: true })) {
-      remove(p.id);
-      setDetail((d) => (d && d.id === p.id ? null : d));
-      toast.show('Project deleted', 'info');
+      try {
+        // Route by the item's origin — a shared-workspace delete can't touch personal.
+        if (p.__wsId) await workspaceService.deleteProject(p.__wsId, p.id);
+        else personal.remove(p.id);
+        setDetail((d) => (d && d.id === p.id ? null : d));
+        toast.show('Project deleted', 'info');
+      } catch {
+        toast.show('Could not delete — check your connection', 'error');
+      }
     }
   };
 
-  const handleSave = (f: FormState) => {
+  // ---- Workspace (collaboration) actions ----
+  const handleCreateWorkspace = async (name: string, emails: string[], seed: boolean) => {
+    const ws = await workspaceService.create(name, emails, []);
+    if (seed) await workspaceService.seedProjects(ws.id, personal.items.map((p) => ({ ...stripWsP(p), id: newId() })));
+    setShowNewWorkspace(false);
+    setActiveWsId(ws.id);
+    setWsToast(`Workspace “${ws.name}” created`);
+  };
+  const handleSetMembers = async (emails: string[]) => {
+    if (!activeWorkspace) return;
+    await workspaceService.setMembers(activeWorkspace, emails);
+    setWsToast('Members updated');
+  };
+  const handleDeleteWorkspace = async () => {
+    if (!activeWorkspace) return;
+    const ok = await confirmDialog({ title: 'Delete workspace', message: `Delete “${activeWorkspace.name}” for everyone? This cannot be undone.`, confirmText: 'Delete', destructive: true });
+    if (!ok) return;
+    const id = activeWorkspace.id;
+    setActiveWsId(null);
+    setShowMembers(false);
+    await workspaceService.remove(id);
+    setWsToast('Workspace deleted');
+  };
+
+  const handleSave = async (f: FormState) => {
     const title = f.title.trim();
     if (!title) return;
     const category = (f.category || undefined) as ProjectCategory | undefined;
+    // Route by the item's origin (edit) / the active workspace (new) — never an
+    // ambiguous selection, so a shared-workspace save can't land in the personal list.
+    const target = editing ? editing.__wsId ?? null : activeWsId;
     if (editing) {
       // Spread `editing` FIRST so deferred sub-entities (phases/risks/resources/
       // metrics/check-ins/alignments/milestones) survive the edit.
-      update({
+      const updated: MProject = ({
         ...editing,
         title,
         description: f.description.trim(),
@@ -188,9 +266,11 @@ export default function ProjectsScreen() {
         notes: f.notes.trim() || undefined,
         updatedAt: new Date().toISOString(),
       });
+      if (target) await workspaceService.putProject(target, stripWsP(updated));
+      else personal.update(updated);
       toast.show('Project updated', 'success');
     } else {
-      create({
+      const created: MProject = ({
         id: newId(),
         title,
         description: f.description.trim(),
@@ -211,6 +291,8 @@ export default function ProjectsScreen() {
         teamCheckIns: [],
         createdAt: new Date().toISOString(),
       });
+      if (target) await workspaceService.putProject(target, stripWsP(created));
+      else personal.create(created);
       toast.show('Project created', 'success');
     }
     setFormOpen(false);
@@ -385,7 +467,8 @@ export default function ProjectsScreen() {
           teamCheckIns: [],
           createdAt: new Date().toISOString(),
         };
-        await create(project);
+        if (activeWsId) await workspaceService.putProject(activeWsId, project);
+        else await personal.create(project);
         imported++;
       }
 
@@ -445,8 +528,15 @@ export default function ProjectsScreen() {
     <Screen padded={false}>
       <AppHeader
         title="Projects"
-        subtitle={`${stats.total} project${stats.total !== 1 ? 's' : ''} · ${stats.completed} completed`}
+        subtitle={activeWorkspace ? `${activeWorkspace.name} · shared workspace` : `${stats.total} project${stats.total !== 1 ? 's' : ''} · ${stats.completed} completed`}
       />
+
+      {isFirebaseConfigured() && (workspaces.length > 0 || workspaceService.supported()) ? (
+        <WorkspaceBar workspaces={workspaces} activeWsId={activeWsId} personalLabel="My Projects" onSelect={setActiveWsId} onShareNew={() => setShowNewWorkspace(true)} />
+      ) : null}
+      {activeWorkspace ? (
+        <WorkspaceBanner workspace={activeWorkspace} isOwner={workspaceService.isOwner(activeWorkspace)} onMembers={() => setShowMembers(true)} />
+      ) : null}
 
       {projects.length === 0 ? (
         <EmptyState
@@ -493,6 +583,30 @@ export default function ProjectsScreen() {
         onClose={() => setDetail(null)}
         onEdit={(p) => { setDetail(null); openEdit(p); }}
       />
+
+      <NewWorkspaceModal
+        visible={showNewWorkspace}
+        supported={workspaceService.supported()}
+        seedCount={personal.items.length}
+        seedNoun="project"
+        onCancel={() => setShowNewWorkspace(false)}
+        onCreate={handleCreateWorkspace}
+      />
+      <MembersModal
+        workspace={showMembers ? activeWorkspace : null}
+        isOwner={activeWorkspace ? workspaceService.isOwner(activeWorkspace) : false}
+        currentEmail={workspaceService.currentEmail()}
+        onCancel={() => setShowMembers(false)}
+        onSave={handleSetMembers}
+        onDelete={handleDeleteWorkspace}
+      />
+      {wsToast ? (
+        <View className="absolute bottom-28 left-0 right-0 items-center" pointerEvents="none">
+          <View className="bg-emerald-600 px-4 py-2.5 rounded-2xl">
+            <Text className="text-white font-medium text-sm">{wsToast}</Text>
+          </View>
+        </View>
+      ) : null}
     </Screen>
   );
 }
