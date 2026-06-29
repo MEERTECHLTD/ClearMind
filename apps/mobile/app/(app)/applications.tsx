@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -38,8 +38,13 @@ import {
   ChevronDown,
   ChevronRight,
   X,
+  Share2,
+  Crown,
+  Lock,
+  UserPlus,
+  Globe,
 } from 'lucide-react-native';
-import type { Application, ApplicationContact, ApplicationRequirement } from '@clearmind/shared';
+import type { Application, ApplicationContact, ApplicationRequirement, Workspace } from '@clearmind/shared';
 import {
   AppType,
   AppStatus,
@@ -66,6 +71,8 @@ import { STORES } from '../../services/db';
 import { newId } from '../../lib/id';
 import { getFlag } from '../../lib/flags';
 import { scheduleReminder, cancelReminder, toDateTime } from '../../services/notifications';
+import { workspaceService } from '../../services/workspaceService';
+import { isFirebaseConfigured } from '../../lib/firebase';
 import { useCollection } from '../../hooks/useCollection';
 import {
   Screen,
@@ -124,6 +131,8 @@ const fmtDate = (s?: string): string | null => {
 
 const withAlpha = (hex: string, alpha: string) => `${hex}${alpha}`;
 
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
 // ---- Reminder scheduling (schedule-on-write, mirrors tasks.tsx) ----
 const cancelReminders = async (ids?: string[]): Promise<void> => {
   for (const id of ids ?? []) await cancelReminder(id);
@@ -152,8 +161,40 @@ type Row =
   | { kind: 'item'; key: string; app: MApplication };
 
 export default function ApplicationsScreen() {
-  const { items, loading, create, update, remove } = useCollection<MApplication>(STORES.APPLICATIONS);
+  const personal = useCollection<MApplication>(STORES.APPLICATIONS);
   const toast = useToast();
+
+  // Collaboration: shared workspaces (null active = personal local-first list).
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWsId, setActiveWsId] = useState<string | null>(null);
+  const [wsItems, setWsItems] = useState<MApplication[]>([]);
+  const [wsLoading, setWsLoading] = useState(false);
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const activeWorkspace = activeWsId ? workspaces.find((w) => w.id === activeWsId) ?? null : null;
+
+  useEffect(() => {
+    if (!workspaceService.supported()) return;
+    return workspaceService.subscribe(setWorkspaces);
+  }, []);
+
+  // If the active workspace is deleted / access revoked, fall back to personal.
+  useEffect(() => {
+    if (activeWsId && !workspaces.some((w) => w.id === activeWsId)) setActiveWsId(null);
+  }, [workspaces, activeWsId]);
+
+  // Live subscription to the active workspace's applications.
+  useEffect(() => {
+    if (!activeWsId) return;
+    setWsLoading(true);
+    return workspaceService.subscribeApplications(activeWsId, (apps) => {
+      setWsItems(apps as MApplication[]);
+      setWsLoading(false);
+    });
+  }, [activeWsId]);
+
+  const items = activeWsId ? wsItems : personal.items;
+  const loading = activeWsId ? wsLoading : personal.loading;
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -248,9 +289,17 @@ export default function ApplicationsScreen() {
         destructive: true,
       })
     ) {
-      await cancelReminders(app.reminderIds);
-      remove(app.id);
-      toast.show('Application deleted', 'info');
+      try {
+        if (activeWsId) {
+          await workspaceService.deleteApplication(activeWsId, app.id);
+        } else {
+          await cancelReminders(app.reminderIds);
+          personal.remove(app.id);
+        }
+        toast.show('Application deleted', 'info');
+      } catch {
+        toast.show('Could not delete — check your connection', 'error');
+      }
     }
   };
 
@@ -263,10 +312,15 @@ export default function ApplicationsScreen() {
   const changeStatus = async (app: MApplication, status: AppStatus) => {
     setStatusPickerFor(null);
     if (app.status === status) return;
+    const now = new Date().toISOString();
+    if (activeWsId) {
+      await workspaceService.putApplication(activeWsId, { ...app, status, updatedAt: now });
+      return;
+    }
     await cancelReminders(app.reminderIds);
-    const base: MApplication = { ...app, status, updatedAt: new Date().toISOString() };
+    const base: MApplication = { ...app, status, updatedAt: now };
     const reminderIds = await scheduleDeadlineReminders(base);
-    update({ ...base, reminderIds });
+    personal.update({ ...base, reminderIds });
   };
 
   const handleSave = async (data: FormValues) => {
@@ -297,19 +351,61 @@ export default function ApplicationsScreen() {
       requirements: data.requirements.length ? data.requirements : undefined,
     };
 
-    if (editing) {
-      await cancelReminders(editing.reminderIds);
-      const base: MApplication = { ...editing, ...fields, updatedAt: now };
-      const reminderIds = await scheduleDeadlineReminders(base);
-      update({ ...base, reminderIds });
-      toast.show(reminderIds.length ? 'Application updated · reminder set' : 'Application updated', 'success');
-    } else {
-      const base: MApplication = { id: newId(), ...fields, createdAt: now };
-      const reminderIds = await scheduleDeadlineReminders(base);
-      create({ ...base, reminderIds });
-      toast.show(reminderIds.length ? 'Application added · reminder set' : 'Application added', 'success');
+    try {
+      if (activeWsId) {
+        // Shared workspace: live Firestore, no per-device reminders.
+        const base: MApplication = editing
+          ? { ...editing, ...fields, updatedAt: now }
+          : { id: newId(), ...fields, createdAt: now };
+        await workspaceService.putApplication(activeWsId, base);
+        toast.show(editing ? 'Application updated' : 'Application added', 'success');
+      } else if (editing) {
+        await cancelReminders(editing.reminderIds);
+        const base: MApplication = { ...editing, ...fields, updatedAt: now };
+        const reminderIds = await scheduleDeadlineReminders(base);
+        personal.update({ ...base, reminderIds });
+        toast.show(reminderIds.length ? 'Application updated · reminder set' : 'Application updated', 'success');
+      } else {
+        const base: MApplication = { id: newId(), ...fields, createdAt: now };
+        const reminderIds = await scheduleDeadlineReminders(base);
+        personal.create({ ...base, reminderIds });
+        toast.show(reminderIds.length ? 'Application added · reminder set' : 'Application added', 'success');
+      }
+    } catch {
+      toast.show('Could not save — check your connection', 'error');
     }
   };
+
+  // ---- Workspace (collaboration) actions ----
+  const handleCreateWorkspace = async (name: string, emails: string[], seed: boolean) => {
+    const seedApps = seed ? personal.items.map(({ reminderIds, ...a }) => a) : [];
+    const ws = await workspaceService.create(name, emails, seedApps);
+    setShowNewWorkspace(false);
+    setActiveWsId(ws.id);
+    toast.show(`Workspace “${ws.name}” created`, 'success');
+  };
+  const handleSetMembers = async (emails: string[]) => {
+    if (!activeWorkspace) return;
+    await workspaceService.setMembers(activeWorkspace, emails);
+    toast.show('Members updated', 'success');
+  };
+  const handleDeleteWorkspace = async () => {
+    if (!activeWorkspace) return;
+    const ok = await confirmDialog({
+      title: 'Delete workspace',
+      message: `Delete “${activeWorkspace.name}” for everyone? This cannot be undone.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    const id = activeWorkspace.id;
+    setActiveWsId(null);
+    setShowMembers(false);
+    await workspaceService.remove(id);
+    toast.show('Workspace deleted', 'info');
+  };
+
+  const showWorkspaceBar = isFirebaseConfigured() && (workspaces.length > 0 || workspaceService.supported());
 
   if (loading) return <Spinner label="Loading applications…" />;
 
@@ -380,13 +476,73 @@ export default function ApplicationsScreen() {
 
   return (
     <Screen padded={false}>
-      <AppHeader title="Applications" subtitle="Track your job, grant, and scholarship applications." />
+      <AppHeader
+        title="Applications"
+        subtitle={activeWorkspace ? `${activeWorkspace.name} · shared workspace` : 'Track your job, grant, and scholarship applications.'}
+      />
+
+      {showWorkspaceBar ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, gap: 8 }}
+        >
+          <WsChip
+            active={!activeWsId}
+            label="My Applications"
+            icon={<Lock size={12} color={!activeWsId ? '#fff' : '#9ca3af'} />}
+            onPress={() => setActiveWsId(null)}
+          />
+          {workspaces.map((ws) => (
+            <WsChip
+              key={ws.id}
+              active={activeWsId === ws.id}
+              label={ws.name}
+              icon={<Users size={12} color={activeWsId === ws.id ? '#fff' : '#9ca3af'} />}
+              onPress={() => setActiveWsId(ws.id)}
+            />
+          ))}
+          <Pressable
+            onPress={() => setShowNewWorkspace(true)}
+            className="flex-row items-center rounded-full px-3 py-1.5 border border-dashed border-hairline active:opacity-70"
+          >
+            <Share2 size={12} color="#60a5fa" />
+            <Text className="text-accent text-xs ml-1">Share / New</Text>
+          </Pressable>
+        </ScrollView>
+      ) : null}
+
+      {activeWorkspace ? (
+        <View
+          className="mx-4 mt-3 rounded-2xl border border-blue-500/30 p-3 flex-row items-center justify-between"
+          style={{ backgroundColor: 'rgba(59,130,246,0.08)' }}
+        >
+          <View className="flex-row items-center flex-1 mr-2">
+            <View className="w-8 h-8 rounded-lg items-center justify-center mr-2" style={{ backgroundColor: 'rgba(59,130,246,0.15)' }}>
+              <Share2 size={15} color="#60a5fa" />
+            </View>
+            <View className="flex-1">
+              <View className="flex-row items-center">
+                <Text className="text-ink text-sm font-semibold" numberOfLines={1}>{activeWorkspace.name}</Text>
+                {workspaceService.isOwner(activeWorkspace) ? <Crown size={11} color="#fbbf24" style={{ marginLeft: 6 }} /> : null}
+                <Globe size={11} color="#34d399" style={{ marginLeft: 6 }} />
+              </View>
+              <Text className="text-ink-muted text-xs">
+                {activeWorkspace.memberEmails.length} member{activeWorkspace.memberEmails.length !== 1 ? 's' : ''} · everyone can edit
+              </Text>
+            </View>
+          </View>
+          <Pressable onPress={() => setShowMembers(true)} className="px-3 py-2 rounded-lg bg-midnight-lighter active:opacity-80">
+            <Text className="text-ink text-xs font-medium">Members</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {items.length === 0 ? (
         <EmptyState
           icon={<Briefcase size={40} color="#3B82F6" />}
-          title="No applications yet"
-          subtitle="Add your first application to track jobs, grants, and scholarships."
+          title={activeWsId ? 'No applications here yet' : 'No applications yet'}
+          subtitle={activeWsId ? 'Add the first application to this shared workspace.' : 'Add your first application to track jobs, grants, and scholarships.'}
           ctaTitle="New Application"
           onCta={openAdd}
         />
@@ -438,7 +594,47 @@ export default function ApplicationsScreen() {
         onCancel={() => setStatusPickerFor(null)}
         onPick={(s) => statusPickerFor && changeStatus(statusPickerFor, s)}
       />
+
+      <NewWorkspaceModal
+        visible={showNewWorkspace}
+        supported={workspaceService.supported()}
+        personalCount={personal.items.length}
+        onCancel={() => setShowNewWorkspace(false)}
+        onCreate={handleCreateWorkspace}
+      />
+      <MembersModal
+        workspace={showMembers ? activeWorkspace : null}
+        isOwner={activeWorkspace ? workspaceService.isOwner(activeWorkspace) : false}
+        currentEmail={workspaceService.currentEmail()}
+        onCancel={() => setShowMembers(false)}
+        onSave={handleSetMembers}
+        onDelete={handleDeleteWorkspace}
+      />
     </Screen>
+  );
+}
+
+function WsChip({
+  active,
+  label,
+  icon,
+  onPress,
+}: {
+  active: boolean;
+  label: string;
+  icon: ReactNode;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`flex-row items-center rounded-full px-3 py-1.5 border ${active ? 'bg-accent border-accent' : 'border-hairline'} active:opacity-80`}
+    >
+      {icon}
+      <Text className={`text-xs ml-1 ${active ? 'text-white font-semibold' : 'text-ink-muted'}`} numberOfLines={1} style={{ maxWidth: 150 }}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -942,6 +1138,269 @@ function ApplicationFormModal({
                 <Text className={`font-bold ${name.trim() ? 'text-white' : 'text-ink-muted'}`}>{initial ? 'Update' : 'Create'}</Text>
               </Pressable>
             </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function NewWorkspaceModal({
+  visible,
+  supported,
+  personalCount,
+  onCancel,
+  onCreate,
+}: {
+  visible: boolean;
+  supported: boolean;
+  personalCount: number;
+  onCancel: () => void;
+  onCreate: (name: string, emails: string[], seed: boolean) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [emails, setEmails] = useState<string[]>([]);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [seed, setSeed] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [lastVisible, setLastVisible] = useState(false);
+  if (visible !== lastVisible) {
+    setLastVisible(visible);
+    if (visible) {
+      setName('');
+      setEmails([]);
+      setEmailDraft('');
+      setSeed(true);
+      setBusy(false);
+      setError(null);
+    }
+  }
+
+  const addEmail = () => {
+    const e = emailDraft.trim().toLowerCase();
+    if (e && EMAIL_RE.test(e) && !emails.includes(e)) setEmails([...emails, e]);
+    setEmailDraft('');
+  };
+  const submit = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onCreate(name.trim(), emails, seed);
+    } catch (e: any) {
+      setError(e?.message || 'Could not create workspace');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '92%' }} onPress={() => {}}>
+            <View className="flex-row items-center mb-4">
+              <Share2 size={18} color="#60a5fa" />
+              <Text className="text-ink text-lg font-bold ml-2">Share a workspace</Text>
+            </View>
+            {!supported ? (
+              <View style={{ gap: 16 }}>
+                <Text className="text-ink-muted text-sm">
+                  Sign in with an email or Google account to create a shared workspace others can join and collaborate in.
+                </Text>
+                <Pressable onPress={onCancel} className="items-center py-3.5 rounded-full bg-accent active:bg-accent-hover">
+                  <Text className="text-white font-bold">Got it</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <Input label="Workspace name" placeholder="e.g. Grants 2026" value={name} onChangeText={setName} className="mb-3" />
+                <Text className="text-ink-muted text-xs mb-1.5 ml-1">Invite by email (optional)</Text>
+                {emails.length ? (
+                  <View className="flex-row flex-wrap mb-2" style={{ gap: 6 }}>
+                    {emails.map((e) => (
+                      <Pressable
+                        key={e}
+                        onPress={() => setEmails(emails.filter((x) => x !== e))}
+                        className="flex-row items-center rounded-full px-2.5 py-1 active:opacity-70"
+                        style={{ backgroundColor: 'rgba(59,130,246,0.18)' }}
+                      >
+                        <Text className="text-accent text-xs mr-1">{e}</Text>
+                        <X size={11} color="#60a5fa" />
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+                <View className="flex-row items-center mb-1" style={{ gap: 8 }}>
+                  <View className="flex-1">
+                    <Input
+                      placeholder="name@example.com"
+                      value={emailDraft}
+                      onChangeText={setEmailDraft}
+                      onSubmitEditing={addEmail}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      returnKeyType="done"
+                    />
+                  </View>
+                  <Pressable onPress={addEmail} className="px-4 py-3 rounded-2xl bg-midnight-lighter active:opacity-80">
+                    <Plus size={18} color="#e5e7eb" />
+                  </Pressable>
+                </View>
+                <Text className="text-ink-muted text-xs mb-3 ml-1">
+                  They'll see this workspace next time they open ClearMind signed in with that email.
+                </Text>
+                <Pressable onPress={() => setSeed(!seed)} className="flex-row items-center mb-4 active:opacity-70">
+                  <View className={`w-5 h-5 rounded mr-2 items-center justify-center ${seed ? 'bg-accent' : 'border border-hairline'}`}>
+                    {seed ? <Check size={14} color="#fff" /> : null}
+                  </View>
+                  <Text className="text-ink text-sm">
+                    Copy my {personalCount} current application{personalCount !== 1 ? 's' : ''} into it
+                  </Text>
+                </Pressable>
+                {error ? <Text className="text-red-400 text-sm mb-3">{error}</Text> : null}
+                <View className="flex-row" style={{ gap: 12 }}>
+                  <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
+                    <Text className="text-ink font-semibold">Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={submit}
+                    disabled={!name.trim() || busy}
+                    className={`flex-1 items-center py-3.5 rounded-full ${name.trim() && !busy ? 'bg-accent active:bg-accent-hover' : 'bg-midnight-lighter'}`}
+                  >
+                    <Text className={`font-bold ${name.trim() && !busy ? 'text-white' : 'text-ink-muted'}`}>{busy ? 'Creating…' : 'Create & share'}</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function MembersModal({
+  workspace,
+  isOwner,
+  currentEmail,
+  onCancel,
+  onSave,
+  onDelete,
+}: {
+  workspace: Workspace | null;
+  isOwner: boolean;
+  currentEmail: string | null;
+  onCancel: () => void;
+  onSave: (emails: string[]) => Promise<void>;
+  onDelete: () => void;
+}) {
+  const [invitees, setInvitees] = useState<string[]>([]);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const wsId = workspace?.id ?? null;
+  const [lastWs, setLastWs] = useState<string | null>(null);
+  if (wsId !== lastWs) {
+    setLastWs(wsId);
+    setInvitees(workspace ? workspace.memberEmails.filter((e) => e !== workspace.ownerEmail) : []);
+    setEmailDraft('');
+    setBusy(false);
+    setError(null);
+  }
+
+  const addEmail = () => {
+    if (!workspace) return;
+    const e = emailDraft.trim().toLowerCase();
+    if (e && EMAIL_RE.test(e) && e !== workspace.ownerEmail && !invitees.includes(e)) setInvitees([...invitees, e]);
+    setEmailDraft('');
+  };
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(invitees);
+      onCancel();
+    } catch (e: any) {
+      setError(e?.message || 'Could not update members');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible={!!workspace} transparent animationType="slide" onRequestClose={onCancel}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '90%' }} onPress={() => {}}>
+            {workspace ? (
+              <>
+                <View className="flex-row items-center mb-1">
+                  <Users size={18} color="#60a5fa" />
+                  <Text className="text-ink text-lg font-bold ml-2">Members</Text>
+                </View>
+                <Text className="text-ink-muted text-xs mb-4">{workspace.name} · everyone listed can view and edit every application.</Text>
+                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
+                  <View className="flex-row items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ backgroundColor: 'rgba(148,163,184,0.12)' }}>
+                    <Text className="text-ink text-sm flex-1 mr-2" numberOfLines={1}>
+                      {workspace.ownerEmail}{currentEmail === workspace.ownerEmail ? ' · you' : ''}
+                    </Text>
+                    <View className="flex-row items-center">
+                      <Crown size={12} color="#fbbf24" />
+                      <Text className="text-amber-400 text-xs ml-1">owner</Text>
+                    </View>
+                  </View>
+                  {invitees.map((e) => (
+                    <View key={e} className="flex-row items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ backgroundColor: 'rgba(148,163,184,0.06)' }}>
+                      <Text className="text-ink text-sm flex-1 mr-2" numberOfLines={1}>{e}{currentEmail === e ? ' · you' : ''}</Text>
+                      {isOwner ? (
+                        <Pressable onPress={() => setInvitees(invitees.filter((x) => x !== e))} hitSlop={8} className="active:opacity-60">
+                          <X size={15} color="#9ca3af" />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
+                </ScrollView>
+
+                {isOwner ? (
+                  <>
+                    <View className="flex-row items-center mt-2 mb-3" style={{ gap: 8 }}>
+                      <View className="flex-1">
+                        <Input
+                          placeholder="Invite by email"
+                          value={emailDraft}
+                          onChangeText={setEmailDraft}
+                          onSubmitEditing={addEmail}
+                          autoCapitalize="none"
+                          keyboardType="email-address"
+                          returnKeyType="done"
+                        />
+                      </View>
+                      <Pressable onPress={addEmail} className="px-4 py-3 rounded-2xl bg-midnight-lighter active:opacity-80">
+                        <UserPlus size={18} color="#e5e7eb" />
+                      </Pressable>
+                    </View>
+                    {error ? <Text className="text-red-400 text-sm mb-3">{error}</Text> : null}
+                    <View className="flex-row mb-2" style={{ gap: 12 }}>
+                      <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
+                        <Text className="text-ink font-semibold">Cancel</Text>
+                      </Pressable>
+                      <Pressable onPress={save} disabled={busy} className="flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover">
+                        <Text className="text-white font-bold">{busy ? 'Saving…' : 'Save'}</Text>
+                      </Pressable>
+                    </View>
+                    <Pressable onPress={onDelete} className="items-center py-3 active:opacity-70">
+                      <Text className="text-red-400 text-sm font-medium">Delete workspace</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <Pressable onPress={onCancel} className="items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80 mt-2">
+                    <Text className="text-ink font-semibold">Close</Text>
+                  </Pressable>
+                )}
+              </>
+            ) : null}
           </Pressable>
         </Pressable>
       </KeyboardAvoidingView>
