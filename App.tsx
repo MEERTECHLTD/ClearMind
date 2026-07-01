@@ -33,6 +33,7 @@ const CalendarView = lazy(() => import('./components/views/CalendarView'));
 const DailyMapperView = lazy(() => import('./components/views/DailyMapperView'));
 const AuthView = lazy(() => import('./components/views/AuthView'));
 const ApplicationsView = lazy(() => import('./components/views/ApplicationsView'));
+const ApplicationReviewerView = lazy(() => import('./components/views/ApplicationReviewerView'));
 const LearningVaultView = lazy(() => import('./components/views/LearningVaultView'));
 
 // Loading fallback component
@@ -51,7 +52,7 @@ const getViewFromHash = (): ViewState => {
   const validViews: ViewState[] = [
     'dashboard', 'projects', 'tasks', 'notes', 'habits', 
     'goals', 'milestones', 'iris', 'rant', 'dailylog', 
-    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'learningvault'
+    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'reviewer', 'learningvault'
   ];
   return validViews.includes(hash as ViewState) ? (hash as ViewState) : 'dashboard';
 };
@@ -471,6 +472,8 @@ const App: React.FC = () => {
         return <TasksView />;
       case 'applications':
         return <ApplicationsView />;
+      case 'reviewer':
+        return <ApplicationReviewerView />;
       case 'learningvault':
         return <LearningVaultView />;
       case 'notes':

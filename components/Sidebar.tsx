@@ -20,6 +20,7 @@ import {
   Calendar,
   ClipboardList,
   Briefcase,
+  ScanSearch,
   BookOpen
 } from 'lucide-react';
 import { ViewState, UserProfile } from '../types';
@@ -40,6 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isCollapse
     { id: 'projects', label: 'Projects', icon: <Folder size={20} /> },
     { id: 'tasks', label: 'Tasks', icon: <CheckSquare size={20} /> },
     { id: 'applications', label: 'Applications', icon: <Briefcase size={20} /> },
+    { id: 'reviewer', label: 'AI Reviewer', icon: <ScanSearch size={20} className="text-blue-400" /> },
     { id: 'calendar', label: 'Calendar', icon: <Calendar size={20} /> },
     { id: 'dailymapper', label: 'Daily Mapper', icon: <ClipboardList size={20} /> },
     { id: 'notes', label: 'Notes', icon: <FileText size={20} /> },

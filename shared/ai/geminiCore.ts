@@ -988,3 +988,136 @@ export const generateIRISResponse = async (
     return "Connection to the neural link failed. Try again.";
   }
 };
+
+// ============ APPLICATION REVIEWER ============
+// Paste a link to a grant/scholarship/job posting -> Gemini reads the page (urlContext),
+// finds the real submission page (googleSearch), and returns a structured, industry-
+// standard review + an eligibility read against an optional applicant background.
+
+export interface ApplicationReview {
+  name: string;
+  organization?: string;
+  funder?: string;
+  type: 'job' | 'grant' | 'scholarship' | 'other';
+  summary: string;
+  eligibility: string[];
+  requirements: string[];
+  awardAmount?: string;
+  referenceNumber?: string;
+  openingDate?: string;
+  closingDate?: string;
+  submissionDeadline?: string;
+  submissionLink?: string;
+  sourceUrl: string;
+  eligibilityVerdict: 'eligible' | 'maybe' | 'ineligible' | 'unknown';
+  eligibilityReasoning?: string;
+  tags?: string[];
+}
+
+// Pull the first valid JSON object out of a model response (fenced or raw braces).
+const extractJson = (text: string): any | null => {
+  if (!text) return null;
+  const candidates: string[] = [];
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) candidates.push(fence[1]);
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
+  for (const c of candidates) {
+    try { return JSON.parse(c); } catch { /* try next candidate */ }
+  }
+  return null;
+};
+
+export const reviewApplication = async (
+  apiKey: string,
+  url: string,
+  applicantBackground?: string
+): Promise<ApplicationReview> => {
+  const ai = getAI(apiKey);
+  if (!ai) throw new Error('AI is not configured. Add a Gemini API key to use the reviewer.');
+
+  const today = new Date().toISOString().split('T')[0];
+  const bg = applicantBackground?.trim();
+
+  const prompt = `You are an expert application reviewer for grants, scholarships, fellowships and jobs.
+Read the opportunity at the URL below (fetch its page content), and use web search to locate the OFFICIAL application / submission page if this URL is not already it.
+
+URL: ${url}
+TODAY: ${today}
+${bg ? `APPLICANT BACKGROUND (assess eligibility strictly against this):\n${bg}` : 'No applicant background was provided — set "eligibilityVerdict" to "unknown".'}
+
+Do a thorough, industry-standard review. Then respond with ONLY a single JSON object (no prose, no markdown fences) with EXACTLY these keys:
+{
+  "name": "concise opportunity title",
+  "organization": "host organization or company, or null",
+  "funder": "awarding/funding body if different from the host, or null",
+  "type": "job|grant|scholarship|other",
+  "summary": "3-6 sentence detailed statement: what it is, who it is for, what it funds or offers",
+  "eligibility": ["each eligibility criterion as a short line"],
+  "requirements": ["each required document or step to submit"],
+  "awardAmount": "amount/value with currency, or null",
+  "referenceNumber": "reference/solicitation number, or null",
+  "openingDate": "YYYY-MM-DD or null",
+  "closingDate": "YYYY-MM-DD or null",
+  "submissionDeadline": "YYYY-MM-DD (the apply-by date) or null",
+  "submissionLink": "the DIRECT url to apply/submit (from the page or web search); if unknown use the source URL",
+  "eligibilityVerdict": "eligible|maybe|ineligible|unknown",
+  "eligibilityReasoning": "1-3 sentences; reference the applicant background if given",
+  "tags": ["a few short topical tags"]
+}
+Rules: dates MUST be YYYY-MM-DD (convert any relative/verbose date using TODAY). Use null for anything you cannot determine. If you could not read the page at all, still return the JSON, explain that in "summary", and null the unknown fields.`;
+
+  const run = async (useTools: boolean): Promise<string> => {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: useTools ? ({ tools: [{ urlContext: {} }, { googleSearch: {} }] } as any) : {},
+    });
+    return response.text || '';
+  };
+
+  let text = '';
+  try {
+    text = await run(true);
+  } catch {
+    // Tools may be unavailable on this key/tier — retry without browsing.
+    try {
+      text = await run(false);
+    } catch (e) {
+      console.error('reviewApplication failed:', e);
+      throw new Error('Could not review the application. Please try again.');
+    }
+  }
+
+  const parsed = extractJson(text);
+  if (!parsed) throw new Error('The reviewer could not read that link. Try a direct posting URL.');
+
+  const arr = (v: any): string[] => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()) : []);
+  const str = (v: any): string | undefined =>
+    typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null' ? v.trim() : undefined;
+  const type = ['job', 'grant', 'scholarship', 'other'].includes(parsed.type) ? parsed.type : 'other';
+  const verdict = ['eligible', 'maybe', 'ineligible', 'unknown'].includes(parsed.eligibilityVerdict)
+    ? parsed.eligibilityVerdict
+    : 'unknown';
+
+  return {
+    name: str(parsed.name) || 'Untitled opportunity',
+    organization: str(parsed.organization),
+    funder: str(parsed.funder),
+    type: type as ApplicationReview['type'],
+    summary: str(parsed.summary) || 'No summary available.',
+    eligibility: arr(parsed.eligibility),
+    requirements: arr(parsed.requirements),
+    awardAmount: str(parsed.awardAmount),
+    referenceNumber: str(parsed.referenceNumber),
+    openingDate: str(parsed.openingDate),
+    closingDate: str(parsed.closingDate),
+    submissionDeadline: str(parsed.submissionDeadline),
+    submissionLink: str(parsed.submissionLink) || url,
+    sourceUrl: url,
+    eligibilityVerdict: verdict as ApplicationReview['eligibilityVerdict'],
+    eligibilityReasoning: str(parsed.eligibilityReasoning),
+    tags: arr(parsed.tags),
+  };
+};
