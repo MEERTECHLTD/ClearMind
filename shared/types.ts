@@ -449,5 +449,6 @@ export type ViewState =
   | 'calendar'
   | 'dailymapper'
   | 'applications'
+  | 'reviewer'
   | 'learningvault'
   | 'settings';

@@ -15,7 +15,9 @@ import {
   generateResponse as coreGenerateResponse,
   generateIrisResponse as coreGenerateIrisResponse,
   generateIRISResponse as coreGenerateIRISResponse,
+  reviewApplication as coreReviewApplication,
   type UserContext,
+  type ApplicationReview,
 } from '@clearmind/shared/ai/geminiCore';
 
 // Pure, key-independent surface — re-exported verbatim from the shared core.
@@ -35,6 +37,7 @@ export type {
   ParsedDailyMapperUpdate,
   ParsedActions,
   UserContext,
+  ApplicationReview,
 } from '@clearmind/shared/ai/geminiCore';
 
 // Global API key from environment variable (set in Vercel / injected by Vite).
@@ -59,3 +62,7 @@ export const generateIRISResponse = (
   history: { role: string; parts: { text: string }[] }[],
   message: string
 ): Promise<string> => coreGenerateIRISResponse(GLOBAL_API_KEY, history, message);
+
+// AI Application Reviewer — fetch + analyze an opportunity link into a structured review.
+export const reviewApplication = (url: string, applicantBackground?: string): Promise<ApplicationReview> =>
+  coreReviewApplication(GLOBAL_API_KEY, url, applicantBackground);
