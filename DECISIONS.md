@@ -272,3 +272,30 @@ notification id is written local-only (it means nothing on other devices).
 
 **Dark-only UI.** `userInterfaceStyle` is `dark` (+ `expo-system-ui`) so native
 pickers/dialogs match the dark design instead of flipping with the OS theme.
+
+---
+
+## D12 — Publishing is managed by Expo (EAS)
+
+**Decision:** Android builds, signing, versioning and Play submission run on EAS
+(project `@ameer911/clearmind`); the web app is also hosted on EAS Hosting.
+
+- **Build:** `eas build -p android --profile production` → signed AAB. Config
+  (Firebase, Gemini, Google web client id, `google-services.json`) lives in EAS
+  environment variables (`production` + `preview`), not in the repo.
+- **Signing:** the existing MEERTECH upload keystore (SHA-256 `D7:AC:04…6E`) is
+  stored as EAS remote credentials — the same key as every previous release, so
+  Play accepts updates.
+- **Versioning:** `appVersionSource: remote` + `autoIncrement`; initialised at
+  24 (last Gradle-CI build) so EAS builds continue at 25+.
+- **Submit:** `eas submit` → Play **internal** track as a **draft** (promote in
+  Play Console). Needs a Google Play service-account key stored on EAS.
+- **Web:** the Vite build (`dist/`) is deployed as a static site with
+  `eas deploy` → https://clearmind.expo.app (`npm run deploy:web`). The Vercel
+  deployment at clearmind.meertech.tech is untouched. `clearmind.expo.app` was
+  added to Firebase Auth authorized domains.
+- The old `eas build --local` GitHub workflow (`android-release.yml`, failing on
+  every tag) was removed; the Gradle workflow remains as a no-EAS fallback.
+- `EXPO_ROUTER_APP_ROOT`/`EXPO_ROUTER_IMPORT_MODE` are set in the eas.json `base`
+  profile (see babel.config.js for why). Root `.npmrc` sets legacy-peer-deps so
+  EAS installs the workspace the same way CI does.

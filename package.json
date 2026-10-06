@@ -12,7 +12,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "deploy:web": "vite build && cd apps/mobile && eas deploy --export-dir ../../dist --prod",
+    "deploy:web:preview": "vite build && cd apps/mobile && eas deploy --export-dir ../../dist"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",

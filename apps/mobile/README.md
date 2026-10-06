@@ -29,6 +29,25 @@ Upcoming · Search · Browse** (all other ClearMind tools live under Browse).
 Logic lives in `shared/tasks/` (pure TS, unit-tested: `npm test` at the repo root).
 See DECISIONS.md D11 for the data-model notes.
 
+## Publishing with Expo (EAS)
+
+Everything is managed on expo.dev (project `@ameer911/clearmind`):
+
+```bash
+cd apps/mobile
+npm run build:android        # signed Play Store .aab (versionCode auto-increments)
+npm run build:android:apk    # installable .apk for testers
+npm run submit:android       # send the latest build to Play (internal track, draft)
+npm run release:android      # build + submit in one go
+# web (from the repo root; needs VITE_* + GEMINI_API_KEY in .env):
+npm run deploy:web           # → https://clearmind.expo.app
+```
+
+Build config lives in EAS environment variables (`eas env:list --environment production`);
+the upload keystore is stored as EAS credentials (`eas credentials -p android`).
+Play submission needs a Google Play service-account JSON key uploaded once via
+`eas credentials -p android` → *Google Service Account*. See DECISIONS.md D12.
+
 ## Prerequisites
 
 - Node 20+, the monorepo installed from the **repo root**: `npm install`
