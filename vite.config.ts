@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
       test: {
         globals: true,
         environment: 'node',
-        include: ['services/**/*.test.{ts,js}'],
+        include: ['services/**/*.test.{ts,js}', 'shared/**/*.test.{ts,js}'],
       }
     };
 });

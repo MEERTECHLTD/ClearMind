@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ListTodo, CircleCheckBig, NotebookPen, Target, ChevronRight, Briefcase, FolderKanban, CalendarClock } from 'lucide-react-native';
 import type { Task, Note, Goal, Habit, Application, Project } from '@clearmind/shared';
+import { todayView } from '@clearmind/shared/tasks';
 import { applicationDeadline, relativeDeadline, isDeadlineSoon, REMINDER_SKIP_STATUSES } from '@clearmind/shared/applications';
 import { STORES } from '../../services/db';
 import { useCollection } from '../../hooks/useCollection';
@@ -30,6 +31,10 @@ export default function DashboardScreen() {
 
   const name = profile?.nickname || user?.displayName || user?.email?.split('@')[0] || 'there';
   const pending = useMemo(() => tasks.filter((t) => !t.completed), [tasks]);
+  const dueNow = useMemo(() => {
+    const v = todayView(tasks);
+    return [...v.overdue, ...v.today];
+  }, [tasks]);
   const completed = tasks.length - pending.length;
 
   // Applications a user still needs to act on, and the soonest deadlines.
@@ -54,7 +59,7 @@ export default function DashboardScreen() {
 
   return (
     <Screen padded={false}>
-      <AppHeader title="ClearMind" subtitle={`${greeting()}, ${name}`} />
+      <AppHeader title="Overview" subtitle={`${greeting()}, ${name}`} />
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
         {/* At-a-glance — Applications & Projects lead (core features) */}
         <View className="flex-row flex-wrap -mx-1.5">
@@ -65,10 +70,10 @@ export default function DashboardScreen() {
             <StatCard label="Projects" value={activeProjects.length} icon={<FolderKanban size={18} color="#a855f7" />} onPress={() => router.push('/(app)/projects')} />
           </View>
           <View className="w-1/2 px-1.5 mb-3">
-            <StatCard label="Tasks pending" value={pending.length} icon={<ListTodo size={18} color="#f59e0b" />} onPress={() => router.push('/(app)/tasks')} />
+            <StatCard label="Tasks pending" value={pending.length} icon={<ListTodo size={18} color="#f59e0b" />} onPress={() => router.push('/(app)/today')} />
           </View>
           <View className="w-1/2 px-1.5 mb-3">
-            <StatCard label="Completed" value={completed} icon={<CircleCheckBig size={18} color="#10b981" />} onPress={() => router.push('/(app)/tasks')} />
+            <StatCard label="Completed" value={completed} icon={<CircleCheckBig size={18} color="#10b981" />} onPress={() => router.push('/(app)/completed')} />
           </View>
           <View className="w-1/2 px-1.5 mb-3">
             <StatCard label="Goals" value={goals.length} icon={<Target size={18} color="#34d399" />} onPress={() => router.push('/(app)/goals')} />
@@ -130,15 +135,15 @@ export default function DashboardScreen() {
         ) : null}
 
         {/* Today's tasks */}
-        <SectionHeader title="Today’s tasks" actionLabel={pending.length > 5 ? `All ${pending.length}` : undefined} onAction={() => router.push('/(app)/tasks')} />
-        {pending.length === 0 ? (
+        <SectionHeader title="Today’s tasks" actionLabel={dueNow.length > 5 ? `All ${dueNow.length}` : 'Open'} onAction={() => router.push('/(app)/today')} />
+        {dueNow.length === 0 ? (
           <Card>
-            <Text className="text-ink-muted text-center py-4">Nothing pending. You’re all caught up. 🎉</Text>
+            <Text className="text-ink-muted text-center py-4">Nothing due today. You’re all caught up. 🎉</Text>
           </Card>
         ) : (
           <View>
-            {pending.slice(0, 5).map((t) => (
-              <Pressable key={t.id} onPress={() => router.push('/(app)/tasks')}>
+            {dueNow.slice(0, 5).map((t) => (
+              <Pressable key={t.id} onPress={() => router.push('/(app)/today')}>
                 <Card className="mb-2.5">
                   <View className="flex-row items-center justify-between">
                     <Text className="text-ink flex-1" numberOfLines={1}>{t.title}</Text>

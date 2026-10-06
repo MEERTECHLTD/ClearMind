@@ -2,7 +2,7 @@ import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Ran
 import { firebaseService, isFirebaseConfigured } from './firebase';
 
 const DB_NAME = 'ClearMindDB';
-const DB_VERSION = 9; // Incremented version to add daily mapper templates store
+const DB_VERSION = 10; // v10: labels store (task labels)
 
 // Store names + the canonical store->collection mapping are the single source of
 // truth in @clearmind/shared, imported by both web and mobile. They are
@@ -61,6 +61,7 @@ class DatabaseService {
               createStore(STORES.IRIS_CONVERSATIONS);
               createStore(STORES.LEARNING_RESOURCES);
               createStore(STORES.LEARNING_FOLDERS);
+              createStore(STORES.LABELS);
 
               // No seed data - Clean slate for real users
           };

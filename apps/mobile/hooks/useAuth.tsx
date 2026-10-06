@@ -10,9 +10,34 @@ import type { User } from 'firebase/auth';
 import type { UserProfile } from '@clearmind/shared';
 import { firebaseService, isFirebaseConfigured } from '../services/firebaseService';
 import { configureGoogleSignin } from '../services/firebaseService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dbService, STORES } from '../services/db';
+import { syncAllStores } from '../services/syncService';
+import { resetAllStores } from '../lib/collectionStore';
+import { logWarn } from '../lib/logger';
 
 const PROFILE_ID = 'current-user';
+const OWNER_KEY = 'clearmind:localOwnerUid';
+
+/**
+ * The local sqlite cache belongs to ONE account. If a different account signs in
+ * on this device, wipe the previous account's rows first — otherwise they'd show
+ * in the new account and be pushed into its cloud data. The same account signing
+ * back in keeps its local data (including edits made offline, not yet synced).
+ * First run after upgrading: the existing cache is claimed by whoever is signed in.
+ */
+async function ensureLocalOwner(uid: string): Promise<void> {
+  try {
+    const owner = await AsyncStorage.getItem(OWNER_KEY);
+    if (owner && owner !== uid) {
+      await dbService.wipeAll();
+      resetAllStores();
+    }
+    if (owner !== uid) await AsyncStorage.setItem(OWNER_KEY, uid);
+  } catch (e) {
+    logWarn('local owner check failed: ' + String(e));
+  }
+}
 
 interface AuthValue {
   user: User | null;
@@ -62,7 +87,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Play Services / native module unavailable — handled at sign-in time.
     }
-    const unsub = firebaseService.onAuthChange((u) => {
+    const unsub = firebaseService.onAuthChange(async (u) => {
+      // Scope local data to this account BEFORE any screen reads it.
+      if (u) await ensureLocalOwner(u.uid);
       setUser(u);
       uidRef.current = u?.uid ?? null;
       if (u) cacheProfile(u.uid);
@@ -73,7 +100,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [configured, cacheProfile]);
 
   const signOut = useCallback(async () => {
+    // Best-effort: push any changes not yet in the cloud (bounded so an offline
+    // sign-out never hangs). Local rows stay until a different account signs in.
+    try {
+      await Promise.race([syncAllStores(), new Promise((r) => setTimeout(r, 8000))]);
+    } catch {
+      /* offline — data stays on this device for this account */
+    }
     await firebaseService.logout();
+    resetAllStores();
     setProfile(null);
   }, []);
 

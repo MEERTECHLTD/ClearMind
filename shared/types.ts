@@ -148,6 +148,12 @@ export interface Project {
   createdAt?: string;
   updatedAt?: string;
   completedAt?: string;
+
+  // Task-list fields (Todoist-style task layer). Optional; absent on older records.
+  color?: string | null;
+  parentId?: string | null;   // nested project
+  order?: number | null;
+  archived?: boolean | null;
 }
 
 export interface LogEntry {
@@ -164,16 +170,43 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
+// Four priority levels (P1..P4). 'None' (P4) was added for the Todoist-style
+// task layer; the original three keep their meaning, so existing records are
+// untouched. Every field added below is optional and nullable (Firestore
+// sanitising turns `undefined` into `null`), so old records stay valid.
+export type TaskPriority = 'High' | 'Medium' | 'Low' | 'None';
+
+// Repeat rule. Expandable: new freqs/options can be added without migrating.
+export interface TaskRecurrence {
+  freq: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval: number;          // every N units (>= 1)
+  weekdays?: number[] | null; // weekly only: 0=Sun..6=Sat
+}
+
 export interface Task {
   id: string;
   title: string;
   completed: boolean;
-  priority: 'High' | 'Medium' | 'Low';
-  dueDate?: string;
-  dueTime?: string;
+  priority: TaskPriority;
+  dueDate?: string;  // 'YYYY-MM-DD' (local)
+  dueTime?: string;  // 'HH:MM' (local)
   taskNumber?: number;
   notified?: boolean;
   description?: string;
+  projectId?: string | null;   // absent/null = Inbox
+  parentId?: string | null;    // set = subtask of that task
+  labelIds?: string[] | null;
+  recurrence?: TaskRecurrence | null;
+  order?: number | null;
+  createdAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface Label {
+  id: string;
+  name: string;
+  color: string;
+  order?: number | null;
 }
 
 export interface Note {

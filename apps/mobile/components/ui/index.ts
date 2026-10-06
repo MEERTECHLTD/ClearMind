@@ -17,3 +17,5 @@ export { SegmentedControl, type Segment } from './SegmentedControl';
 export { StatCard } from './StatCard';
 export { confirmDialog } from './ConfirmDialog';
 export { ToastProvider, useToast } from './Toast';
+export { Sheet } from './Sheet';
+export { ActionMenu, type MenuAction } from './ActionMenu';

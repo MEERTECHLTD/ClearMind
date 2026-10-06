@@ -1,0 +1,270 @@
+import React, { useMemo, useRef, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { CalendarDays, Flag, Hash, Tag, Inbox, ArrowUp, X, Repeat, FileText, Check } from 'lucide-react-native';
+import type { Label, Project, TaskPriority } from '@clearmind/shared';
+import { parseQuickAdd, formatDueDate, formatTime, describeRecurrence, priorityOf } from '@clearmind/shared/tasks';
+import { Sheet } from '../ui/Sheet';
+import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker, type Schedule } from './pickers';
+import { C, PRIORITY_COLOR, PRIORITY_SHORT, dueColor } from './theme';
+import {
+  createTask, resolveNames, createProject, createLabel, projectColor,
+} from '../../services/taskActions';
+
+export interface QuickAddDefaults {
+  projectId?: string | null;
+  dueDate?: string | null;
+  parentId?: string | null;
+  labelIds?: string[];
+  priority?: TaskPriority;
+}
+
+type Picker = null | 'date' | 'priority' | 'project' | 'labels';
+
+function Chip({ icon, text, color = C.muted, onPress, onRemove, label }: {
+  icon: React.ReactNode; text: string; color?: string; onPress?: () => void; onRemove?: () => void; label?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center rounded-lg border border-line px-2.5 py-1.5 mr-2 mb-2 active:opacity-70"
+      accessibilityRole="button"
+      accessibilityLabel={label ?? text}
+    >
+      {icon}
+      <Text style={{ color }} className="text-[13px] ml-1.5" numberOfLines={1}>{text}</Text>
+      {onRemove ? (
+        <Pressable onPress={onRemove} hitSlop={8} className="ml-1.5" accessibilityLabel={`Remove ${text}`}>
+          <X size={12} color={C.muted} />
+        </Pressable>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * Quick Add: one line of natural language ("Pay rent every month p1 #Home")
+ * with live-parsed chips. Tapping a parsed chip un-parses that word. Stays open
+ * after adding so several tasks can be entered in a row.
+ */
+export function QuickAddSheet({
+  visible, defaults, projects, labels, onClose,
+}: {
+  visible: boolean;
+  defaults: QuickAddDefaults;
+  projects: Project[];
+  labels: Label[];
+  onClose: () => void;
+}) {
+  const [text, setText] = useState('');
+  const [description, setDescription] = useState('');
+  const [showDesc, setShowDesc] = useState(false);
+  const [ignore, setIgnore] = useState<string[]>([]);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [priority, setPriority] = useState<TaskPriority | null>(null);
+  const [projectId, setProjectId] = useState<string | null | undefined>(undefined);
+  const [labelIds, setLabelIds] = useState<string[] | null>(null); // null = not hand-picked
+  const [picker, setPicker] = useState<Picker>(null);
+  const [added, setAdded] = useState<string | null>(null);
+  const submitting = useRef(false);
+  const input = useRef<TextInput>(null);
+
+  // Reset when (re)opened.
+  const [wasVisible, setWasVisible] = useState(false);
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    if (visible) {
+      setText(''); setDescription(''); setShowDesc(false); setIgnore([]); setSchedule(null);
+      setPriority(null); setProjectId(undefined); setLabelIds(null); setAdded(null);
+    }
+  }
+
+  const projectRefs = useMemo(() => projects.filter((p) => !p.archived).map((p) => ({ id: p.id, title: p.title })), [projects]);
+  const parsed = useMemo(() => parseQuickAdd(text, { projects: projectRefs, labels, ignore }), [text, projectRefs, labels, ignore]);
+  const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
+
+  // Effective values: explicit picks > parsed text > screen defaults.
+  const eff = {
+    dueDate: schedule ? schedule.dueDate ?? null : parsed.dueDate ?? defaults.dueDate ?? null,
+    dueTime: schedule ? schedule.dueTime ?? null : parsed.dueTime ?? null,
+    recurrence: schedule ? schedule.recurrence ?? null : parsed.recurrence ?? null,
+    priority: priority ?? parsed.priority ?? defaults.priority ?? 'None',
+    projectId: projectId !== undefined ? projectId : parsed.projectId ?? (parsed.projectName ? undefined : defaults.projectId ?? null),
+  };
+  const newProjectName = projectId === undefined && !parsed.projectId ? parsed.projectName : undefined;
+  const effLabelIds = labelIds ?? [...new Set([...(defaults.labelIds ?? []), ...parsed.labels.filter((l) => l.id).map((l) => l.id!)])];
+  const newLabelNames = labelIds ? [] : parsed.labels.filter((l) => !l.id).map((l) => l.name);
+
+  const canSubmit = parsed.title.length > 0;
+
+  const submit = async () => {
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true; // guards double-taps → no duplicate tasks
+    try {
+      const resolved = resolveNames(newProjectName, eff.projectId ?? undefined, [
+        ...effLabelIds.map((id) => ({ id, name: '' })),
+        ...newLabelNames.map((name) => ({ name })),
+      ]);
+      await createTask({
+        title: parsed.title,
+        description: description.trim() || undefined,
+        dueDate: eff.dueDate,
+        dueTime: eff.dueTime,
+        recurrence: eff.recurrence,
+        priority: eff.priority,
+        projectId: resolved.projectId,
+        parentId: defaults.parentId ?? null,
+        labelIds: resolved.labelIds,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      const where = resolved.projectId ? projectById.get(resolved.projectId)?.title ?? newProjectName ?? 'project' : 'Inbox';
+      setAdded(`Added “${parsed.title}” to ${defaults.parentId ? 'subtasks' : where}`);
+      setText(''); setDescription(''); setShowDesc(false); setIgnore([]); setSchedule(null);
+      setPriority(null); setProjectId(undefined); setLabelIds(null);
+      input.current?.focus();
+    } finally {
+      submitting.current = false;
+    }
+  };
+
+  const tokenText = (type: string) => parsed.tokens.find((t) => t.type === type)?.text;
+  const unparse = (type: string) => {
+    const tt = parsed.tokens.filter((t) => t.type === type).map((t) => t.text.toLowerCase());
+    if (tt.length) setIgnore((x) => [...x, ...tt]);
+  };
+
+  const project = eff.projectId ? projectById.get(eff.projectId) : null;
+  const dateText = eff.dueDate
+    ? `${formatDueDate(eff.dueDate)}${eff.dueTime ? ` ${formatTime(eff.dueTime)}` : ''}`
+    : 'Date';
+
+  return (
+    <Sheet visible={visible} onClose={onClose}>
+      <TextInput
+        ref={input}
+        value={text}
+        onChangeText={(v) => { setText(v); if (added) setAdded(null); }}
+        placeholder={defaults.parentId ? 'Subtask name' : 'e.g. Call Sam tomorrow 4pm p1 #Work'}
+        placeholderTextColor="#6b7280"
+        className="text-ink text-[17px] py-2"
+        autoFocus
+        multiline={false}
+        returnKeyType="done"
+        blurOnSubmit={false}
+        onSubmitEditing={submit}
+        accessibilityLabel="Task name"
+      />
+      {showDesc ? (
+        <TextInput
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Description"
+          placeholderTextColor="#6b7280"
+          className="text-ink-muted text-[15px] pb-2"
+          multiline
+          style={{ maxHeight: 120 }}
+          accessibilityLabel="Description"
+        />
+      ) : null}
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" className="mt-1">
+        <View className="flex-row flex-wrap">
+          <Chip
+            icon={eff.recurrence ? <Repeat size={14} color={eff.dueDate ? dueColor({ dueDate: eff.dueDate }) : C.muted} /> : <CalendarDays size={14} color={eff.dueDate ? dueColor({ dueDate: eff.dueDate }) : C.muted} />}
+            text={eff.recurrence ? `${dateText} · ${describeRecurrence(eff.recurrence)}` : dateText}
+            color={eff.dueDate ? dueColor({ dueDate: eff.dueDate }) : C.muted}
+            onPress={() => setPicker('date')}
+            onRemove={eff.dueDate ? () => { unparse('date'); unparse('time'); unparse('recurrence'); setSchedule({ dueDate: null, dueTime: null, recurrence: null }); } : undefined}
+            label={`Due date: ${dateText}`}
+          />
+          <Chip
+            icon={<Flag size={14} color={PRIORITY_COLOR[eff.priority]} fill={eff.priority === 'None' ? 'transparent' : PRIORITY_COLOR[eff.priority]} />}
+            text={eff.priority === 'None' ? 'Priority' : PRIORITY_SHORT[eff.priority]}
+            color={eff.priority === 'None' ? C.muted : PRIORITY_COLOR[eff.priority]}
+            onPress={() => setPicker('priority')}
+            label={`Priority ${PRIORITY_SHORT[priorityOf({ priority: eff.priority })]}`}
+          />
+          {!defaults.parentId ? (
+            <Chip
+              icon={project ? <Hash size={14} color={projectColor(project)} /> : newProjectName ? <Hash size={14} color={C.accent} /> : <Inbox size={14} color={C.muted} />}
+              text={project?.title ?? (newProjectName ? `${newProjectName} (new)` : 'Inbox')}
+              color={newProjectName ? C.accent : C.ink}
+              onPress={() => setPicker('project')}
+              onRemove={tokenText('project') ? () => unparse('project') : undefined}
+              label="Project"
+            />
+          ) : null}
+          <Chip
+            icon={<Tag size={14} color={C.muted} />}
+            text={
+              effLabelIds.length + newLabelNames.length
+                ? [...effLabelIds.map((id) => labelById.get(id)?.name ?? ''), ...newLabelNames.map((n) => `${n} (new)`)].filter(Boolean).join(', ')
+                : 'Labels'
+            }
+            onPress={() => setPicker('labels')}
+            onRemove={tokenText('label') ? () => unparse('label') : undefined}
+            label="Labels"
+          />
+          {!showDesc ? (
+            <Chip icon={<FileText size={14} color={C.muted} />} text="Description" onPress={() => setShowDesc(true)} />
+          ) : null}
+        </View>
+      </ScrollView>
+
+      {parsed.tokens.length ? (
+        <Text className="text-ink-muted text-[11px] mb-1">
+          Recognised: {parsed.tokens.map((t) => `“${t.text}”`).join(' ')} — tap ✕ on a chip to keep it as text
+        </Text>
+      ) : null}
+
+      <View className="flex-row items-center justify-between border-t border-line pt-3 mt-1">
+        <View className="flex-row items-center flex-1 mr-3">
+          {added ? (
+            <>
+              <Check size={14} color={C.success} />
+              <Text className="text-emerald-400 text-xs ml-1 flex-1" numberOfLines={1}>{added}</Text>
+            </>
+          ) : (
+            <Text className="text-ink-muted text-xs" numberOfLines={1}>Try “every weekday 9am”, “p1”, “#Project”, “@label”</Text>
+          )}
+        </View>
+        <Pressable
+          onPress={submit}
+          disabled={!canSubmit}
+          className={`w-10 h-10 rounded-full items-center justify-center ${canSubmit ? 'bg-accent active:bg-accent-hover' : 'bg-midnight-lighter'}`}
+          accessibilityRole="button"
+          accessibilityLabel="Add task"
+          accessibilityState={{ disabled: !canSubmit }}
+        >
+          <ArrowUp size={20} color={canSubmit ? '#fff' : C.faint} />
+        </Pressable>
+      </View>
+
+      {/* Nested so they stack above this sheet on iOS. */}
+      <SchedulePicker
+        visible={picker === 'date'}
+        value={{ dueDate: eff.dueDate, dueTime: eff.dueTime, recurrence: eff.recurrence }}
+        onClose={() => setPicker(null)}
+        onChange={(s) => { unparse('date'); unparse('time'); unparse('recurrence'); setSchedule(s); }}
+      />
+      <PriorityPicker visible={picker === 'priority'} value={eff.priority} onClose={() => setPicker(null)} onChange={(p) => { unparse('priority'); setPriority(p); }} />
+      <ProjectPicker
+        visible={picker === 'project'}
+        value={eff.projectId}
+        projects={projects}
+        onClose={() => setPicker(null)}
+        onChange={(id) => { unparse('project'); setProjectId(id); }}
+        onCreate={(name) => createProject({ title: name }).id}
+      />
+      <LabelPicker
+        visible={picker === 'labels'}
+        value={effLabelIds}
+        labels={labels}
+        onClose={() => setPicker(null)}
+        onChange={setLabelIds}
+        onCreate={(name) => createLabel({ name }).id}
+      />
+    </Sheet>
+  );
+}

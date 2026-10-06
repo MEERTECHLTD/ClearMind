@@ -143,6 +143,14 @@ class DatabaseService {
     }
   }
 
+  /** Remove every local row (all stores). Used when a different account signs in. */
+  async wipeAll(): Promise<void> {
+    const db = await this.getDB();
+    await db.withTransactionAsync(async () => {
+      for (const s of ALL_STORES) await db.runAsync(`DELETE FROM "${s}"`);
+    });
+  }
+
   async cleanupDeletedItems(storeName: string): Promise<void> {
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const all = await this.getAllIncludingDeleted<any>(storeName);

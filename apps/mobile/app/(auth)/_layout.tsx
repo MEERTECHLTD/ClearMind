@@ -5,6 +5,6 @@ import { Spinner } from '../../components/ui';
 export default function AuthLayout() {
   const { user, checking } = useAuth();
   if (checking) return <Spinner label="Starting…" />;
-  if (user) return <Redirect href="/(app)/dashboard" />;
+  if (user) return <Redirect href="/(app)/today" />;
   return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#05050A' } }} />;
 }

@@ -26,6 +26,7 @@ export const STORES = {
   IRIS_CONVERSATIONS: 'iris_conversations',
   LEARNING_RESOURCES: 'learningresources',
   LEARNING_FOLDERS: 'learningfolders',
+  LABELS: 'labels',
 } as const;
 
 // Canonical mapping: local store name -> Firestore collection name.
@@ -49,6 +50,7 @@ export const STORE_TO_FIRESTORE: Record<string, string> = {
   [STORES.IRIS_CONVERSATIONS]: 'iris_conversations',
   [STORES.LEARNING_RESOURCES]: 'learningResources',
   [STORES.LEARNING_FOLDERS]: 'learningFolders',
+  [STORES.LABELS]: 'labels',
 };
 
 // Reverse mapping: Firestore collection name -> local store name.
