@@ -63,14 +63,14 @@ describe('parseQuickAdd', () => {
   it('parses recurrence and sets the first occurrence', () => {
     const d = parseQuickAdd('Standup every weekday at 9:30', ctx);
     expect(d.title).toBe('Standup');
-    expect(d.recurrence).toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] });
+    expect(d.recurrence).toMatchObject({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] });
     expect(d.dueTime).toBe('09:30');
     expect(d.dueDate).toBe(iso(2026, 10, 6));
-    expect(parseQuickAdd('Gym every mon, wed and fri', ctx).recurrence).toEqual({ freq: 'weekly', interval: 1, weekdays: [1, 3, 5] });
+    expect(parseQuickAdd('Gym every mon, wed and fri', ctx).recurrence).toMatchObject({ freq: 'weekly', interval: 1, weekdays: [1, 3, 5] });
     expect(parseQuickAdd('Gym every mon, wed and fri', ctx).dueDate).toBe(iso(2026, 10, 7));
-    expect(parseQuickAdd('Water plants every 3 days', ctx).recurrence).toEqual({ freq: 'daily', interval: 3 });
-    expect(parseQuickAdd('Rent monthly', ctx).recurrence).toEqual({ freq: 'monthly', interval: 1 });
-    expect(parseQuickAdd('Review every other week', ctx).recurrence).toEqual({ freq: 'weekly', interval: 2 });
+    expect(parseQuickAdd('Water plants every 3 days', ctx).recurrence).toMatchObject({ freq: 'daily', interval: 3 });
+    expect(parseQuickAdd('Rent monthly', ctx).recurrence).toMatchObject({ freq: 'monthly', interval: 1 });
+    expect(parseQuickAdd('Review every other week', ctx).recurrence).toMatchObject({ freq: 'weekly', interval: 2 });
     expect(parseQuickAdd('Journal daily', ctx).title).toBe('Journal');
   });
 

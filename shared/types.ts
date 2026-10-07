@@ -154,6 +154,18 @@ export interface Project {
   parentId?: string | null;   // nested project
   order?: number | null;
   archived?: boolean | null;
+  icon?: string | null;       // emoji or icon name
+  favorite?: boolean | null;
+  view?: 'list' | 'board' | 'calendar' | null;
+  /** Collaboration-ready: member uids/emails (unused in the single-user UI). */
+  members?: string[] | null;
+  source?: ChangeSource | null;
+  // Sync metadata
+  _fc?: Record<string, string> | null;
+  version?: number | null;
+  clientId?: string | null;
+  mutationId?: string | null;
+  deleted?: boolean | null;
 }
 
 export interface LogEntry {
@@ -176,37 +188,232 @@ export interface ChatMessage {
 // sanitising turns `undefined` into `null`), so old records stay valid.
 export type TaskPriority = 'High' | 'Medium' | 'Low' | 'None';
 
-// Repeat rule. Expandable: new freqs/options can be added without migrating.
+// Repeat rule. Expandable: new options can be added without migrating.
 export interface TaskRecurrence {
   freq: 'daily' | 'weekly' | 'monthly' | 'yearly';
-  interval: number;          // every N units (>= 1)
-  weekdays?: number[] | null; // weekly only: 0=Sun..6=Sat
+  interval: number;           // every N units (>= 1)
+  weekdays?: number[] | null; // weekly: 0=Sun..6=Sat
+  /** monthly: day of month (1..31) or -1 = last day of month. */
+  monthDay?: number | null;
+  /** monthly: nth weekday — e.g. { weekday: 1, ordinal: 1 } = first Monday; ordinal -1 = last. */
+  nthWeekday?: { weekday: number; ordinal: number } | null;
+  /** 'scheduled' (default): next date from the due date. 'completion': from the day it was completed. */
+  anchor?: 'scheduled' | 'completion' | null;
+  /** Optional end date (inclusive, 'YYYY-MM-DD'). */
+  until?: string | null;
 }
 
-export interface Task {
+/** Where a change came from — every synced record and activity entry carries one. */
+export type ChangeSource = 'android' | 'ios' | 'web' | 'mcp' | 'api' | 'cli' | 'widget' | 'notification' | 'system';
+
+/** A reminder attached to a task. */
+export interface TaskReminder {
+  id: string;
+  /** 'relative' = minutes before the due date/time; 'absolute' = a fixed moment. */
+  type: 'relative' | 'absolute';
+  minutesBefore?: number | null;
+  /** absolute: local 'YYYY-MM-DDTHH:MM' interpreted in the task/user time zone. */
+  at?: string | null;
+}
+
+/**
+ * Field-level sync metadata stamped on every synced record (see
+ * shared/sync/fields.ts). Optional so legacy records stay valid.
+ */
+export interface SyncMeta {
+  updatedAt?: string;
+  /** Per-field change clocks: field name → ISO timestamp of its last change. */
+  _fc?: Record<string, string> | null;
+  /** Monotonic per-record version (incremented on each local change). */
+  version?: number | null;
+  /** Device/agent that made the last change. */
+  clientId?: string | null;
+  /** Idempotency: id of the mutation that produced this state. */
+  mutationId?: string | null;
+  /** Server write time (Firestore server timestamp) — the delta-sync cursor. */
+  _serverAt?: unknown;
+  deleted?: boolean | null;
+  deletedAt?: string | null;
+}
+
+export interface Task extends SyncMeta {
   id: string;
   title: string;
   completed: boolean;
   priority: TaskPriority;
-  dueDate?: string;  // 'YYYY-MM-DD' (local)
-  dueTime?: string;  // 'HH:MM' (local)
+  dueDate?: string;  // 'YYYY-MM-DD' (local to `timezone`)
+  dueTime?: string;  // 'HH:MM' (local to `timezone`)
   taskNumber?: number;
   notified?: boolean;
   description?: string;
   projectId?: string | null;   // absent/null = Inbox
+  sectionId?: string | null;
   parentId?: string | null;    // set = subtask of that task
   labelIds?: string[] | null;
   recurrence?: TaskRecurrence | null;
   order?: number | null;
   createdAt?: string | null;
   completedAt?: string | null;
+  // Deep task model (all optional)
+  /** Planned duration in minutes. */
+  duration?: number | null;
+  /** IANA time zone the due date/time is expressed in (e.g. 'Africa/Lagos'). Absent = floating local time. */
+  timezone?: string | null;
+  reminders?: TaskReminder[] | null;
+  assigneeId?: string | null;
+  createdBy?: string | null;
+  /** Where the task was created. */
+  source?: ChangeSource | null;
+  /** For agent-created items: the connected agent's name. */
+  agent?: string | null;
+  /** Inbox capture kind: a quick thought/note vs. an actionable task. */
+  kind?: 'task' | 'note' | null;
 }
 
-export interface Label {
+export interface Label extends SyncMeta {
   id: string;
   name: string;
   color: string;
   order?: number | null;
+  favorite?: boolean | null;
+}
+
+/** A section inside a project ("Backlog", "In progress", …). */
+export interface Section extends SyncMeta {
+  id: string;
+  projectId: string;
+  name: string;
+  order: number;
+  collapsed?: boolean | null;
+  archived?: boolean | null;
+}
+
+/** A comment / note on a task or a project. */
+export interface Comment extends SyncMeta {
+  id: string;
+  taskId?: string | null;
+  projectId?: string | null;
+  text: string;
+  createdAt: string;
+  authorName?: string | null;
+  source?: ChangeSource | null;
+  agent?: string | null;
+}
+
+/**
+ * Canonical completion event — the basis of every productivity metric.
+ * id = `${taskId}@${occurrence}` so completing the same occurrence twice (retry,
+ * two devices) is idempotent; reopening tombstones it (deleted: true).
+ */
+export interface Completion extends SyncMeta {
+  id: string;
+  taskId: string;
+  title: string;
+  projectId?: string | null;
+  priority: TaskPriority;
+  /** Occurrence key: the due date completed, or 'once' for non-recurring. */
+  occurrence: string;
+  completedAt: string;
+  /** Local calendar day ('YYYY-MM-DD') in the user's time zone when completed. */
+  day: string;
+  /** Whether the task was overdue when completed. */
+  wasOverdue?: boolean | null;
+  source?: ChangeSource | null;
+}
+
+/** Append-only activity entry (history + audit for agent actions). */
+export interface Activity extends SyncMeta {
+  id: string;
+  at: string;
+  entity: 'task' | 'project' | 'section' | 'label' | 'comment' | 'settings';
+  entityId: string;
+  /** e.g. created, completed, reopened, deleted, moved, priority, rescheduled, renamed, commented, updated */
+  action: string;
+  title?: string | null;
+  projectId?: string | null;
+  /** Small human-readable change summary, e.g. { from: 'P3', to: 'P1' }. */
+  details?: Record<string, unknown> | null;
+  source?: ChangeSource | null;
+  agent?: string | null;
+}
+
+/** Per-user preferences, one synced document (id 'preferences'). */
+export interface Preferences extends SyncMeta {
+  id: 'preferences';
+  theme?: 'system' | 'light' | 'dark';
+  appIcon?: string | null;
+  homeView?: 'today' | 'inbox' | 'upcoming' | 'search' | 'browse' | `project:${string}`;
+  syncHomeView?: boolean;
+  smartDates?: boolean;
+  weekStart?: 0 | 1 | 6; // Sun / Mon / Sat
+  nextWeek?: 'monday' | 'plus7';
+  weekend?: 'saturday' | 'sunday';
+  timezone?: string | null; // null = device time zone
+  completeSound?: boolean;
+  swipeRight?: SwipeAction;
+  swipeLeft?: SwipeAction;
+  navTabs?: string[];
+  quickAddProjectId?: string | null;
+  quickAddPriority?: TaskPriority;
+  quickAddParse?: boolean;
+  density?: 'comfortable' | 'compact';
+  dailyGoal?: number;
+  weeklyGoal?: number;
+  daysOff?: number[];      // weekdays excluded from streaks
+  vacation?: boolean;      // pause streaks
+  defaultReminder?: number | null; // minutes before due (null = none); 0 = at due time
+  autoReminders?: boolean; // add the default reminder to timed tasks automatically
+  notifyReminders?: boolean;
+  notifyOverdue?: boolean;
+  dailyPlanAt?: string | null;    // 'HH:MM' daily planning reminder, null = off
+  weeklySummary?: boolean;
+  quietStart?: string | null;     // 'HH:MM'
+  quietEnd?: string | null;
+}
+
+export type SwipeAction = 'complete' | 'schedule' | 'delete' | 'priority' | 'move' | 'select' | 'none';
+
+/** A saved filter / custom view ("High priority this week", "RanaWallet blockers"). */
+export interface SavedFilter extends SyncMeta {
+  id: string;
+  name: string;
+  /** Filter query, e.g. "p1 & #RanaWallet & !@waiting" (see shared/domain/filters.ts). */
+  query: string;
+  color?: string | null;
+  order?: number | null;
+  favorite?: boolean | null;
+}
+
+/** A scoped, revocable credential for an AI agent / API client (stored hashed). */
+export interface AgentToken {
+  id: string;        // sha256(token) — the secret itself is never stored
+  name: string;
+  scopes: AgentScope[];
+  createdAt: string;
+  lastUsedAt?: string | null;
+  revoked?: boolean | null;
+  revokedAt?: string | null;
+  /** Requests per minute this token may make. */
+  rateLimit?: number | null;
+  prefix: string;    // first characters, for display ("cm_live_ab12…")
+}
+
+export type AgentScope =
+  | 'tasks:read' | 'tasks:write' | 'tasks:delete'
+  | 'projects:read' | 'projects:write' | 'projects:delete'
+  | 'productivity:read' | 'bulk';
+
+/** Audit entry for every agent/API call (users/{uid}/agentAudit). */
+export interface AgentAudit {
+  id: string;
+  at: string;
+  tokenId: string;
+  agent: string;
+  tool: string;
+  ok: boolean;
+  error?: string | null;
+  summary?: string | null;
+  source: ChangeSource;
 }
 
 export interface Note {
