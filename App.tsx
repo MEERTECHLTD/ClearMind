@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
+import { TaskProvider } from './components/tasks/TaskContext';
+// Todoist-style task views — the default experience, so loaded eagerly (the
+// sidebar uses the same module).
+import {
+  InboxView, TodayView, UpcomingView, SearchView, FiltersLabelsView, CompletedView, ProjectView, LabelView, FilterView,
+} from './components/tasks/TaskViews';
 import { ViewState, UserProfile, Task, CalendarEvent } from './types';
 import { dbService, STORES, getLocalStoreName, getAllFirestoreCollections } from './services/db';
 import { firebaseService, isFirebaseConfigured, FirebaseUser } from './services/firebase';
@@ -19,7 +25,6 @@ const ProjectsView = lazy(() => import('./components/views/ProjectsView'));
 const DashboardView = lazy(() => import('./components/views/DashboardView'));
 const IrisView = lazy(() => import('./components/views/IrisView'));
 const RantCorner = lazy(() => import('./components/views/RantCorner'));
-const TasksView = lazy(() => import('./components/views/TasksView'));
 const NotesView = lazy(() => import('./components/views/NotesView'));
 const HabitsView = lazy(() => import('./components/views/HabitsView'));
 const GoalsView = lazy(() => import('./components/views/GoalsView'));
@@ -36,6 +41,7 @@ const ApplicationsView = lazy(() => import('./components/views/ApplicationsView'
 const ApplicationReviewerView = lazy(() => import('./components/views/ApplicationReviewerView'));
 const LearningVaultView = lazy(() => import('./components/views/LearningVaultView'));
 
+
 // Loading fallback component
 const ViewLoader = () => (
   <div className="flex-1 flex items-center justify-center bg-slate-100 dark:bg-midnight">
@@ -46,16 +52,21 @@ const ViewLoader = () => (
   </div>
 );
 
-// Helper function to get view from hash
-const getViewFromHash = (): ViewState => {
-  const hash = window.location.hash.slice(1); // Remove the '#'
-  const validViews: ViewState[] = [
-    'dashboard', 'projects', 'tasks', 'notes', 'habits', 
-    'goals', 'milestones', 'iris', 'rant', 'dailylog', 
-    'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'reviewer', 'learningvault'
-  ];
-  return validViews.includes(hash as ViewState) ? (hash as ViewState) : 'dashboard';
+// Hash routes: '#today', '#project/<id>'. The old '#tasks' list now opens Today.
+const VALID_VIEWS: ViewState[] = [
+  'dashboard', 'projects', 'tasks', 'notes', 'habits',
+  'goals', 'milestones', 'iris', 'rant', 'dailylog',
+  'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'reviewer', 'learningvault',
+  'inbox', 'today', 'upcoming', 'search', 'filters', 'completed', 'project', 'label', 'filter',
+];
+const parseHash = (): { view: ViewState; param?: string } => {
+  const [head, ...rest] = decodeURIComponent(window.location.hash.slice(1)).split('/');
+  const view = head as ViewState;
+  if (!VALID_VIEWS.includes(view)) return { view: 'today' };
+  if (view === 'tasks') return { view: 'today' };
+  return { view, param: rest.join('/') || undefined };
 };
+const getViewFromHash = (): ViewState => parseHash().view;
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>(
@@ -63,6 +74,7 @@ const App: React.FC = () => {
       ? 'applications' // an invite link opens straight to Applications, which handles the join
       : getViewFromHash()
   );
+  const [viewParam, setViewParam] = useState<string | undefined>(() => (typeof window !== 'undefined' ? parseHash().param : undefined));
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -92,14 +104,17 @@ const App: React.FC = () => {
   // Hash-based routing effect
   useEffect(() => {
     const handleHashChange = () => {
-      setCurrentView(getViewFromHash());
+      const { view, param } = parseHash();
+      setCurrentView(view);
+      setViewParam(param);
+      setIsMobileMenuOpen(false);
     };
 
     window.addEventListener('hashchange', handleHashChange);
     
     // Set initial hash if not present
     if (!window.location.hash) {
-      window.location.hash = 'dashboard';
+      window.location.hash = 'today';
     }
 
     return () => {
@@ -469,7 +484,24 @@ const App: React.FC = () => {
       case 'projects':
         return <ProjectsView />;
       case 'tasks':
-        return <TasksView />;
+      case 'today':
+        return <TodayView />;
+      case 'inbox':
+        return <InboxView />;
+      case 'upcoming':
+        return <UpcomingView />;
+      case 'search':
+        return <SearchView />;
+      case 'filters':
+        return <FiltersLabelsView />;
+      case 'completed':
+        return <CompletedView />;
+      case 'project':
+        return <ProjectView id={viewParam ?? ''} />;
+      case 'label':
+        return <LabelView id={viewParam ?? ''} />;
+      case 'filter':
+        return <FilterView id={viewParam ?? ''} />;
       case 'applications':
         return <ApplicationsView />;
       case 'reviewer':
@@ -501,9 +533,9 @@ const App: React.FC = () => {
       case 'dailymapper':
         return <DailyMapperView />;
       default:
-        return <DashboardView user={userProfile} onNavigate={handleViewChange} />;
+        return <TodayView />;
     }
-  }, [currentView, userProfile, handleLogout, handleViewChange]);
+  }, [currentView, viewParam, userProfile, handleLogout, handleViewChange]);
 
   if (isCheckingAuth) {
     return (
@@ -541,6 +573,7 @@ const App: React.FC = () => {
   }
 
   return (
+    <TaskProvider>
     <div className="flex h-app-screen bg-midnight text-gray-200 overflow-hidden font-sans">
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
@@ -552,6 +585,7 @@ const App: React.FC = () => {
 
       <Sidebar 
         currentView={currentView} 
+        currentParam={viewParam}
         onChangeView={handleViewChange} 
         isCollapsed={isSidebarCollapsed}
         toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -577,6 +611,7 @@ const App: React.FC = () => {
         </div>
       </main>
     </div>
+    </TaskProvider>
   );
 };
 
