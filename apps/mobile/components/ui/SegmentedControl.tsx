@@ -27,7 +27,7 @@ export function SegmentedControl<T extends string = string>({
             onPress={() => onChange(s.value)}
             className={`flex-1 items-center py-2 rounded-full ${sel ? 'bg-accent' : ''} active:opacity-80`}
           >
-            <Text className={`text-sm font-semibold ${sel ? 'text-white' : 'text-ink-muted'}`}>{s.label}</Text>
+            <Text numberOfLines={1} className={`text-sm font-semibold ${sel ? 'text-white' : 'text-ink-muted'}`}>{s.label}</Text>
           </Pressable>
         );
       })}
