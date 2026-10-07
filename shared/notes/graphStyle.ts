@@ -16,6 +16,8 @@ export interface GraphFilterSettings {
   showOrphans: boolean;
   showDaily: boolean;
   showTemplates: boolean;
+  /** Show attachments (files) as nodes. Off by default, like Obsidian. */
+  showAttachments: boolean;
 }
 export interface GraphDisplaySettings {
   arrows: boolean;
@@ -51,7 +53,7 @@ export interface GraphSettings {
 }
 
 export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
-  filters: { query: '', showTags: false, showUnresolved: false, showOrphans: true, showDaily: true, showTemplates: false },
+  filters: { query: '', showTags: false, showUnresolved: false, showOrphans: true, showDaily: true, showTemplates: false, showAttachments: false },
   display: { arrows: false, textFade: 0, nodeSize: 1, linkThickness: 1 },
   forces: { center: 0.5, repel: 10, link: 1, linkDistance: 80 },
   local: { depth: 1, showTags: false, neighborLinks: true },
@@ -126,7 +128,7 @@ export function groupColors(index: VaultIndex, nodes: readonly GraphNode[], grou
     for (let i = 0; i < active.length; i++) {
       let hit = false;
       if (n.type === 'note' && n.noteId) hit = noteHits[i].has(n.noteId);
-      else if (n.type === 'tag' || n.type === 'unresolved') hit = matchLabelNode(n, parsed[i]);
+      else if (n.type === 'tag' || n.type === 'unresolved' || n.type === 'attachment') hit = matchLabelNode(n, parsed[i]);
       if (hit) { out.set(n.id, active[i].color); break; }
     }
   }

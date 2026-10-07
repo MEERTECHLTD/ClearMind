@@ -1,7 +1,7 @@
 /** Right sidebar panes for the active note: Backlinks, Outgoing links, Outline, Local graph, Info. */
 import React, { useMemo, useState } from 'react';
-import { ChevronRight, Link2, FilePlus2, Hash, Unlink } from 'lucide-react';
-import type { Note } from '../../types';
+import { ChevronRight, Link2, FilePlus2, Hash, Unlink, Paperclip } from 'lucide-react';
+import type { Note, Attachment } from '../../types';
 import { linkedMentions, unlinkedMentions, extractHeadings, plainText, notePath, normPath, type GraphNode, type Mention } from '../../shared/notes';
 import { GraphPanel } from './GraphPanel';
 import { linkUnlinked, linkAllUnlinked } from './vaultActions';
@@ -109,16 +109,18 @@ export function OutgoingPane() {
   const api = useVaultApi();
   const note = api.activeNote;
   const index = api.vault.index;
-  const { resolved, unresolved } = useMemo(() => {
+  const { resolved, unresolved, files } = useMemo(() => {
     const ls = note ? index.links.get(note.id) ?? [] : [];
     const r = new Map<string, { note: Note; count: number }>();
     const u = new Map<string, { target: string; count: number }>();
+    const f = new Map<string, { file: Attachment; count: number }>();
     for (const l of ls) {
       if (!l.target) continue;
-      if (l.to) { const n = index.byId.get(l.to); if (n) r.set(n.id, { note: n, count: (r.get(n.id)?.count ?? 0) + 1 }); }
+      if (l.toAttachment) { const a = index.attachmentsById.get(l.toAttachment); if (a) f.set(a.id, { file: a, count: (f.get(a.id)?.count ?? 0) + 1 }); }
+      else if (l.to) { const n = index.byId.get(l.to); if (n) r.set(n.id, { note: n, count: (r.get(n.id)?.count ?? 0) + 1 }); }
       else { const k = normPath(l.target); u.set(k, { target: l.target, count: (u.get(k)?.count ?? 0) + 1 }); }
     }
-    return { resolved: [...r.values()].sort((a, b) => a.note.title.localeCompare(b.note.title)), unresolved: [...u.values()] };
+    return { resolved: [...r.values()].sort((a, b) => a.note.title.localeCompare(b.note.title)), unresolved: [...u.values()], files: [...f.values()].sort((a, b) => a.file.name.localeCompare(b.file.name)) };
   }, [index, note]);
   if (!note) return <NoNote />;
   return (
@@ -139,6 +141,23 @@ export function OutgoingPane() {
           </div>
         )) : <EmptyHint>No outgoing links.</EmptyHint>}
       </Section>
+      {files.length ? (
+        <Section title="Files" count={files.length}>
+          {files.map(({ file, count }) => (
+            <div
+              key={file.id}
+              onClick={(e) => api.openAttachment(file.id, { newTab: e.metaKey || e.ctrlKey })}
+              onContextMenu={(e) => { e.preventDefault(); api.showMenu(e, api.attachmentMenu(file)); }}
+              className={`flex items-center gap-2 px-3 h-7 mx-1 rounded-md cursor-pointer ${vx.hover}`}
+            >
+              <Paperclip size={12} className={vx.faint} />
+              <span className={`truncate text-[13px] ${vx.text}`}>{file.name}</span>
+              {file.folder ? <span className={`truncate text-[11px] ${vx.faint}`}>{file.folder}</span> : null}
+              {count > 1 ? <span className={`ml-auto text-[11px] ${vx.faint}`}>{count}</span> : null}
+            </div>
+          ))}
+        </Section>
+      ) : null}
       <Section title="Unresolved" count={unresolved.length}>
         {unresolved.length ? unresolved.map((u) => (
           <div
@@ -198,6 +217,7 @@ export function LocalGraphPane() {
           if (node.type === 'note' && node.noteId) api.openNote(node.noteId, { newTab: opts.newTab });
           else if (node.type === 'unresolved') api.openLink(node.label, note, { newTab: opts.newTab });
           else if (node.type === 'tag') api.openSearch(`tag:${node.label.startsWith('#') ? node.label : `#${node.label}`}`);
+          else if (node.type === 'attachment') api.openAttachment(node.id.replace(/^attachment:/, ''), { newTab: opts.newTab });
         }}
       />
     </div>

@@ -25,6 +25,7 @@ import { frontmatterSyntax, frontmatterHide, frontmatterRange } from './cm/front
 import { livePreview, linkInteractions } from './cm/livePreview';
 import { vaultCompletion } from './cm/completion';
 import { formattingKeymap, pasteUrl, runFormat } from './cm/commands';
+import { attachDrop, attachFilesAt } from './cm/attachDrop';
 import { minimalChange } from '../../../shared/notes/markdown';
 
 // ------------------------------------------------------------------ per-note state cache
@@ -89,6 +90,7 @@ function createState(doc: string, ctx: EditorCtx, dark: boolean, attrs: Attrs): 
       frontmatterHide,
       livePreview,
       linkInteractions,
+      attachDrop,
       pasteUrl,
       vaultCompletion,
       formattingKeymap,
@@ -260,6 +262,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     },
     format: (kind) => { const view = viewRef.current; if (view) { runFormat(view, kind); view.focus(); } },
     openSearch: () => { const view = viewRef.current; if (view) openSearchPanel(view); },
+    attachFiles: (files: File[]) => { const view = viewRef.current; if (view) { view.focus(); void attachFilesAt(view, files); } },
   }), []);
 
   return (

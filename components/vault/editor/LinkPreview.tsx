@@ -6,10 +6,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { VaultIndex } from '../../../shared/notes';
-import { sectionUnder, blockText, parseFrontmatter } from '../../../shared/notes';
+import { sectionUnder, blockText, parseFrontmatter, canvasText } from '../../../shared/notes';
 import type { OpenLinkOpts } from './types';
 import { ensureStyles } from './styles';
 import { renderSafe, resolverFor, handleRenderedClick, handleRenderedKey, highlightCodeBlocks } from './render';
+import { attachmentFor, fileRendererFor, hydrateAttachments, buildAttachmentEmbed } from './attachmentEmbeds';
+import { formatBytes } from '../attachmentUtils';
 
 export interface PreviewLink { target: string; heading?: string; block?: string }
 
@@ -29,16 +31,24 @@ export function LinkPreview({ link, rect, fromId, index, onOpenLink, onTagClick,
   ensureStyles();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: rect.left, top: rect.bottom + 6 });
-  const note = index.resolve(link.target, fromId);
+  const file = attachmentFor(index, link.target, fromId);
+  const note = file ? null : index.resolve(link.target, fromId);
+  const fileRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const host = fileRef.current;
+    if (!host || !file) return;
+    host.replaceChildren(buildAttachmentEmbed(file, { target: link.target }));
+  }, [file, link.target]);
   const html = useMemo(() => {
     if (!note) return '';
     let md: string | null = null;
     if (link.block) md = blockText(note.content, link.block);
     else if (link.heading) md = sectionUnder(note.content, link.heading);
-    const body = md ?? parseFrontmatter(note.content).body;
-    return renderSafe(body, { resolve: resolverFor(index), fromId: note.id, maxChars: 1500, depth: 2, bodyOnly: true });
+    const body = note.kind === 'canvas' ? canvasText(note.content) : md ?? parseFrontmatter(note.content).body;
+    return renderSafe(body, { resolve: resolverFor(index), fromId: note.id, maxChars: 1500, depth: 2, bodyOnly: true, renderFile: fileRendererFor(index) });
   }, [note, link.block, link.heading, index]);
 
+  const inner = useMemo(() => ({ __html: html }), [html]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -50,7 +60,7 @@ export function LinkPreview({ link, rect, fromId, index, onOpenLink, onTagClick,
     setPos({ left, top });
   }, [rect, html]);
 
-  useEffect(() => { if (ref.current) highlightCodeBlocks(ref.current); }, [html]);
+  useEffect(() => { if (ref.current) { highlightCodeBlocks(ref.current); hydrateAttachments(ref.current, index); } }, [html]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose?.(); };
@@ -59,7 +69,7 @@ export function LinkPreview({ link, rect, fromId, index, onOpenLink, onTagClick,
   }, [onClose]);
 
   const handlers = { onOpenLink: (t: string, o: OpenLinkOpts) => { onClose?.(); onOpenLink(t, o); }, onTagClick: (t: string) => { onClose?.(); onTagClick?.(t); } };
-  const title = note ? note.title + (link.heading ? ` › ${link.heading}` : link.block ? ` › ^${link.block}` : '') : link.target;
+  const title = file ? file.name : note ? note.title + (link.heading ? ` › ${link.heading}` : link.block ? ` › ^${link.block}` : '') : link.target;
 
   return createPortal(
     <div
@@ -74,12 +84,17 @@ export function LinkPreview({ link, rect, fromId, index, onOpenLink, onTagClick,
       <div className="mdv-preview-title">
         <span className="truncate">{title}</span>
         <button type="button" onClick={(e) => { onClose?.(); onOpenLink(link.target, { newTab: e.metaKey || e.ctrlKey, heading: link.heading, block: link.block }); }}>
-          {note ? 'Open' : 'Create'}
+          {note || file ? 'Open' : 'Create'}
         </button>
       </div>
-      {note ? (
+      {file ? (
+        <div className="mdv">
+          <div className="md-att-preview" ref={fileRef} />
+          <div style={{ color: 'var(--mdv-faint)', fontSize: 12, textAlign: 'center' }}>{file.folder ? `${file.folder}/` : ''}{file.name} · {formatBytes(file.size)}</div>
+        </div>
+      ) : note ? (
         html.trim()
-          ? <div className="mdv" onClick={(e) => handleRenderedClick(e, { ...handlers, root: ref.current })} onKeyDown={(e) => handleRenderedKey(e, { ...handlers, root: ref.current })} dangerouslySetInnerHTML={{ __html: html }} />
+          ? <div className="mdv" onClick={(e) => handleRenderedClick(e, { ...handlers, root: ref.current })} onKeyDown={(e) => handleRenderedKey(e, { ...handlers, root: ref.current })} dangerouslySetInnerHTML={inner} />
           : <div className="mdv" style={{ color: 'var(--mdv-faint)', fontStyle: 'italic' }}>Empty note</div>
       ) : (
         <div className="mdv" style={{ color: 'var(--mdv-faint)', fontStyle: 'italic' }}>“{link.target}” doesn’t exist yet. Click Create to make it.</div>

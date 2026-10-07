@@ -336,28 +336,31 @@ const App: React.FC = () => {
     window.open(ANDROID_APK_URL, '_blank', 'noopener,noreferrer');
   }, []);
 
-  const handleLogout = useCallback(async () => {
-      if(confirm("Are you sure you want to sign out? This will return you to the login screen.")) {
-          // Cleanup real-time sync
-          if (syncCleanupRef.current) {
-            syncCleanupRef.current();
-            syncCleanupRef.current = null;
-          }
-          setSyncStatus('idle');
-          
-          // Sign out from Firebase if configured
-          if (isFirebaseConfigured()) {
-            try {
-              await firebaseService.logout();
-            } catch (e) {
-              console.error("Firebase logout error", e);
-            }
-          }
-          await dbService.delete(STORES.PROFILE, 'current-user');
-          setUserProfile(null);
-          setCurrentView('dashboard');
+  /** Sign out without asking (used after account deletion, where cancelling makes no sense). */
+  const signOutNow = useCallback(async () => {
+    // Cleanup real-time sync
+    if (syncCleanupRef.current) {
+      syncCleanupRef.current();
+      syncCleanupRef.current = null;
+    }
+    setSyncStatus('idle');
+
+    // Sign out from Firebase if configured
+    if (isFirebaseConfigured()) {
+      try {
+        await firebaseService.logout();
+      } catch (e) {
+        console.error("Firebase logout error", e);
       }
+    }
+    await dbService.delete(STORES.PROFILE, 'current-user');
+    setUserProfile(null);
+    setCurrentView('dashboard');
   }, []);
+
+  const handleLogout = useCallback(async () => {
+    if (confirm("Are you sure you want to sign out? This will return you to the login screen.")) await signOutNow();
+  }, [signOutNow]);
 
   const handleAuthSuccess = useCallback(async (cloudUser: any) => {
     const profile: UserProfile = {
@@ -485,7 +488,7 @@ const App: React.FC = () => {
       case 'analytics':
         return <AnalyticsView />;
       case 'settings':
-        return <SettingsHub user={userProfile} onUpdateUser={setUserProfile} onLogout={handleLogout} />;
+        return <SettingsHub user={userProfile} onUpdateUser={setUserProfile} onLogout={handleLogout} onAccountDeleted={signOutNow} />;
       case 'mindmap':
         return <MindMapView />;
       case 'calendar':

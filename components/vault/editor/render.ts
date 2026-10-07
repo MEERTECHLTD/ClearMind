@@ -8,12 +8,16 @@ import DOMPurify from 'dompurify';
 import { LanguageDescription } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { highlightCode, classHighlighter } from '@lezer/highlight';
-import type { VaultIndex } from '../../../shared/notes';
+import { canvasText, type VaultIndex } from '../../../shared/notes';
 import { renderMarkdown, type RenderOptions } from '../../../shared/notes/markdownRender';
 import type { ResolveFn } from '../../../shared/notes/markdown';
 import type { OpenLinkOpts } from './types';
 
-export const resolverFor = (index: VaultIndex): ResolveFn => (target, fromId) => index.resolve(target, fromId);
+export const resolverFor = (index: VaultIndex): ResolveFn => (target, fromId) => {
+  const n = index.resolve(target, fromId);
+  // Canvases embed/preview as their card text rather than raw JSON.
+  return n?.kind === 'canvas' ? { id: n.id, title: n.title, content: canvasText(n.content) } : n;
+};
 
 export function sanitize(html: string): string {
   return DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'loading'], FORBID_TAGS: ['style', 'form'] }) as unknown as string;

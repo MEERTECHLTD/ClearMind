@@ -36,6 +36,8 @@ export interface NoteEditorHandle {
   format(kind: 'bold' | 'italic' | 'strike' | 'highlight' | 'code' | 'link' | 'task'): void;
   /** Open the editor's find/replace panel. */
   openSearch(): void;
+  /** Upload files as attachments and embed them at the cursor (with an inline progress placeholder). */
+  attachFiles?(files: File[]): void;
 }
 
 export interface MarkdownViewProps {

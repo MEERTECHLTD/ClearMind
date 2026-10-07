@@ -211,7 +211,7 @@ export function NotePane({ paneId, tab, note, mode, activePane, registerHandle, 
 }
 
 /** Obsidian's inline title: editing it renames the note (links are rewritten). */
-function TitleInput({ note, compact, focusNonce, onCommit }: { note: Note; compact?: boolean; focusNonce?: number; onCommit: (v: string) => Promise<boolean> }) {
+export function TitleInput({ note, compact, focusNonce, onCommit }: { note: Note; compact?: boolean; focusNonce?: number; onCommit: (v: string) => Promise<boolean> }) {
   const [value, setValue] = useState(note.title);
   const [editing, setEditing] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
