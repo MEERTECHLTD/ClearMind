@@ -59,6 +59,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // so no storage permission is required. INTERNET + VIBRATE + (notifications)
     // remain. blockedPermissions adds tools:node="remove" so the merger drops them.
     blockedPermissions: [
+      // expo-secure-store declares these for requireAuthentication, which ClearMind never uses.
+      'android.permission.USE_BIOMETRIC',
+      'android.permission.USE_FINGERPRINT',
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.READ_EXTERNAL_STORAGE',
       'android.permission.WRITE_EXTERNAL_STORAGE',
