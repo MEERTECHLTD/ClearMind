@@ -484,4 +484,15 @@ export type ViewState =
   | 'applications'
   | 'reviewer'
   | 'learningvault'
-  | 'settings';
+  | 'settings'
+  // Todoist-style task views (web). `project` / `label` / `filter` take an id
+  // from the hash: #project/<id>.
+  | 'inbox'
+  | 'today'
+  | 'upcoming'
+  | 'search'
+  | 'filters'
+  | 'completed'
+  | 'project'
+  | 'label'
+  | 'filter';

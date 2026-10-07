@@ -299,3 +299,28 @@ pickers/dialogs match the dark design instead of flipping with the OS theme.
 - `EXPO_ROUTER_APP_ROOT`/`EXPO_ROUTER_IMPORT_MODE` are set in the eas.json `base`
   profile (see babel.config.js for why). Root `.npmrc` sets legacy-peer-deps so
   EAS installs the workspace the same way CI does.
+
+---
+
+## D13 — Todoist-style web task experience
+
+**Decision:** The web app gets the same task experience as mobile, built on the
+same `shared/tasks` engine (quick-add parser, recurrence, selectors, mutations):
+
+- **Sidebar** (Todoist layout): Add task (`Q`), Search, Inbox, Today, Upcoming,
+  Filters & Labels, Completed, then *My Projects* (nested, colours, hover menu
+  to edit / add sub-project / reorder / archive / delete) and a collapsible
+  *ClearMind tools* section holding every previous view.
+- **Routes:** hash based — `#today`, `#project/<id>`, `#label/<id>`,
+  `#filter/<id>`. Today is the landing page; `#tasks` (old list) redirects to it.
+  The old `TasksView` was removed.
+- **Inline composer** ("+ Add task" expands in place) and a Quick Add modal, both
+  with live natural-language parsing and chips; **task detail modal** with
+  editable title/description, sub-tasks and a side panel for project, date
+  (typed dates, quick picks, time, repeat), priority and labels.
+- Hover actions on rows (schedule, more: priority, move, duplicate, delete),
+  Undo toasts, light + dark themes, phone-width layout (full-screen modals).
+- `components/tasks/store.ts` mirrors the mobile shared store (one live store per
+  IndexedDB collection, optimistic writes, reload on `clearmind-sync`).
+- Browser reminders keep working via `notificationService` (rescheduling resets
+  `notified`).

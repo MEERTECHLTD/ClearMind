@@ -1,32 +1,21 @@
-import React from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Avatar } from './Avatar';
 import {
-  LayoutDashboard,
-  Folder, 
-  CheckSquare, 
-  FileText, 
-  Repeat, 
-  Target, 
-  Flag, 
-  Sparkles, 
-  MessageSquare, 
-  Book, 
-  BarChart2, 
-  Settings,
-  Brain,
-  ChevronLeft,
-  MoreHorizontal,
-  Network,
-  Calendar,
-  ClipboardList,
-  Briefcase,
-  ScanSearch,
-  BookOpen
+  LayoutDashboard, Folder, FileText, Repeat, Target, Flag, Sparkles, MessageSquare, Book, BarChart2, Settings,
+  ChevronLeft, ChevronDown, ChevronRight, MoreHorizontal, Network, Calendar, ClipboardList, Briefcase, ScanSearch, BookOpen,
+  Plus, Search, Inbox, CalendarCheck, CalendarRange, LayoutGrid, CircleCheck, Hash, Pencil, FolderPlus, ArrowUp, ArrowDown,
+  Archive, Trash2,
 } from 'lucide-react';
-import { ViewState, UserProfile } from '../types';
+import { ViewState, UserProfile, Project } from '../types';
+import { orderedProjects, openCounts, todayView } from '../shared/tasks';
+import { useTaskData, useTaskUI } from './tasks/TaskContext';
+import { Popover, MenuItem, useTaskToast } from './tasks/ui';
+import { ProjectForm, go } from './tasks/TaskViews';
+import { projectColor, updateProject, moveProject, deleteProject, projectSubtree } from './tasks/actions';
 
 interface SidebarProps {
   currentView: ViewState;
+  currentParam?: string;
   onChangeView: (view: ViewState) => void;
   isCollapsed: boolean;
   toggleCollapse: () => void;
@@ -34,104 +23,184 @@ interface SidebarProps {
   isMobileOpen?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isCollapsed, toggleCollapse, user, isMobileOpen }) => {
-  
-  const menuItems: { id: ViewState; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-    { id: 'projects', label: 'Projects', icon: <Folder size={20} /> },
-    { id: 'tasks', label: 'Tasks', icon: <CheckSquare size={20} /> },
-    { id: 'applications', label: 'Applications', icon: <Briefcase size={20} /> },
-    { id: 'reviewer', label: 'AI Reviewer', icon: <ScanSearch size={20} className="text-blue-400" /> },
-    { id: 'calendar', label: 'Calendar', icon: <Calendar size={20} /> },
-    { id: 'dailymapper', label: 'Daily Mapper', icon: <ClipboardList size={20} /> },
-    { id: 'notes', label: 'Notes', icon: <FileText size={20} /> },
-    { id: 'learningvault', label: 'Learning Vault', icon: <BookOpen size={20} /> },
-    { id: 'habits', label: 'Habits', icon: <Repeat size={20} /> },
-    { id: 'goals', label: 'Goals', icon: <Target size={20} /> },
-    { id: 'milestones', label: 'Milestones', icon: <Flag size={20} /> },
-    { id: 'mindmap', label: 'Mind Map', icon: <Network size={20} /> },
-    { id: 'iris', label: 'AI (Iris)', icon: <Sparkles size={20} className="text-purple-400" /> },
-    { id: 'rant', label: 'Rant Corner', icon: <MessageSquare size={20} /> },
-    { id: 'dailylog', label: 'Daily Log', icon: <Book size={20} /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart2 size={20} /> },
-    { id: 'settings', label: 'Settings', icon: <Settings size={20} /> },
-  ];
+const TOOLS: { id: ViewState; label: string; icon: React.ReactNode }[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
+  { id: 'projects', label: 'Project planner', icon: <Folder size={18} /> },
+  { id: 'applications', label: 'Applications', icon: <Briefcase size={18} /> },
+  { id: 'reviewer', label: 'AI Reviewer', icon: <ScanSearch size={18} className="text-blue-400" /> },
+  { id: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
+  { id: 'dailymapper', label: 'Daily Mapper', icon: <ClipboardList size={18} /> },
+  { id: 'notes', label: 'Notes', icon: <FileText size={18} /> },
+  { id: 'learningvault', label: 'Learning Vault', icon: <BookOpen size={18} /> },
+  { id: 'habits', label: 'Habits', icon: <Repeat size={18} /> },
+  { id: 'goals', label: 'Goals', icon: <Target size={18} /> },
+  { id: 'milestones', label: 'Milestones', icon: <Flag size={18} /> },
+  { id: 'mindmap', label: 'Mind Map', icon: <Network size={18} /> },
+  { id: 'iris', label: 'AI (Iris)', icon: <Sparkles size={18} className="text-purple-400" /> },
+  { id: 'rant', label: 'Rant Corner', icon: <MessageSquare size={18} /> },
+  { id: 'dailylog', label: 'Daily Log', icon: <Book size={18} /> },
+  { id: 'analytics', label: 'Analytics', icon: <BarChart2 size={18} /> },
+  { id: 'settings', label: 'Settings', icon: <Settings size={18} /> },
+];
 
-  const sidebarClasses = `
-    h-screen bg-midnight-light border-r dark:border-gray-800 border-gray-200 
-    flex flex-col transition-all duration-300 z-50
-    ${isMobileOpen ? 'translate-x-0 w-64 fixed' : '-translate-x-full fixed md:relative md:translate-x-0'}
-    ${isCollapsed ? 'md:w-16' : 'md:w-64'}
-  `;
+const readBool = (k: string, d: boolean) => {
+  try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; }
+};
+const writeBool = (k: string, v: boolean) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* ignore */ } };
+
+const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeView, isCollapsed, toggleCollapse, user, isMobileOpen }) => {
+  const { tasks, projects, projectMap } = useTaskData();
+  const ui = useTaskUI();
+  const toast = useTaskToast();
+  const [showProjects, setShowProjects] = useState(() => readBool('cm.sb.projects', true));
+  const [showTools, setShowTools] = useState(() => readBool('cm.sb.tools', false));
+  const [showArchived, setShowArchived] = useState(false);
+  const [form, setForm] = useState<null | { initial?: Project; parentId?: string }>(null);
+  const [menuFor, setMenuFor] = useState<{ project: Project; el: HTMLElement } | null>(null);
+
+  const expanded = !isCollapsed || !!isMobileOpen;
+  const tree = useMemo(() => orderedProjects(projects), [projects]);
+  const archived = useMemo(() => projects.filter((p) => p.archived), [projects]);
+  const counts = useMemo(() => openCounts(tasks, projectMap), [tasks, projectMap]);
+  const todayCount = useMemo(() => { const v = todayView(tasks); return v.overdue.length + v.today.length; }, [tasks]);
+  const toolActive = TOOLS.some((t) => t.id === currentView);
+
+  const navBtn = (active: boolean) =>
+    `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${active
+      ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 font-semibold'
+      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`;
+
+  const Item = ({ id, label, icon, count, hash }: { id: ViewState; label: string; icon: React.ReactNode; count?: number; hash?: string }) => (
+    <li>
+      <button onClick={() => (hash ? go(hash) : onChangeView(id))} className={navBtn(currentView === id && !hash)} title={!expanded ? label : ''} aria-current={currentView === id ? 'page' : undefined}>
+        <span className="shrink-0">{icon}</span>
+        {expanded ? <><span className="flex-1 text-left truncate">{label}</span>{count ? <span className="text-xs text-gray-400">{count}</span> : null}</> : null}
+      </button>
+    </li>
+  );
+
+  const siblings = (p: Project) => tree.filter((x) => (x.project.parentId ?? null) === (p.parentId ?? null)).map((x) => x.project);
 
   return (
-    <aside className={sidebarClasses}>
+    <aside className={`h-screen bg-gray-50 dark:bg-[#0B0D13] border-r dark:border-gray-800 border-gray-200 flex flex-col transition-all duration-300 z-50
+      ${isMobileOpen ? 'translate-x-0 w-72 fixed' : '-translate-x-full fixed md:relative md:translate-x-0'}
+      ${isCollapsed ? 'md:w-16' : 'md:w-72'}`}>
       {/* Header */}
-      <div className="p-4 flex items-center justify-between h-16 border-b dark:border-gray-800 border-gray-200">
-        {(!isCollapsed || isMobileOpen) && (
-          <div className="flex items-center gap-2 text-blue-500 font-bold text-lg animate-fade-in">
-            <img src="/clearmindlogo.png" alt="ClearMind" className="w-8 h-8 object-contain" />
-            <span className="whitespace-nowrap truncate">ClearMind</span>
+      <div className="px-3 flex items-center justify-between h-14 shrink-0">
+        {expanded ? (
+          <div className="flex items-center gap-2 min-w-0">
+            <Avatar nickname={user.nickname} photoURL={user.photoURL} githubUsername={user.githubUsername} email={user.email} />
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{user.nickname}</span>
           </div>
-        )}
-        {isCollapsed && !isMobileOpen && (
-          <img src="/clearmindlogo.png" alt="ClearMind" className="w-8 h-8 object-contain mx-auto" />
-        )}
-        <button onClick={toggleCollapse} className="hidden md:block text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
-          <ChevronLeft size={20} className={`transform transition-transform ${isCollapsed ? 'rotate-180' : ''}`} />
+        ) : <img src="/clearmindlogo.png" alt="ClearMind" className="w-8 h-8 object-contain mx-auto" />}
+        <button onClick={toggleCollapse} className="hidden md:block text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-800" aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+          <ChevronLeft size={18} className={`transform transition-transform ${isCollapsed ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 touch-pan-y overscroll-contain">
-        <ul className="space-y-1 px-2">
-          {menuItems.map((item) => (
-            <li key={item.id}>
-              <button
-                onClick={() => onChangeView(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-                  ${currentView === item.id 
-                    ? 'bg-midnight-lighter text-blue-600 dark:text-blue-400 border-l-2 border-blue-500' 
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800/50'
-                  }`}
-                title={(isCollapsed && !isMobileOpen) ? item.label : ''}
-              >
-                <span className={currentView === item.id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}>
-                  {item.icon}
-                </span>
-                {(!isCollapsed || isMobileOpen) && <span>{item.label}</span>}
-              </button>
-            </li>
-          ))}
+      <nav className="flex-1 overflow-y-auto px-2 pb-4 touch-pan-y overscroll-contain">
+        <ul className="space-y-0.5">
+          <li>
+            <button onClick={() => ui.openQuickAdd()} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10" title={!expanded ? 'Add task (Q)' : ''}>
+              <span className="w-[18px] h-[18px] rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0"><Plus size={14} /></span>
+              {expanded ? <><span className="flex-1 text-left">Add task</span><kbd className="text-[10px] font-normal text-gray-400 border border-gray-300 dark:border-gray-700 rounded px-1">Q</kbd></> : null}
+            </button>
+          </li>
+          <Item id="search" label="Search" icon={<Search size={18} />} />
+          <Item id="inbox" label="Inbox" icon={<Inbox size={18} className="text-blue-500" />} count={counts.get(null)} />
+          <Item id="today" label="Today" icon={<CalendarCheck size={18} className="text-green-600" />} count={todayCount} />
+          <Item id="upcoming" label="Upcoming" icon={<CalendarRange size={18} className="text-violet-500" />} />
+          <Item id="filters" label="Filters & Labels" icon={<LayoutGrid size={18} className="text-orange-500" />} />
+          <Item id="completed" label="Completed" icon={<CircleCheck size={18} className="text-emerald-500" />} />
         </ul>
+
+        {/* Projects */}
+        {expanded ? (
+          <div className="mt-5">
+            <div className="group flex items-center px-3 py-1">
+              <button onClick={() => { setShowProjects(!showProjects); writeBool('cm.sb.projects', !showProjects); }} className="flex-1 flex items-center gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" aria-expanded={showProjects}>
+                My Projects {showProjects ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              </button>
+              <button onClick={() => setForm({})} className="p-1 rounded text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-white/10" aria-label="Add project" title="Add project"><Plus size={15} /></button>
+            </div>
+            {showProjects ? (
+              <ul className="space-y-0.5">
+                {tree.map(({ project, depth }) => {
+                  const active = currentView === 'project' && currentParam === project.id;
+                  return (
+                    <li key={project.id} className="group relative">
+                      <button onClick={() => go(`project/${project.id}`)} className={navBtn(active)} style={{ paddingLeft: 12 + depth * 16 }}>
+                        <Hash size={16} color={projectColor(project)} className="shrink-0" />
+                        <span className="flex-1 text-left truncate">{project.title}</span>
+                        <span className="text-xs text-gray-400 group-hover:invisible">{counts.get(project.id) || ''}</span>
+                      </button>
+                      <button
+                        onClick={(e) => setMenuFor({ project, el: e.currentTarget })}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10"
+                        aria-label={`Options for ${project.title}`}
+                      ><MoreHorizontal size={15} /></button>
+                    </li>
+                  );
+                })}
+                {!tree.length ? <li className="px-3 py-1.5 text-xs text-gray-400">No projects yet — click + or type “#Name” when adding a task.</li> : null}
+                {archived.length ? (
+                  <li>
+                    <button onClick={() => setShowArchived(!showArchived)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                      <Archive size={13} /> Archived ({archived.length}) {showArchived ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    </button>
+                    {showArchived ? archived.map((p) => (
+                      <button key={p.id} onClick={() => go(`project/${p.id}`)} className={`${navBtn(currentView === 'project' && currentParam === p.id)} opacity-70`} style={{ paddingLeft: 28 }}>
+                        <Hash size={15} color={projectColor(p)} /><span className="truncate">{p.title}</span>
+                      </button>
+                    )) : null}
+                  </li>
+                ) : null}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* ClearMind tools */}
+        <div className="mt-5">
+          {expanded ? (
+            <button onClick={() => { setShowTools(!showTools); writeBool('cm.sb.tools', !showTools); }} className="w-full flex items-center gap-1 px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" aria-expanded={showTools || toolActive}>
+              ClearMind tools {showTools || toolActive ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+          ) : <div className="border-t dark:border-gray-800 border-gray-200 mx-2 mb-2" />}
+          {showTools || toolActive || !expanded ? (
+            <ul className="space-y-0.5">
+              {TOOLS.map((t) => <Item key={t.id} id={t.id} label={t.label} icon={<span className="text-gray-500 dark:text-gray-400">{t.icon}</span>} />)}
+            </ul>
+          ) : null}
+        </div>
       </nav>
 
-      {/* Footer / User Profile */}
-      <div className="p-4 border-t dark:border-gray-800 border-gray-200">
-         <div className="flex items-center gap-3">
-            <Avatar
-              nickname={user.nickname}
-              photoURL={user.photoURL}
-              githubUsername={user.githubUsername}
-              email={user.email}
-            />
-            
-            {(!isCollapsed || isMobileOpen) && (
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium dark:text-white text-gray-900 truncate">{user.nickname}</p>
-                <p className="text-xs text-gray-500 truncate">
-                  {user.provider === 'google' ? 'Google User' : 
-                   user.provider === 'github' ? 'GitHub User' : 
-                   user.provider === 'email' ? 'Email User' :
-                   user.provider === 'anonymous' ? 'Guest User' :
-                   user.provider === 'local' ? 'Local Workspace' : 
-                   user.cloudUserId ? 'Cloud User' : 'Local Workspace'}
-                </p>
-              </div>
-            )}
-            {(!isCollapsed || isMobileOpen) && <MoreHorizontal size={16} className="text-gray-500" />}
-         </div>
-      </div>
+      <ProjectForm open={!!form} initial={form?.initial} parentId={form?.parentId} onClose={() => setForm(null)} />
+      <Popover anchor={menuFor?.el ?? null} open={!!menuFor} onClose={() => setMenuFor(null)} width={210}>
+        {menuFor ? (() => {
+          const p = menuFor.project;
+          const close = () => setMenuFor(null);
+          return (
+            <>
+              <MenuItem icon={<Pencil size={15} />} label="Edit" onClick={() => { close(); setForm({ initial: p }); }} />
+              <MenuItem icon={<FolderPlus size={15} />} label="Add sub-project" onClick={() => { close(); setForm({ parentId: p.id }); }} />
+              <MenuItem icon={<ArrowUp size={15} />} label="Move up" onClick={() => { close(); moveProject(siblings(p), p.id, -1); }} />
+              <MenuItem icon={<ArrowDown size={15} />} label="Move down" onClick={() => { close(); moveProject(siblings(p), p.id, 1); }} />
+              <MenuItem icon={<Archive size={15} />} label="Archive" onClick={() => { close(); updateProject(p, { archived: true }); toast('Project archived'); }} />
+              <MenuItem icon={<Trash2 size={15} />} label="Delete" danger onClick={() => {
+                close();
+                const ids = new Set(projectSubtree(projects, p.id));
+                const n = tasks.filter((t) => t.projectId && ids.has(t.projectId)).length;
+                if (confirm(`Delete “${p.title}” and its ${n} task${n === 1 ? '' : 's'}${ids.size > 1 ? ' (including sub-projects)' : ''}? This can’t be undone.`)) {
+                  deleteProject(p.id);
+                  toast('Project deleted');
+                  if (currentView === 'project' && currentParam && ids.has(currentParam)) go('inbox');
+                }
+              }} />
+            </>
+          );
+        })() : null}
+      </Popover>
     </aside>
   );
 };
