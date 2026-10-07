@@ -10,6 +10,7 @@ import { C, PRIORITY_COLOR, PRIORITY_SHORT, dueColor } from './theme';
 import {
   createTask, resolveNames, createProject, createLabel, projectColor,
 } from '../../services/taskActions';
+import { T } from '../../lib/theme';
 
 export interface QuickAddDefaults {
   projectId?: string | null;
@@ -146,7 +147,7 @@ export function QuickAddSheet({
         value={text}
         onChangeText={(v) => { setText(v); if (added) setAdded(null); }}
         placeholder={defaults.parentId ? 'Subtask name' : 'e.g. Call Sam tomorrow 4pm p1 #Work'}
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         className="text-ink text-[17px] py-2"
         autoFocus
         multiline={false}
@@ -160,7 +161,7 @@ export function QuickAddSheet({
           value={description}
           onChangeText={setDescription}
           placeholder="Description"
-          placeholderTextColor="#6b7280"
+          placeholderTextColor={T.faint}
           className="text-ink-muted text-[15px] pb-2"
           multiline
           style={{ maxHeight: 120 }}

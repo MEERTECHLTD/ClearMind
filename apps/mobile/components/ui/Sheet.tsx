@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, View, Text, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { T } from '../../lib/theme';
 
 /**
  * Bottom sheet built on Modal: backdrop tap + Android back both close it, the
@@ -30,7 +31,7 @@ export function Sheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable className="flex-1 bg-black/60" onPress={onClose} accessibilityLabel="Close" accessibilityRole="button" />
+        <Pressable style={{ flex: 1, backgroundColor: T.overlay }} onPress={onClose} accessibilityLabel="Close" accessibilityRole="button" />
         <View
           className="bg-midnight-light rounded-t-3xl border-t border-line"
           style={{ maxHeight, height: fill ? maxHeight : undefined, paddingBottom: Math.max(insets.bottom, 12) }}

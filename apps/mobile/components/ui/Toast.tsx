@@ -53,7 +53,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             className={`${snackbar ? 'mb-3 flex-row items-center' : 'mt-2'} px-4 py-3 rounded-2xl ${COLORS[toast.type]} max-w-full border border-line`}
             accessibilityLiveRegion="polite"
           >
-            <Text className={`text-white font-medium ${snackbar ? 'flex-shrink' : 'text-center'}`}>{toast.message}</Text>
+            <Text className={`${toast.type === 'info' ? 'text-ink' : 'text-white'} font-medium ${snackbar ? 'flex-shrink' : 'text-center'}`}>{toast.message}</Text>
             {toast.action ? (
               <Pressable
                 onPress={() => { toast.action!.onPress(); if (timer.current) clearTimeout(timer.current); hide(); }}

@@ -6,6 +6,7 @@ import { RefreshCw, LogOut, Activity, ChevronRight } from 'lucide-react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { syncAllStores } from '../../services/syncService';
 import { Screen, AppHeader, Card, Button, confirmDialog, useToast } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -58,7 +59,7 @@ export default function SettingsScreen() {
           <Text className="text-ink-muted text-sm mb-3">
             Your data lives on this device and syncs to your ClearMind cloud account{user?.email ? ` (${user.email})` : ''} — the same account as the web app.
           </Text>
-          <Button title={syncing ? 'Syncing…' : 'Sync now'} onPress={onSync} loading={syncing} variant="secondary" icon={<RefreshCw size={18} color="#e2e8f0" />} />
+          <Button title={syncing ? 'Syncing…' : 'Sync now'} onPress={onSync} loading={syncing} variant="secondary" icon={<RefreshCw size={18} color={T.ink} />} />
         </Card>
 
         <Text className="text-ink-muted text-xs font-semibold mt-6 mb-2 ml-1">ADVANCED</Text>
@@ -66,7 +67,7 @@ export default function SettingsScreen() {
           <Pressable onPress={() => router.push('/(app)/diagnostics')} className="flex-row items-center px-4 py-3.5 active:bg-midnight-lighter">
             <Activity size={20} color="#3B82F6" />
             <Text className="text-ink text-base font-medium flex-1 ml-3">Diagnostics &amp; feature flags</Text>
-            <ChevronRight size={20} color="#9ca3af" />
+            <ChevronRight size={20} color={T.muted} />
           </Pressable>
         </Card>
 

@@ -1,21 +1,70 @@
+import { useEffect } from 'react';
 import { Redirect, Tabs } from 'expo-router';
-import { Inbox, CalendarCheck, CalendarRange, Search, LayoutGrid } from 'lucide-react-native';
+import { Inbox, CalendarCheck, CalendarRange, Search, LayoutGrid, Flame } from 'lucide-react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useAppLifecycleSync } from '../../hooks/useAppLifecycleSync';
+import { usePreferences, usePreferenceEffects } from '../../hooks/usePreferences';
 import { Spinner } from '../../components/ui';
 import { TaskUIProvider } from '../../components/tasks/TaskUIProvider';
+import { startRuntime } from '../../services/runtime';
+import { T } from '../../lib/theme';
 
-// Hidden routes: reachable from Browse / task views, not shown on the tab bar.
-const HIDDEN = [
-  'project/[id]', 'label/[id]', 'filter/[id]', 'completed', 'tasks',
-  'dashboard', 'calendar', 'iris', 'settings', 'notes', 'dailylog', 'goals', 'habits', 'milestones',
+const TAB_DEFS: Record<string, { title: string; Icon: typeof Inbox }> = {
+  inbox: { title: 'Inbox', Icon: Inbox },
+  today: { title: 'Today', Icon: CalendarCheck },
+  upcoming: { title: 'Upcoming', Icon: CalendarRange },
+  search: { title: 'Search', Icon: Search },
+  productivity: { title: 'Progress', Icon: Flame },
+  browse: { title: 'Browse', Icon: LayoutGrid },
+};
+
+// Routes reachable from Browse / task views / deep links — never tabs.
+const ALWAYS_HIDDEN = [
+  'project/[id]', 'label/[id]', 'filter/[id]', 'completed', 'tasks', 'task/[id]', 'quickadd', 'activity', 'templates',
+  'settings/index', 'settings/account', 'settings/general', 'settings/appearance', 'settings/productivity',
+  'settings/notifications', 'settings/integrations', 'settings/security', 'settings/data', 'settings/navigation', 'settings/quickadd',
+  'dashboard', 'calendar', 'iris', 'notes', 'dailylog', 'goals', 'habits', 'milestones',
   'applications', 'rant', 'dailymapper', 'learningvault', 'analytics', 'projects', 'mindmap', 'diagnostics',
 ];
 
+function AppTabs() {
+  const { user } = useAuth();
+  const { prefs } = usePreferences();
+  usePreferenceEffects();
+  useEffect(() => startRuntime({ signedIn: !!user }), [user]);
+
+  // Settings → Navigation: which destinations are tabs (Browse is always there).
+  const chosen = [...new Set([...(prefs.navTabs ?? []).filter((t) => t in TAB_DEFS), 'browse'])].slice(0, 6);
+  const hiddenTabs = Object.keys(TAB_DEFS).filter((t) => !chosen.includes(t));
+
+  return (
+    <Tabs
+      backBehavior="history"
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: T.accent,
+        tabBarInactiveTintColor: T.muted,
+        tabBarStyle: { backgroundColor: T.card, borderTopColor: T.line },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        sceneStyle: { backgroundColor: T.bg },
+        tabBarHideOnKeyboard: true,
+      }}
+    >
+      {chosen.map((name) => {
+        const d = TAB_DEFS[name];
+        return <Tabs.Screen key={name} name={name} options={{ title: d.title, tabBarIcon: ({ color, size }) => <d.Icon color={color} size={size} /> }} />;
+      })}
+      {[...hiddenTabs, ...ALWAYS_HIDDEN].map((name) => (
+        <Tabs.Screen key={name} name={name} options={{ href: null }} />
+      ))}
+    </Tabs>
+  );
+}
+
 export default function AppLayout() {
   const { user, checking } = useAuth();
-  // Single realtime-sync subscription + foreground/online reconcile for the session.
+  // Realtime delta sync + connectivity/foreground handling for the session.
   useRealtimeSync();
   useAppLifecycleSync();
 
@@ -24,28 +73,7 @@ export default function AppLayout() {
 
   return (
     <TaskUIProvider>
-      <Tabs
-        initialRouteName="today"
-        backBehavior="history"
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: '#3B82F6',
-          tabBarInactiveTintColor: '#9ca3af',
-          tabBarStyle: { backgroundColor: '#0F1219', borderTopColor: '#1f2937' },
-          tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
-          sceneStyle: { backgroundColor: '#05050A' },
-          tabBarHideOnKeyboard: true,
-        }}
-      >
-        <Tabs.Screen name="inbox" options={{ title: 'Inbox', tabBarIcon: ({ color, size }) => <Inbox color={color} size={size} /> }} />
-        <Tabs.Screen name="today" options={{ title: 'Today', tabBarIcon: ({ color, size }) => <CalendarCheck color={color} size={size} /> }} />
-        <Tabs.Screen name="upcoming" options={{ title: 'Upcoming', tabBarIcon: ({ color, size }) => <CalendarRange color={color} size={size} /> }} />
-        <Tabs.Screen name="search" options={{ title: 'Search', tabBarIcon: ({ color, size }) => <Search color={color} size={size} /> }} />
-        <Tabs.Screen name="browse" options={{ title: 'Browse', tabBarIcon: ({ color, size }) => <LayoutGrid color={color} size={size} /> }} />
-        {HIDDEN.map((name) => (
-          <Tabs.Screen key={name} name={name} options={{ href: null }} />
-        ))}
-      </Tabs>
+      <AppTabs />
     </TaskUIProvider>
   );
 }

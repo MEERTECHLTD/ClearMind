@@ -15,6 +15,7 @@ import { C, PRIORITY_COLOR, PRIORITY_LABEL, dueColor } from './theme';
 import {
   updateTask, createTask, createProject, createLabel, projectColor, type MTask,
 } from '../../services/taskActions';
+import { T } from '../../lib/theme';
 
 type Picker = null | 'date' | 'priority' | 'project' | 'labels' | 'menu';
 
@@ -142,7 +143,7 @@ export function TaskDetailSheet({
             returnKeyType="done"
             className={`flex-1 text-[19px] font-semibold py-1.5 ${task.completed ? 'text-ink-muted line-through' : 'text-ink'}`}
             placeholder="Task name"
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={T.faint}
             accessibilityLabel="Task name"
           />
         </View>
@@ -152,7 +153,7 @@ export function TaskDetailSheet({
           onBlur={commitText}
           multiline
           placeholder="Description"
-          placeholderTextColor="#6b7280"
+          placeholderTextColor={T.faint}
           className="text-ink-muted text-[15px] ml-9 mb-3"
           style={{ minHeight: 36 }}
           accessibilityLabel="Description"
@@ -210,7 +211,7 @@ export function TaskDetailSheet({
               onChangeText={setSubText}
               autoFocus
               placeholder="Sub-task name"
-              placeholderTextColor="#6b7280"
+              placeholderTextColor={T.faint}
               className="flex-1 text-ink text-[15px] py-2"
               returnKeyType="done"
               blurOnSubmit={false}

@@ -62,6 +62,7 @@ import {
   confirmDialog,
   useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 // ----------------------------------------------------------------------------
 // Pure helpers (ported from web; date formatting done manually for Hermes)
@@ -254,14 +255,14 @@ function PlatformIcon({ platform, size = 18 }: { platform: LearningSourcePlatfor
     case 'ted':
       return <Sparkles size={size} color="#ef4444" />;
     default:
-      return <Globe size={size} color="#9ca3af" />;
+      return <Globe size={size} color={T.muted} />;
   }
 }
 
 function statusIcon(status: LearningContentStatus, size = 14) {
   switch (status) {
     case 'unwatched':
-      return <EyeOff size={size} color="#9ca3af" />;
+      return <EyeOff size={size} color={T.muted} />;
     case 'in-progress':
       return <Play size={size} color="#f59e0b" />;
     case 'completed':
@@ -529,7 +530,7 @@ export default function LearningVaultScreen() {
       {/* Search */}
       <View className="relative mb-3">
         <View className="absolute left-3 top-0 bottom-0 justify-center z-10">
-          <Search size={16} color="#9ca3af" />
+          <Search size={16} color={T.muted} />
         </View>
         <Input
           placeholder="Search title, tags, author…"
@@ -578,7 +579,7 @@ export default function LearningVaultScreen() {
           onPress={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
           className="flex-row items-center justify-center bg-midnight-light rounded-2xl px-4 border border-hairline active:opacity-80"
         >
-          <ArrowUpDown size={16} color="#9ca3af" />
+          <ArrowUpDown size={16} color={T.muted} />
           <Text className="text-ink-muted text-xs ml-1.5">{sortOrder === 'asc' ? 'Asc' : 'Desc'}</Text>
         </Pressable>
       </ScrollView>
@@ -597,7 +598,7 @@ export default function LearningVaultScreen() {
                   active ? 'bg-accent/15 border-accent/50' : 'bg-midnight-light border-hairline'
                 }`}
               >
-                <Folder size={14} color={f.color || '#9ca3af'} />
+                <Folder size={14} color={f.color || T.muted} />
                 <Text className={`text-sm ml-1.5 ${active ? 'text-accent font-semibold' : 'text-ink'}`}>{f.name}</Text>
                 <Text className="text-ink-muted text-xs ml-1">({count})</Text>
                 {folderStats[f.name] > 0 && (
@@ -613,11 +614,11 @@ export default function LearningVaultScreen() {
       {showStats && (
         <View className="mt-3 p-4 rounded-2xl bg-midnight-light border border-hairline">
           <View className="flex-row items-center mb-3">
-            <ChartColumn size={16} color="#9ca3af" />
+            <ChartColumn size={16} color={T.muted} />
             <Text className="text-ink-muted text-sm font-semibold ml-2">Progress Analytics</Text>
           </View>
           <View className="flex-row flex-wrap">
-            <StatTile label="Total" value={String(stats.totalItems)} color="#e2e8f0" />
+            <StatTile label="Total" value={String(stats.totalItems)} color={T.ink} />
             <StatTile label="Completed" value={String(stats.completedItems)} color="#10b981" />
             <StatTile label="Total Time" value={formatDuration(stats.totalWatchTime)} color="#3B82F6" />
             <StatTile label="This Week" value={formatDuration(stats.weeklyWatchTime)} color="#a855f7" />
@@ -640,10 +641,10 @@ export default function LearningVaultScreen() {
         right={
           <View className="flex-row items-center">
             <Pressable onPress={() => setShowStats((s) => !s)} hitSlop={8} className="p-2 active:opacity-60">
-              <ChartColumn size={20} color={showStats ? '#3B82F6' : '#9ca3af'} />
+              <ChartColumn size={20} color={showStats ? '#3B82F6' : T.muted} />
             </Pressable>
             <Pressable onPress={() => setFolderOpen(true)} hitSlop={8} className="p-2 active:opacity-60">
-              <FolderPlus size={20} color="#9ca3af" />
+              <FolderPlus size={20} color={T.muted} />
             </Pressable>
           </View>
         }
@@ -748,10 +749,10 @@ function ResourceCard({
 }) {
   const toggleMeta =
     resource.status === 'completed'
-      ? { icon: <RotateCcw size={14} color="#e2e8f0" />, label: 'Reset' }
+      ? { icon: <RotateCcw size={14} color={T.ink} />, label: 'Reset' }
       : resource.status === 'in-progress'
-      ? { icon: <Check size={14} color="#e2e8f0" />, label: 'Complete' }
-      : { icon: <Play size={14} color="#e2e8f0" />, label: 'Start' };
+      ? { icon: <Check size={14} color={T.ink} />, label: 'Complete' }
+      : { icon: <Play size={14} color={T.ink} />, label: 'Start' };
 
   return (
     <View className="rounded-2xl bg-midnight-light border border-hairline overflow-hidden">
@@ -832,7 +833,7 @@ function ResourceCard({
         <View className="flex-row items-center mt-2">
           {resource.folder ? (
             <View className="flex-row items-center mr-3">
-              <Folder size={12} color="#9ca3af" />
+              <Folder size={12} color={T.muted} />
               <Text className="text-ink-muted text-xs ml-1">{resource.folder}</Text>
             </View>
           ) : null}
@@ -863,13 +864,13 @@ function ResourceCard({
             <Text className="text-white text-xs ml-1 font-medium">Open</Text>
           </Pressable>
           <Pressable onPress={onNotes} hitSlop={6} className="p-2 active:opacity-60">
-            <StickyNote size={16} color="#9ca3af" />
+            <StickyNote size={16} color={T.muted} />
           </Pressable>
           <Pressable onPress={onEdit} hitSlop={6} className="p-2 active:opacity-60">
-            <Pencil size={16} color="#9ca3af" />
+            <Pencil size={16} color={T.muted} />
           </Pressable>
           <Pressable onPress={onDelete} hitSlop={6} className="p-2 active:opacity-60">
-            <Trash2 size={16} color="#9ca3af" />
+            <Trash2 size={16} color={T.muted} />
           </Pressable>
         </View>
       </View>
@@ -1000,7 +1001,7 @@ function ResourceFormModal({
           <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
             <Text className="text-ink text-lg font-bold">{initial ? 'Edit Resource' : 'Add Learning Resource'}</Text>
             <Pressable onPress={onCancel} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -1163,7 +1164,7 @@ function FolderModal({
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-ink text-lg font-bold">Folders</Text>
             <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -1203,11 +1204,11 @@ function FolderModal({
                     className="flex-row items-center justify-between bg-midnight-light rounded-xl px-3 py-2.5 mb-2 border border-hairline"
                   >
                     <View className="flex-row items-center">
-                      <Folder size={16} color={f.color || '#9ca3af'} />
+                      <Folder size={16} color={f.color || T.muted} />
                       <Text className="text-ink text-sm ml-2">{f.name}</Text>
                     </View>
                     <Pressable onPress={() => onDelete(f)} hitSlop={8} className="p-1 active:opacity-60">
-                      <Trash2 size={16} color="#9ca3af" />
+                      <Trash2 size={16} color={T.muted} />
                     </Pressable>
                   </View>
                 ))}
@@ -1274,7 +1275,7 @@ function NotesModal({
               ) : null}
             </View>
             <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -1321,7 +1322,7 @@ function NotesModal({
                       <Text className="text-ink-muted text-xs mt-1">{formatDate(note.createdAt)}</Text>
                     </View>
                     <Pressable onPress={() => onDeleteNote(note.id)} hitSlop={8} className="p-1 active:opacity-60">
-                      <Trash2 size={14} color="#9ca3af" />
+                      <Trash2 size={14} color={T.muted} />
                     </Pressable>
                   </View>
                 </View>

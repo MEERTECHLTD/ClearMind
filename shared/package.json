@@ -19,7 +19,9 @@
     "./sync/fields": "./sync/fields.ts",
     "./sync/engine": "./sync/engine.ts",
     "./data/firestoreSync": "./data/firestoreSync.ts",
-    "./tasks/time": "./tasks/time.ts"
+    "./tasks/time": "./tasks/time.ts",
+    "./data/account": "./data/account.ts",
+    "./agents": "./agents/index.ts"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",

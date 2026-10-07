@@ -7,3 +7,4 @@ export * from './templates';
 export * from './views';
 export * from './reminders';
 export * from './widgets';
+export * from './preferences';

@@ -10,6 +10,7 @@ import {
   Screen, AppHeader, Card, TextArea, SegmentedControl, Badge, Button, Spinner,
   EmptyState, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 type Mood = NonNullable<Rant['mood']>;
 
@@ -250,7 +251,7 @@ function RantRow({ rant, onDelete }: { rant: Rant; onDelete: () => void }) {
       <View className="flex-row items-start justify-between mb-2">
         <Badge label={MOOD_LABEL[mood]} tone={MOOD_TONE[mood]} />
         <Pressable onPress={onDelete} hitSlop={8} className="p-1 -mr-1 active:opacity-60">
-          <Trash2 size={18} color="#9ca3af" />
+          <Trash2 size={18} color={T.muted} />
         </Pressable>
       </View>
       <Text className="text-ink text-base leading-relaxed">{rant.content}</Text>
@@ -278,7 +279,7 @@ function AdviceModal({
             </View>
             <Text className="text-ink text-lg font-bold flex-1">Iris's advice</Text>
             <Pressable onPress={onClose} hitSlop={10} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -305,7 +306,7 @@ function AdviceModal({
               title="Done"
               variant="secondary"
               onPress={onClose}
-              icon={<Send size={16} color="#e2e8f0" />}
+              icon={<Send size={16} color={T.ink} />}
             />
           </View>
         </View>

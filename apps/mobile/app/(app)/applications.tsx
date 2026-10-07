@@ -88,6 +88,7 @@ import {
   confirmDialog,
   useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 // Applications fire reminders at multiple lead times, so we persist an ARRAY of
 // scheduled notification ids (vs Tasks' single reminderId) to cancel/reschedule.
@@ -430,17 +431,17 @@ export default function ApplicationsScreen() {
     <View className="px-4 pt-4 pb-2">
       {/* Search */}
       <View className="flex-row items-center bg-midnight-light rounded-2xl px-3 mb-3 border border-hairline">
-        <Search size={16} color="#9ca3af" />
+        <Search size={16} color={T.muted} />
         <TextInput
           value={query}
           onChangeText={setQuery}
           placeholder="Search name, organization, funder, tags…"
-          placeholderTextColor="#6b7280"
+          placeholderTextColor={T.faint}
           className="flex-1 text-ink text-base px-2 py-3"
         />
         {query ? (
           <Pressable onPress={() => setQuery('')} hitSlop={8}>
-            <X size={16} color="#9ca3af" />
+            <X size={16} color={T.muted} />
           </Pressable>
         ) : null}
       </View>
@@ -507,7 +508,7 @@ export default function ApplicationsScreen() {
           <WsChip
             active={!activeWsId}
             label="My Applications"
-            icon={<Lock size={12} color={!activeWsId ? '#fff' : '#9ca3af'} />}
+            icon={<Lock size={12} color={!activeWsId ? '#fff' : T.muted} />}
             onPress={() => setActiveWsId(null)}
           />
           {workspaces.map((ws) => (
@@ -515,7 +516,7 @@ export default function ApplicationsScreen() {
               key={ws.id}
               active={activeWsId === ws.id}
               label={ws.name}
-              icon={<Users size={12} color={activeWsId === ws.id ? '#fff' : '#9ca3af'} />}
+              icon={<Users size={12} color={activeWsId === ws.id ? '#fff' : T.muted} />}
               onPress={() => setActiveWsId(ws.id)}
             />
           ))}
@@ -571,7 +572,7 @@ export default function ApplicationsScreen() {
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 96 }}
           ListEmptyComponent={
             <View className="items-center py-16 px-8">
-              <Briefcase size={40} color="#6b7280" />
+              <Briefcase size={40} color={T.faint} />
               <Text className="text-ink-muted text-sm text-center mt-4">No applications match your filters.</Text>
             </View>
           }
@@ -656,7 +657,7 @@ function WsChip({
 }
 
 function StatusPill({ status, onPress }: { status: AppStatus; onPress?: () => void }) {
-  const color = STATUS_COLOR[status] ?? '#9ca3af';
+  const color = STATUS_COLOR[status] ?? T.muted;
   const label = STATUS_LABEL[status] ?? status;
   const Icon = STATUS_ICON[status] ?? FileText;
   const body = (
@@ -678,7 +679,7 @@ function StatusPill({ status, onPress }: { status: AppStatus; onPress?: () => vo
 }
 
 function PriorityPill({ priority }: { priority: AppPriority }) {
-  const color = PRIORITY_COLOR[priority] ?? '#9ca3af';
+  const color = PRIORITY_COLOR[priority] ?? T.muted;
   return (
     <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: withAlpha(color, '26') }}>
       <Text className="text-xs font-semibold" style={{ color }}>
@@ -702,7 +703,7 @@ function ApplicationCard({
   onStatusPress: () => void;
 }) {
   const TypeIcon = TYPE_ICON[app.type] ?? FileText;
-  const typeColor = TYPE_COLOR[app.type] ?? '#9ca3af';
+  const typeColor = TYPE_COLOR[app.type] ?? T.muted;
   const deadline = applicationDeadline(app);
   const soon = isDeadlineSoon(deadline);
   const armed = isReminderEligible(app) && (!Array.isArray(app.reminderLeadDays) || app.reminderLeadDays.length > 0);
@@ -721,10 +722,10 @@ function ApplicationCard({
         </View>
         <View className="flex-row items-center -mr-1">
           <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Pencil size={18} color="#9ca3af" />
+            <Pencil size={18} color={T.muted} />
           </Pressable>
           <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Trash2 size={18} color="#9ca3af" />
+            <Trash2 size={18} color={T.muted} />
           </Pressable>
         </View>
       </View>
@@ -733,7 +734,7 @@ function ApplicationCard({
       {app.organization ? <Text className="text-ink-muted text-sm mt-0.5">{app.organization}</Text> : null}
       {app.funder ? (
         <View className="flex-row items-center mt-1">
-          <Building2 size={11} color="#9ca3af" />
+          <Building2 size={11} color={T.muted} />
           <Text className="text-ink-muted text-xs ml-1">Funder: {app.funder}</Text>
         </View>
       ) : null}
@@ -751,7 +752,7 @@ function ApplicationCard({
 
       {app.referenceNumber ? (
         <View className="flex-row items-center mt-2">
-          <Hash size={11} color="#9ca3af" />
+          <Hash size={11} color={T.muted} />
           <Text className="text-ink-muted text-xs ml-1">{app.referenceNumber}</Text>
         </View>
       ) : null}
@@ -759,7 +760,7 @@ function ApplicationCard({
       <View className="mt-3" style={{ gap: 6 }}>
         {deadline ? (
           <View className="flex-row items-center">
-            <Calendar size={12} color={soon ? '#f97316' : '#9ca3af'} />
+            <Calendar size={12} color={soon ? '#f97316' : T.muted} />
             <Text className={`text-xs ml-2 ${soon ? 'text-orange-400' : 'text-ink-muted'}`}>
               Deadline: {fmtDate(deadline)} · {relativeDeadline(deadline)}
             </Text>
@@ -767,7 +768,7 @@ function ApplicationCard({
         ) : null}
         {app.openingDate ? (
           <View className="flex-row items-center">
-            <Clock size={12} color="#9ca3af" />
+            <Clock size={12} color={T.muted} />
             <Text className="text-ink-muted text-xs ml-2">Opens: {fmtDate(app.openingDate)}</Text>
           </View>
         ) : null}
@@ -783,7 +784,7 @@ function ApplicationCard({
         <View className="mt-3">
           <View className="flex-row items-center justify-between mb-1">
             <View className="flex-row items-center">
-              <ListChecks size={12} color="#9ca3af" />
+              <ListChecks size={12} color={T.muted} />
               <Text className="text-ink-muted text-xs ml-1">Requirements</Text>
             </View>
             <Text className="text-ink-muted text-xs">
@@ -800,7 +801,7 @@ function ApplicationCard({
         <View className="flex-row flex-wrap mt-3" style={{ gap: 6 }}>
           {app.tags.map((t) => (
             <View key={t} className="flex-row items-center rounded-full px-2 py-0.5" style={{ backgroundColor: 'rgba(148,163,184,0.18)' }}>
-              <TagIcon size={9} color="#9ca3af" />
+              <TagIcon size={9} color={T.muted} />
               <Text className="text-ink-muted text-xs ml-1">{t}</Text>
             </View>
           ))}
@@ -809,7 +810,7 @@ function ApplicationCard({
 
       {app.contacts && app.contacts.length > 0 ? (
         <View className="flex-row items-center mt-3">
-          <Users size={11} color="#9ca3af" />
+          <Users size={11} color={T.muted} />
           <Text className="text-ink-muted text-xs ml-1">{app.contacts.map((c) => c.name).join(', ')}</Text>
         </View>
       ) : null}
@@ -1108,7 +1109,7 @@ function ApplicationFormModal({
                       <Input placeholder="e.g. CV, cover letter…" value={r.label} onChangeText={(v) => setRequirements(requirements.map((x, j) => (j === i ? { ...x, label: v } : x)))} />
                     </View>
                     <Pressable onPress={() => setRequirements(requirements.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70">
-                      <Trash2 size={16} color="#9ca3af" />
+                      <Trash2 size={16} color={T.muted} />
                     </Pressable>
                   </View>
                 ))}
@@ -1130,7 +1131,7 @@ function ApplicationFormModal({
                       <Input placeholder="Email / role" value={c.email ?? ''} onChangeText={(v) => setContacts(contacts.map((x, j) => (j === i ? { ...x, email: v } : x)))} autoCapitalize="none" />
                     </View>
                     <Pressable onPress={() => setContacts(contacts.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70">
-                      <Trash2 size={16} color="#9ca3af" />
+                      <Trash2 size={16} color={T.muted} />
                     </Pressable>
                   </View>
                 ))}
@@ -1373,7 +1374,7 @@ function MembersModal({
                       <Text className="text-ink text-sm flex-1 mr-2" numberOfLines={1}>{e}{currentEmail === e ? ' · you' : ''}</Text>
                       {isOwner ? (
                         <Pressable onPress={() => setInvitees(invitees.filter((x) => x !== e))} hitSlop={8} className="active:opacity-60">
-                          <X size={15} color="#9ca3af" />
+                          <X size={15} color={T.muted} />
                         </Pressable>
                       ) : null}
                     </View>

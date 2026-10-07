@@ -3,6 +3,7 @@ import { View, Text, Pressable, Modal, ScrollView, KeyboardAvoidingView, Platfor
 import { Share2, Crown, Globe, Lock, Users, X, Plus, Check, UserPlus, Mail } from 'lucide-react-native';
 import type { Workspace } from '@clearmind/shared';
 import { Input } from './Input';
+import { T } from '../../lib/theme';
 
 // Reusable mobile collaboration UI (switcher + banner + new-workspace + members
 // sheets), shared by the Applications and Projects screens. The parent owns the
@@ -36,9 +37,9 @@ export function WorkspaceBar({
 }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, gap: 8 }}>
-      <WsChip active={!activeWsId} label={personalLabel} icon={<Lock size={12} color={!activeWsId ? '#fff' : '#9ca3af'} />} onPress={() => onSelect(null)} />
+      <WsChip active={!activeWsId} label={personalLabel} icon={<Lock size={12} color={!activeWsId ? '#fff' : T.muted} />} onPress={() => onSelect(null)} />
       {workspaces.map((ws) => (
-        <WsChip key={ws.id} active={activeWsId === ws.id} label={ws.name} icon={<Users size={12} color={activeWsId === ws.id ? '#fff' : '#9ca3af'} />} onPress={() => onSelect(ws.id)} />
+        <WsChip key={ws.id} active={activeWsId === ws.id} label={ws.name} icon={<Users size={12} color={activeWsId === ws.id ? '#fff' : T.muted} />} onPress={() => onSelect(ws.id)} />
       ))}
       <Pressable onPress={onShareNew} className="flex-row items-center rounded-full px-3 py-1.5 border border-dashed border-hairline active:opacity-70">
         <Share2 size={12} color="#60a5fa" />
@@ -261,7 +262,7 @@ export function MembersModal({
                       <Text className="text-ink text-sm flex-1 mr-2" numberOfLines={1}>{e}{currentEmail === e ? ' · you' : ''}</Text>
                       {isOwner ? (
                         <Pressable onPress={() => setInvitees(invitees.filter((x) => x !== e))} hitSlop={8} className="active:opacity-60">
-                          <X size={15} color="#9ca3af" />
+                          <X size={15} color={T.muted} />
                         </Pressable>
                       ) : null}
                     </View>

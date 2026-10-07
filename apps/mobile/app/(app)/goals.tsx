@@ -9,6 +9,7 @@ import {
   Screen, AppHeader, Card, Input, Select, DateField, SliderField, ProgressBar,
   Badge, Fab, EmptyState, Spinner, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 type Category = Goal['category'];
 
@@ -106,16 +107,16 @@ function GoalRow({ goal, onEdit, onDelete }: { goal: Goal; onEdit: () => void; o
 
         <View className="flex-row items-center ml-2">
           <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Pencil size={18} color="#9ca3af" />
+            <Pencil size={18} color={T.muted} />
           </Pressable>
           <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Trash2 size={18} color="#9ca3af" />
+            <Trash2 size={18} color={T.muted} />
           </Pressable>
         </View>
       </View>
 
       <View className="flex-row items-center mt-3">
-        <Clock size={13} color="#9ca3af" />
+        <Clock size={13} color={T.muted} />
         <Text className="text-ink-muted text-xs ml-1.5">{goal.targetDate}</Text>
         {done ? <View className="ml-2"><Trophy size={14} color="#facc15" /></View> : null}
       </View>

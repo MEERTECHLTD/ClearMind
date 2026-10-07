@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
+import { T } from '../lib/theme';
 
 /**
  * Top-level error boundary so a render/init error shows a readable screen instead
@@ -20,11 +21,11 @@ export class ErrorBoundary extends React.Component<
     const { error } = this.state;
     if (!error) return this.props.children;
     return (
-      <View style={{ flex: 1, backgroundColor: '#05050A', padding: 24, justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: T.bg, padding: 24, justifyContent: 'center' }}>
         <Text style={{ color: '#3B82F6', fontSize: 22, fontWeight: '800' }}>ClearMind</Text>
-        <Text style={{ color: '#e2e8f0', fontSize: 16, marginTop: 12 }}>Something went wrong starting the app.</Text>
+        <Text style={{ color: T.ink, fontSize: 16, marginTop: 12 }}>Something went wrong starting the app.</Text>
         <ScrollView style={{ maxHeight: 220, marginTop: 12 }}>
-          <Text style={{ color: '#9ca3af', fontSize: 12 }}>{error.message}{'\n'}{error.stack}</Text>
+          <Text style={{ color: T.muted, fontSize: 12 }}>{error.message}{'\n'}{error.stack}</Text>
         </ScrollView>
         <Pressable
           onPress={() => this.setState({ error: null })}

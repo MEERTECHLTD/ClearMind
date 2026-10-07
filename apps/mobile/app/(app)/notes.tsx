@@ -28,6 +28,7 @@ import {
   confirmDialog,
   useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -157,7 +158,7 @@ export default function NotesScreen() {
           keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             <View className="mb-3 flex-row items-center bg-midnight-light rounded-2xl px-3 border border-hairline">
-              <Search size={18} color="#6b7280" />
+              <Search size={18} color={T.faint} />
               <Input
                 placeholder="Search notes, tags…"
                 value={query}
@@ -172,7 +173,7 @@ export default function NotesScreen() {
               />
               {query.length > 0 ? (
                 <Pressable onPress={() => setQuery('')} hitSlop={8} className="p-1 active:opacity-60">
-                  <X size={16} color="#9ca3af" />
+                  <X size={16} color={T.muted} />
                 </Pressable>
               ) : null}
             </View>
@@ -261,10 +262,10 @@ function NoteRow({
 
           <View className="flex-row items-center ml-2">
             <Pressable onPress={onOpen} hitSlop={8} className="p-1.5 active:opacity-60">
-              <Pencil size={18} color="#9ca3af" />
+              <Pencil size={18} color={T.muted} />
             </Pressable>
             <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-              <Trash2 size={18} color="#9ca3af" />
+              <Trash2 size={18} color={T.muted} />
             </Pressable>
           </View>
         </View>
@@ -319,7 +320,7 @@ function NoteEditorModal({
           {/* Editor header */}
           <View className="flex-row items-center justify-between px-4 py-3 border-b border-hairline">
             <Pressable onPress={onCancel} hitSlop={8} className="flex-row items-center active:opacity-60">
-              <X size={22} color="#e2e8f0" />
+              <X size={22} color={T.ink} />
               <Text className="text-ink ml-1.5 text-base">Cancel</Text>
             </Pressable>
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, type TextInputProps } from 'react-native';
+import { T } from '../../lib/theme';
 
 export function TextArea({
   label,
@@ -13,7 +14,7 @@ export function TextArea({
       <TextInput
         multiline
         textAlignVertical="top"
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         style={{ minHeight }}
         className="bg-midnight-light text-ink rounded-2xl px-4 py-3.5 text-base border border-hairline"
         {...props}

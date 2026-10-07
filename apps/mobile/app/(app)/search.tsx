@@ -9,6 +9,7 @@ import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { C } from '../../components/tasks/theme';
 import { FILTERS } from '../../components/tasks/filters';
 import { projectColor } from '../../services/taskActions';
+import { T } from '../../lib/theme';
 
 /**
  * Search across task names, descriptions, projects and labels. With an empty
@@ -40,7 +41,7 @@ export default function SearchScreen() {
             value={q}
             onChangeText={setQ}
             placeholder="Tasks, projects, labels…"
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={T.faint}
             className="flex-1 text-ink text-base py-3 ml-2"
             autoCorrect={false}
             returnKeyType="search"

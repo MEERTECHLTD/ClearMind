@@ -49,6 +49,7 @@ import {
   confirmDialog,
   useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 const NODE_COLORS = [
   '#3B82F6',
@@ -762,7 +763,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                       hitSlop={8}
                       className="p-1.5 active:opacity-60"
                     >
-                      <Trash2 size={18} color="#9ca3af" />
+                      <Trash2 size={18} color={T.muted} />
                     </Pressable>
                   </View>
                 </Card>
@@ -808,7 +809,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
       <View className="flex-row items-center justify-between px-3 py-2 border-b border-hairline bg-midnight-light">
         <View className="flex-row items-center flex-1 mr-2">
           <Pressable onPress={closeEditor} hitSlop={8} className="mr-2 p-1 active:opacity-60">
-            <ArrowLeft size={22} color="#e2e8f0" />
+            <ArrowLeft size={22} color={T.ink} />
           </Pressable>
           {selectedMap.type === 'decision-tree' ? (
             <GitBranch size={18} color="#10B981" />
@@ -829,22 +830,22 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
               }}
               className={`p-2 rounded-full ${tool === 'select' ? 'bg-accent' : ''} active:opacity-80`}
             >
-              <MousePointer size={16} color={tool === 'select' ? '#fff' : '#9ca3af'} />
+              <MousePointer size={16} color={tool === 'select' ? '#fff' : T.muted} />
             </Pressable>
             <Pressable
               onPress={() => setTool('connect')}
               className={`p-2 rounded-full ${tool === 'connect' ? 'bg-accent' : ''} active:opacity-80`}
             >
-              <Link2 size={16} color={tool === 'connect' ? '#fff' : '#9ca3af'} />
+              <Link2 size={16} color={tool === 'connect' ? '#fff' : T.muted} />
             </Pressable>
           </View>
 
           <Pressable onPress={() => zoomBy(1 / 1.25)} hitSlop={6} className="p-1.5 active:opacity-60">
-            <ZoomOut size={18} color="#9ca3af" />
+            <ZoomOut size={18} color={T.muted} />
           </Pressable>
           <Text className="text-ink-muted text-xs w-10 text-center">{zoomPct}%</Text>
           <Pressable onPress={() => zoomBy(1.25)} hitSlop={6} className="p-1.5 active:opacity-60">
-            <ZoomIn size={18} color="#9ca3af" />
+            <ZoomIn size={18} color={T.muted} />
           </Pressable>
 
           <Pressable
@@ -920,7 +921,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                         {edge.label || 'label'}
                       </Text>
                     ) : (
-                      <X size={12} color="#9ca3af" />
+                      <X size={12} color={T.muted} />
                     )}
                   </Pressable>
                 );
@@ -971,7 +972,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
       {selNode && tool === 'select' ? (
         <View className="border-t border-hairline bg-midnight-light px-3 py-2">
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <ActionButton icon={<Pencil size={16} color="#e2e8f0" />} label="Edit" onPress={() => openNodeEditor(selNode)} />
+            <ActionButton icon={<Pencil size={16} color={T.ink} />} label="Edit" onPress={() => openNodeEditor(selNode)} />
             <ActionButton icon={<Plus size={16} color="#10B981" />} label="Add child" onPress={() => addNode(selNode.id)} />
             <ActionButton
               icon={<Link2 size={16} color="#3B82F6" />}

@@ -9,13 +9,14 @@ import {
   Screen, AppHeader, Card, TextArea, DateField, SegmentedControl, Badge, Fab,
   EmptyState, Spinner, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 type Mood = LogEntry['mood'];
 
 const MOOD_META: Record<Mood, { icon: typeof Meh; color: string; tone: 'green' | 'amber' | 'muted' | 'red' }> = {
   Productive: { icon: CircleCheck, color: '#10b981', tone: 'green' },
   'Flow State': { icon: Zap, color: '#f59e0b', tone: 'amber' },
-  Neutral: { icon: Meh, color: '#9ca3af', tone: 'muted' },
+  Neutral: { icon: Meh, color: T.muted, tone: 'muted' },
   Frustrated: { icon: Frown, color: '#f87171', tone: 'red' },
 };
 
@@ -155,10 +156,10 @@ function LogRow({ entry, onEdit, onDelete }: { entry: LogEntry; onEdit: () => vo
         </View>
         <View className="flex-row items-center">
           <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Pencil size={18} color="#9ca3af" />
+            <Pencil size={18} color={T.muted} />
           </Pressable>
           <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Trash2 size={18} color="#9ca3af" />
+            <Trash2 size={18} color={T.muted} />
           </Pressable>
         </View>
       </View>

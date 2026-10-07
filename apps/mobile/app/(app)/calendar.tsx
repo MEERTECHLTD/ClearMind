@@ -12,6 +12,7 @@ import {
   Screen, AppHeader, Card, Input, TextArea, DateField, TimeField,
   EmptyState, Spinner, Fab, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 const COLORS = [
   '#3B82F6', // Blue
@@ -162,13 +163,13 @@ export default function CalendarScreen() {
         <Card className="p-4">
           <View className="flex-row items-center justify-between mb-4">
             <Pressable onPress={() => navigateMonth(-1)} hitSlop={10} className="p-2 rounded-full active:bg-midnight-lighter">
-              <ChevronLeft size={22} color="#9ca3af" />
+              <ChevronLeft size={22} color={T.muted} />
             </Pressable>
             <Text className="text-ink text-lg font-bold">
               {MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
             </Text>
             <Pressable onPress={() => navigateMonth(1)} hitSlop={10} className="p-2 rounded-full active:bg-midnight-lighter">
-              <ChevronRight size={22} color="#9ca3af" />
+              <ChevronRight size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -280,17 +281,17 @@ function EventCard({ event, onEdit, onDelete }: { event: CalendarEvent; onEdit: 
           <Text className="text-ink font-semibold flex-1 pr-2">{event.title}</Text>
           <View className="flex-row items-center">
             <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-              <Pencil size={16} color="#9ca3af" />
+              <Pencil size={16} color={T.muted} />
             </Pressable>
             <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-              <Trash2 size={16} color="#9ca3af" />
+              <Trash2 size={16} color={T.muted} />
             </Pressable>
           </View>
         </View>
 
         {hasTime ? (
           <View className="flex-row items-center mt-1">
-            <Clock size={12} color="#9ca3af" />
+            <Clock size={12} color={T.muted} />
             <Text className="text-ink-muted text-xs ml-1.5">
               {formatTime(event.startTime)}{event.endTime ? ` - ${formatTime(event.endTime)}` : ''}
             </Text>
@@ -299,7 +300,7 @@ function EventCard({ event, onEdit, onDelete }: { event: CalendarEvent; onEdit: 
 
         {event.location ? (
           <View className="flex-row items-center mt-1">
-            <MapPin size={12} color="#9ca3af" />
+            <MapPin size={12} color={T.muted} />
             <Text className="text-ink-muted text-xs ml-1.5 flex-1">{event.location}</Text>
           </View>
         ) : null}
@@ -368,7 +369,7 @@ function EventFormModal({
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-ink text-lg font-bold">{initial ? 'Edit event' : 'New event'}</Text>
             <Pressable onPress={onCancel} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -436,7 +437,7 @@ function EventFormModal({
                 reminder ? 'border-accent bg-accent/10' : 'border-hairline'
               }`}
             >
-              <Bell size={16} color={reminder ? '#3B82F6' : '#9ca3af'} />
+              <Bell size={16} color={reminder ? '#3B82F6' : T.muted} />
               <Text className={`text-sm ${reminder ? 'text-accent' : 'text-ink-muted'}`}>Reminder</Text>
             </Pressable>
           </ScrollView>

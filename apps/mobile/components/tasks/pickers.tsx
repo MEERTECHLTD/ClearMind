@@ -12,6 +12,7 @@ import {
 import { Sheet } from '../ui/Sheet';
 import { C, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL } from './theme';
 import { projectColor } from '../../services/taskActions';
+import { T } from '../../lib/theme';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -97,7 +98,7 @@ export function SchedulePicker({
           value={text}
           onChangeText={setText}
           placeholder="Type a date: next fri 5pm, every mon…"
-          placeholderTextColor="#6b7280"
+          placeholderTextColor={T.faint}
           className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line"
           returnKeyType="done"
           autoCorrect={false}
@@ -223,7 +224,7 @@ export function ProjectPicker({
         value={q}
         onChangeText={setQ}
         placeholder="Search or create a project"
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line mb-1"
         accessibilityLabel="Search projects"
       />
@@ -272,7 +273,7 @@ export function LabelPicker({
         value={q}
         onChangeText={setQ}
         placeholder="Search or create a label"
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line mb-1"
         accessibilityLabel="Search labels"
         autoCapitalize="none"
