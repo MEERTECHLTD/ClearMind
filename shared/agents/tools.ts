@@ -688,7 +688,9 @@ export interface CallOptions { sha256: (s: string) => Promise<string>; now?: Dat
 export const toolByName = (name: string) => TOOLS.find((t) => t.name === name);
 
 /** Execute one tool call end-to-end: scope check, rate limit, run, commit, audit. */
-export async function callTool(repo: AgentRepo, auth: AuthContext, name: string, args: Args, opts: CallOptions): Promise<{ ok: true; result: unknown } | { ok: false; error: { code: string; message: string; data?: unknown } }> {
+export interface ToolResult { ok: boolean; result?: unknown; error?: { code: string; message: string; data?: unknown } }
+
+export async function callTool(repo: AgentRepo, auth: AuthContext, name: string, args: Args, opts: CallOptions): Promise<ToolResult> {
   sha256Ref.fn = opts.sha256;
   const now = opts.now ?? new Date();
   const tool = toolByName(name);

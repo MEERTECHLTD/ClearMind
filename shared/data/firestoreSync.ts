@@ -13,7 +13,7 @@ import {
   collection, doc, getDocs, onSnapshot, query, where, writeBatch, serverTimestamp, Timestamp,
   type Firestore,
 } from 'firebase/firestore';
-import { sanitizeForFirestore } from './firestore';
+import { sanitizeForFirestore } from './sanitize';
 import type { RemoteAdapter } from '../sync/engine';
 import type { Rec } from '../sync/fields';
 
