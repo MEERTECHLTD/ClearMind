@@ -22,6 +22,7 @@ class MemRepo implements AgentRepo {
     return {
       tasks: this.all('tasks'), projects: this.all('projects'), labels: this.all('labels'), sections: this.all('sections'),
       comments: this.all('comments'), completions: this.all('completions'), filters: this.all('filters'), preferences: this.coll('preferences').get('preferences') ?? null,
+      notes: this.all('notes'),
     };
   }
   async commit(_uid: string, edits: Edit[], meta: { clientId: string; mutationId: string }) {
@@ -209,5 +210,87 @@ describe('safety', () => {
     expect(p.today.completed).toBe(1);
     const iv = await ok(full, 'productivity_interval', { interval: 'this_week' });
     expect(iv.bySource).toEqual({ mcp: 1 });
+  });
+});
+
+describe('notes tools', () => {
+  let writer: AuthContext;
+  let reader: AuthContext;
+  beforeEach(async () => {
+    writer = await authenticate(repo, await issue('Vault Importer', ['notes:read', 'notes:write', 'notes:delete']), sha256, 'mcp');
+    reader = await authenticate(repo, await issue('Note Reader', ['notes:read']), sha256, 'api');
+  });
+
+  it('creates, reads, searches and lists notes with folders, links and backlinks', async () => {
+    const a = await ok(writer, 'notes_create', { title: 'Wallet architecture', folder: 'Projects/RanaWallet', content: '# Architecture #ranawallet\nUses [[Payments]] and [[Missing note]].', idempotency_key: 'imp-1' });
+    expect(a).toMatchObject({ path: 'Projects/RanaWallet/Wallet architecture', tags: ['ranawallet'], existed: false, written_by: { agent: 'Vault Importer', source: 'mcp' } });
+    // idempotent replay → same note, no duplicate
+    expect((await ok(writer, 'notes_create', { title: 'Wallet architecture', folder: 'Projects/RanaWallet', idempotency_key: 'imp-1' })).existed).toBe(true);
+    await ok(writer, 'notes_create', { title: 'Payments', folder: 'Projects/RanaWallet', content: 'Flutterwave keys. Back to [[Wallet architecture]].', properties: { status: 'draft' } });
+    // duplicate title in same folder → conflict; skip mode returns existing
+    expect((await call(writer, 'notes_create', { title: 'payments', folder: 'Projects/RanaWallet' })).ok).toBe(false);
+    expect((await ok(writer, 'notes_create', { title: 'Payments', folder: 'Projects/RanaWallet', if_exists: 'skip' })).existed).toBe(true);
+
+    const g = await ok(reader, 'notes_get', { note: 'Projects/RanaWallet/Payments' });
+    expect(g.properties).toEqual({ status: 'draft' });
+    expect(g.backlinks.map((b: any) => b.path)).toEqual(['Projects/RanaWallet/Wallet architecture']);
+    const arch = await ok(reader, 'notes_get', { note: 'Wallet architecture' });
+    expect(arch.outgoing_links.map((l: any) => [l.target, l.resolved])).toEqual([['Payments', true], ['Missing note', false]]);
+
+    const list = await ok(reader, 'notes_list', { folder: 'Projects' });
+    expect(list.total).toBe(2);
+    expect(list.folders).toEqual([{ folder: 'Projects', notes: 2 }, { folder: 'Projects/RanaWallet', notes: 2 }]);
+    expect((await ok(reader, 'notes_list', { folder: 'Projects', recursive: false })).total).toBe(0);
+    expect((await ok(reader, 'notes_search', { query: 'flutterwave' })).results.map((h: any) => h.title)).toEqual(['Payments']);
+    expect((await ok(reader, 'notes_list', { tag: 'ranawallet' })).notes.map((n: any) => n.title)).toEqual(['Wallet architecture']);
+  });
+
+  it('update: append, properties, rename rewrites links everywhere', async () => {
+    await ok(writer, 'notes_create', { title: 'Payments', content: 'v1' });
+    await ok(writer, 'notes_create', { title: 'Plan', content: 'See [[Payments#Keys|keys]] and ![[Payments]]' });
+    const u = await ok(writer, 'notes_update', { note: 'Payments', append: '- added by agent', properties: { owner: 'Ameer' } });
+    expect(u.links_updated).toBe(0);
+    let p = await ok(reader, 'notes_get', { note: 'Payments' });
+    expect(p.content).toBe('---\nowner: Ameer\n---\nv1\n- added by agent');
+    const r = await ok(writer, 'notes_update', { note: 'Payments', title: 'Payments & keys', folder: 'Finance' });
+    expect(r).toMatchObject({ path: 'Finance/Payments & keys', links_updated: 1 });
+    const plan = await ok(reader, 'notes_get', { note: 'Plan' });
+    expect(plan.content).toBe('See [[Payments & keys#Keys|keys]] and ![[Payments & keys]]');
+    expect(plan.outgoing_links.every((l: any) => l.resolved)).toBe(true);
+  });
+
+  it('daily note, import (skip/update with confirm) and delete (confirm for many)', async () => {
+    const d1 = await ok(writer, 'notes_daily', { date: '2026-10-07', append: '- 09:00 standup' });
+    expect(d1).toMatchObject({ path: 'Daily/2026-10-07', kind: 'daily', created: true });
+    const d2 = await ok(writer, 'notes_daily', { date: '2026-10-07', append: '- 14:00 review' });
+    expect(d2.created).toBe(false);
+    expect(d2.content).toBe('- 09:00 standup\n- 14:00 review');
+
+    const items = [{ title: 'A', folder: 'Vault', content: 'Links [[B]]' }, { title: 'B', folder: 'Vault', content: 'b' }];
+    const imp = await ok(writer, 'notes_import', { notes: items });
+    expect(imp.created.map((x: any) => x.path)).toEqual(['Vault/A', 'Vault/B']);
+    expect((await ok(writer, 'notes_import', { notes: items })).skipped).toEqual(['Vault/A', 'Vault/B']);
+    const upd = await call(writer, 'notes_import', { notes: [{ title: 'B', folder: 'Vault', content: 'b2' }], if_exists: 'update' });
+    expect(upd.ok).toBe(false);
+    const tok = (upd as any).error.data.confirm_token;
+    expect((await ok(writer, 'notes_import', { notes: [{ title: 'B', folder: 'Vault', content: 'b2' }], if_exists: 'update', confirm_token: tok })).updated.length).toBe(1);
+    expect((await ok(reader, 'notes_get', { note: 'Vault/B' })).content).toBe('b2');
+    expect((await ok(reader, 'notes_get', { note: 'Vault/A' })).outgoing_links[0].resolved).toBe(true);
+
+    // single delete: immediate; many: two-step
+    expect((await ok(writer, 'notes_delete', { notes: ['Vault/B'] })).deleted).toHaveLength(1);
+    const many = await call(writer, 'notes_delete', { notes: ['Vault/A', 'Daily/2026-10-07'] });
+    expect((many as any).error.code).toBe('confirm_required');
+    await ok(writer, 'notes_delete', { notes: ['Vault/A', 'Daily/2026-10-07'], confirm_token: (many as any).error.data.confirm_token });
+    expect((await ok(reader, 'notes_list', {})).total).toBe(0);
+    expect(repo.all('notes').every((n) => n.deleted)).toBe(true); // tombstones, synced to devices
+  });
+
+  it('enforces note scopes', async () => {
+    const r = await call(reader, 'notes_create', { title: 'x' });
+    expect((r as any).error.code).toBe('forbidden');
+    const r2 = await call(full, 'notes_list', {});
+    expect((r2 as any).error.code).toBe('forbidden'); // task tokens don't get notes implicitly
+    expect(toolManifest().filter((t) => t.name.startsWith('notes_')).map((t) => t.name)).toEqual(['notes_list', 'notes_get', 'notes_search', 'notes_create', 'notes_update', 'notes_daily', 'notes_import', 'notes_delete']);
   });
 });

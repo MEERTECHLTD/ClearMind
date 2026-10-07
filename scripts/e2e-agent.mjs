@@ -22,7 +22,7 @@ const uid = sign.localId;
 step(`test account ${uid}`);
 const token = `cm_${uid}_${[...randomBytes(40)].map((b) => B62[b % 62]).join('')}`;
 const hash = createHash('sha256').update(token).digest('hex');
-await db.doc(`users/${uid}/agentTokens/${hash}`).set({ name: 'E2E Claude', scopes: ['tasks:read', 'tasks:write', 'tasks:delete', 'projects:read', 'projects:write', 'productivity:read', 'bulk'], createdAt: new Date().toISOString(), prefix: token.slice(0, 7), rateLimit: 120, revoked: false });
+await db.doc(`users/${uid}/agentTokens/${hash}`).set({ name: 'E2E Claude', scopes: ['tasks:read', 'tasks:write', 'tasks:delete', 'projects:read', 'projects:write', 'productivity:read', 'bulk', 'notes:read', 'notes:write', 'notes:delete'], createdAt: new Date().toISOString(), prefix: token.slice(0, 7), rateLimit: 120, revoked: false });
 
 let failures = 0;
 const check = (cond, msg) => { if (cond) step(`PASS ${msg}`); else { failures++; console.log('✗ FAIL', msg); } };
@@ -53,6 +53,23 @@ try {
   check(prod.momentum.totalCompleted === 1, 'productivity reads authoritative events');
   const acts = await db.collection(`users/${uid}/activity`).get();
   check(acts.docs.some((a) => a.data().action === 'completed' && a.data().agent === 'E2E Claude'), 'activity attributed to the agent');
+  // Notes vault
+  const imp = await call('notes_import', { notes: [
+    { title: 'Wallet architecture', folder: 'E2E/RanaWallet', content: '# Architecture #ranawallet\nPayments live in [[Payments]].' },
+    { title: 'Payments', folder: 'E2E/RanaWallet', content: 'Flutterwave keys → see [[Wallet architecture]].' },
+  ] });
+  check(imp.created.length === 2, 'notes_import creates notes with folders');
+  const ng = await call('notes_get', { note: 'E2E/RanaWallet/Payments' });
+  check(ng.backlinks.length === 1 && ng.outgoing_links[0]?.resolved, 'notes_get returns resolved links + backlinks');
+  const nr = await call('notes_update', { note: 'Payments', title: 'Payments & keys' });
+  check(nr.links_updated === 1, 'rename rewrites links in other notes');
+  const arch = await db.collection(`users/${uid}/notes`).where('title', '==', 'Wallet architecture').get();
+  const ad = arch.docs[0]?.data();
+  check(ad?.content.includes('[[Payments & keys]]') && ad?._serverAt && ad?.agent === 'E2E Claude' && ad?.folder === 'E2E/RanaWallet', 'note docs carry content, folder, agent and server timestamp (sync-ready)');
+  const ns = await call('notes_search', { query: 'tag:#ranawallet' });
+  check(ns.total === 1 && ns.results[0].title === 'Wallet architecture', 'notes_search with tag operator');
+  const nd = await call('notes_daily', { append: '- e2e run' });
+  check(nd.created && nd.path.startsWith('Daily/'), 'notes_daily creates today’s note');
   const audits = await db.collection(`users/${uid}/agentAudit`).get();
   check(audits.size >= 7, `audit log written (${audits.size} entries)`);
   await client.close();
@@ -62,7 +79,7 @@ try {
   console.log('✗ FAIL', e.message);
 } finally {
   // Clean up everything for the throwaway account.
-  for (const c of ['tasks', 'projects', 'labels', 'sections', 'completions', 'activity', 'agentTokens', 'agentAudit', 'comments']) {
+  for (const c of ['tasks', 'projects', 'labels', 'sections', 'completions', 'activity', 'agentTokens', 'agentAudit', 'comments', 'notes']) {
     const s = await db.collection(`users/${uid}/${c}`).get();
     await Promise.all(s.docs.map((x) => x.ref.delete()));
   }

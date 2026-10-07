@@ -21,7 +21,7 @@ import {
 import { dayInZone, nowInZone } from '../tasks/time';
 import { TEMPLATES } from './templates';
 
-export type Coll = 'tasks' | 'projects' | 'labels' | 'sections' | 'comments' | 'completions' | 'activity' | 'preferences' | 'filters';
+export type Coll = 'tasks' | 'projects' | 'labels' | 'sections' | 'comments' | 'completions' | 'activity' | 'preferences' | 'filters' | 'notes';
 
 export interface DomainState {
   tasks: Task[];

@@ -41,13 +41,16 @@ export const SCOPES: ScopeInfo[] = [
   { scope: 'projects:write', label: 'Manage projects', detail: 'Create/rename/archive projects & sections' },
   { scope: 'projects:delete', label: 'Delete projects', detail: 'Removes a project and its tasks', risky: true },
   { scope: 'productivity:read', label: 'Read productivity', detail: 'Momentum, goals, streaks, history' },
+  { scope: 'notes:read', label: 'Read notes', detail: 'Notes vault: list, read, search, backlinks' },
+  { scope: 'notes:write', label: 'Write notes', detail: 'Create, edit, rename/move, import notes' },
+  { scope: 'notes:delete', label: 'Delete notes', detail: 'Remove notes (multiple needs confirmation)', risky: true },
   { scope: 'bulk', label: 'Bulk operations', detail: 'Change or delete many items at once (with confirmation)', risky: true },
 ];
 
 export const SCOPE_PRESETS: { id: string; label: string; scopes: AgentScope[] }[] = [
-  { id: 'read', label: 'Read only', scopes: ['tasks:read', 'projects:read', 'productivity:read'] },
-  { id: 'standard', label: 'Standard (no deletes)', scopes: ['tasks:read', 'tasks:write', 'projects:read', 'projects:write', 'productivity:read'] },
-  { id: 'full', label: 'Full access', scopes: ['tasks:read', 'tasks:write', 'tasks:delete', 'projects:read', 'projects:write', 'projects:delete', 'productivity:read', 'bulk'] },
+  { id: 'read', label: 'Read only', scopes: ['tasks:read', 'projects:read', 'productivity:read', 'notes:read'] },
+  { id: 'standard', label: 'Standard (no deletes)', scopes: ['tasks:read', 'tasks:write', 'projects:read', 'projects:write', 'productivity:read', 'notes:read', 'notes:write'] },
+  { id: 'full', label: 'Full access', scopes: ['tasks:read', 'tasks:write', 'tasks:delete', 'projects:read', 'projects:write', 'projects:delete', 'productivity:read', 'notes:read', 'notes:write', 'notes:delete', 'bulk'] },
 ];
 
 export const DEFAULT_RATE_LIMIT = 60; // requests per minute
