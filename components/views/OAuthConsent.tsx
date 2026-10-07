@@ -66,7 +66,7 @@ export default function OAuthConsent() {
     <div className="min-h-screen bg-slate-50 dark:bg-[#05050A] flex items-center justify-center p-4">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F1A] shadow-xl p-6">
         <div className="flex items-center gap-3 mb-5">
-          <img src="/icon-192.png" alt="" className="w-10 h-10 rounded-xl" />
+          <img src="/app-icon-256.png" alt="" className="w-10 h-10 rounded-xl" />
           <span className="text-lg font-extrabold text-slate-900 dark:text-white">ClearMind</span>
         </div>
         {children}
