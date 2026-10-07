@@ -73,10 +73,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'android.permission.RECORD_AUDIO',
       'android.permission.MODIFY_AUDIO_SETTINGS',
     ],
-    // Edge-to-edge needs the react-native-edge-to-edge package (Theme.EdgeToEdge);
-    // disabled for the skeleton build. Re-enable + `expo install react-native-edge-to-edge`
-    // for production (Android 15 / Play increasingly expects edge-to-edge).
-    edgeToEdgeEnabled: false,
+    // Edge-to-edge (react-native-edge-to-edge): mandatory on Android 16 for
+    // targetSdk 36 — the old opt-out is ignored — so draw behind the system bars
+    // everywhere and let safe-area insets pad content (Screen, tabs, sheets).
+    edgeToEdgeEnabled: true,
     adaptiveIcon: {
       foregroundImage: './assets/branding/adaptive-foreground.png',
       backgroundColor: MIDNIGHT,
@@ -98,7 +98,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ['expo-image-picker', { photosPermission: 'ClearMind lets you pick a profile photo from your library.', cameraPermission: 'ClearMind uses the camera only when you choose to take a new profile photo.', microphonePermission: false }],
     ['expo-audio', { microphonePermission: false }],
     // iOS: Google Sign-In's AppCheckCore (Swift, static) needs module maps for these.
-    ['expo-build-properties', { ios: { extraPods: [{ name: 'GoogleUtilities', modular_headers: true }, { name: 'RecaptchaInterop', modular_headers: true }] } }],
+    // Android: Google Play requires targetSdk 36 (Android 16) for new apps/updates.
+    ['expo-build-properties', {
+      android: { compileSdkVersion: 36, targetSdkVersion: 36, buildToolsVersion: '36.0.0' },
+      ios: { extraPods: [{ name: 'GoogleUtilities', modular_headers: true }, { name: 'RecaptchaInterop', modular_headers: true }] },
+    }],
     // Android home-screen widgets (see widgets/ and services/widgetData.ts).
     ['react-native-android-widget', {
       widgets: [
