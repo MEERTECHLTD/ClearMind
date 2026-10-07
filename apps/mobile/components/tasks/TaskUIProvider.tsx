@@ -4,9 +4,11 @@
  * once here means any screen can open them, and every screen reads the same
  * live task/project/label data.
  */
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Flag, Hash, Copy, Trash2, Pencil, CircleCheck, Undo2 } from 'lucide-react-native';
-import type { Label, Project } from '@clearmind/shared';
+import type { Label, Project, Comment, Preferences, SwipeAction } from '@clearmind/shared';
+import { resolvePreferences, type ResolvedPreferences } from '@clearmind/shared/domain';
+import { playCompleteSound } from '../../lib/sound';
 import { formatDueDate, priorityOf } from '@clearmind/shared/tasks';
 import { STORES } from '../../services/db';
 import { syncNow } from '../../services/sync';
@@ -14,6 +16,7 @@ import { isFirebaseConfigured } from '../../services/firebaseService';
 import { getStore } from '../../lib/collectionStore';
 import { useCollection } from '../../hooks/useCollection';
 import { useToast } from '../ui/Toast';
+import { setOpenHandler } from '../../lib/openRequests';
 import { ActionMenu } from '../ui/ActionMenu';
 import { QuickAddSheet, type QuickAddDefaults } from './QuickAddSheet';
 import { TaskDetailSheet } from './TaskDetailSheet';
@@ -31,8 +34,11 @@ interface TaskUI {
   labelMap: Map<string, Label>;
   taskMap: Map<string, MTask>;
   subtaskCounts: Map<string, { done: number; total: number }>;
+  commentCounts: Map<string, number>;
+  prefs: ResolvedPreferences;
   loading: boolean;
   error: string | null;
+  swipe: (action: SwipeAction, t: MTask) => void;
   openQuickAdd: (defaults?: QuickAddDefaults) => void;
   openTask: (id: string) => void;
   toggle: (t: MTask) => void;
@@ -58,6 +64,14 @@ export function TaskUIProvider({ children }: { children: React.ReactNode }) {
   const tasksC = useCollection<MTask>(STORES.TASKS);
   const projectsC = useCollection<Project>(STORES.PROJECTS);
   const labelsC = useCollection<Label>(STORES.LABELS);
+  const commentsC = useCollection<Comment>(STORES.COMMENTS);
+  const prefsC = useCollection<Preferences>(STORES.PREFERENCES);
+  const prefs = useMemo(() => resolvePreferences(prefsC.items[0]), [prefsC.items]);
+  const commentCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of commentsC.items) if (c.taskId && !c.deleted) m.set(c.taskId, (m.get(c.taskId) ?? 0) + 1);
+    return m;
+  }, [commentsC.items]);
   const toast = useToast();
 
   const [quickAdd, setQuickAdd] = useState<QuickAddDefaults | null>(null);
@@ -83,11 +97,12 @@ export function TaskUIProvider({ children }: { children: React.ReactNode }) {
   }, [tasks]);
 
   // Latest values for stable callbacks (keeps memoised rows from re-rendering).
-  const latest = useRef({ taskMap });
-  latest.current = { taskMap };
+  const latest = useRef({ taskMap, prefs });
+  latest.current = { taskMap, prefs };
 
   const toggle = useCallback(async (t: MTask) => {
     const fresh = latest.current.taskMap.get(t.id) ?? t;
+    if (!fresh.completed && latest.current.prefs.completeSound) playCompleteSound();
     const r = await toggleTask(fresh);
     if (r.nextDueDate) toast.show(`Done — next: ${formatDueDate(r.nextDueDate)}`, 'info', { label: 'Undo', onPress: r.undo });
     else if (r.completed) toast.show('Task completed', 'info', { label: 'Undo', onPress: r.undo });
@@ -119,10 +134,27 @@ export function TaskUIProvider({ children }: { children: React.ReactNode }) {
     menu: (t) => setOverlay({ kind: 'menu', id: t.id }),
     remove,
     refresh,
-  }), [tasks, projects, labels, projectMap, labelMap, taskMap, subtaskCounts, tasksC.loading, projectsC.loading, labelsC.loading,
+    commentCounts,
+    prefs,
+    swipe: (action, t) => {
+      if (action === 'delete') void remove(t);
+      else if (action === 'priority') setOverlay({ kind: 'priority', id: t.id });
+      else if (action === 'move') setOverlay({ kind: 'project', id: t.id });
+      else if (action === 'select') setOverlay({ kind: 'menu', id: t.id });
+    },
+  }), [tasks, projects, labels, projectMap, labelMap, taskMap, subtaskCounts, commentCounts, prefs, tasksC.loading, projectsC.loading, labelsC.loading,
     tasksC.error, projectsC.error, labelsC.error, toggle, remove, refresh]);
 
   const closeDetail = useCallback(() => setDetailId(null), []);
+
+  // Requests from notifications, widgets and deep links.
+  useEffect(() => {
+    setOpenHandler((r) => {
+      if (r.type === 'task') setDetailId(r.id);
+      else setQuickAdd({ dueDate: r.dueDate ?? null, projectId: r.projectId === undefined ? undefined : r.projectId });
+    });
+    return () => setOpenHandler(null);
+  }, []);
   const target = overlay.kind !== 'none' ? taskMap.get(overlay.id) : undefined;
   const closeOverlay = () => setOverlay({ kind: 'none' });
 
@@ -135,6 +167,7 @@ export function TaskUIProvider({ children }: { children: React.ReactNode }) {
         defaults={quickAdd ?? {}}
         projects={projects}
         labels={labels}
+        prefs={prefs}
         onClose={() => setQuickAdd(null)}
       />
 

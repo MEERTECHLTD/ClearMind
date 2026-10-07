@@ -2,22 +2,28 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
 import {
   CalendarDays, Flag, Hash, Inbox, Tag, Plus, Trash2, Copy, Ellipsis, X, ChevronLeft, Repeat, ListTree,
+  Bell, Timer, Rows3, MessageSquare, Send, Bot, History,
 } from 'lucide-react-native';
-import type { Label, Project } from '@clearmind/shared';
+import { useRouter } from 'expo-router';
+import type { Label, Project, Section, Comment } from '@clearmind/shared';
 import {
   formatDueDate, formatTime, describeRecurrence, priorityOf, subtasksOf, MONTH_SHORT,
 } from '@clearmind/shared/tasks';
 import { Sheet } from '../ui/Sheet';
 import { ActionMenu } from '../ui/ActionMenu';
-import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker } from './pickers';
+import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker, SectionPicker, RemindersPicker, DurationPicker, describeReminder } from './pickers';
 import { TaskCheckbox } from './TaskRow';
 import { C, PRIORITY_COLOR, PRIORITY_LABEL, dueColor } from './theme';
 import {
-  updateTask, createTask, createProject, createLabel, projectColor, type MTask,
+  updateTask, createTask, createProject, createLabel, projectColor, addComment, deleteComment, type MTask,
 } from '../../services/taskActions';
+import { useCollection } from '../../hooks/useCollection';
+import { STORES } from '../../services/db';
+import { useAuth } from '../../hooks/useAuth';
+import { confirmDialog } from '../ui/ConfirmDialog';
 import { T } from '../../lib/theme';
 
-type Picker = null | 'date' | 'priority' | 'project' | 'labels' | 'menu';
+type Picker = null | 'date' | 'priority' | 'project' | 'labels' | 'menu' | 'section' | 'reminders' | 'duration';
 
 function Field({ icon, label, value, color = C.ink, onPress, a11y }: {
   icon: React.ReactNode; label: string; value?: string; color?: string; onPress: () => void; a11y?: string;
@@ -78,6 +84,13 @@ export function TaskDetailSheet({
   }, [taskId, task, onClose]);
 
   const subtasks = useMemo(() => (task ? subtasksOf(tasks, task.id) : []), [tasks, task]);
+  const router = useRouter();
+  const { profile, user } = useAuth();
+  const { items: allSections } = useCollection<Section>(STORES.SECTIONS);
+  const { items: allComments } = useCollection<Comment>(STORES.COMMENTS);
+  const [commentText, setCommentText] = useState('');
+  const sections = useMemo(() => allSections.filter((x) => !x.deleted && task?.projectId && x.projectId === task.projectId).sort((a, b) => a.order - b.order), [allSections, task?.projectId]);
+  const comments = useMemo(() => allComments.filter((c) => !c.deleted && c.taskId === task?.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [allComments, task?.id]);
   const parent = task?.parentId ? tasks.find((t) => t.id === task.parentId) : null;
   const project = task?.projectId ? projects.find((p) => p.id === task.projectId) : null;
   const labelMap = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
@@ -180,6 +193,17 @@ export function TaskDetailSheet({
           onPress={() => setPicker('labels')}
         />
 
+        {sections.length ? (
+          <Field icon={<Rows3 size={18} color={C.muted} />} label="Section" value={sections.find((x) => x.id === task.sectionId)?.name ?? ''} onPress={() => setPicker('section')} />
+        ) : null}
+        <Field
+          icon={<Bell size={18} color={task.reminders?.length ? C.accent : C.muted} />}
+          label="Reminders"
+          value={(task.reminders ?? []).map(describeReminder).join(', ')}
+          onPress={() => setPicker('reminders')}
+        />
+        <Field icon={<Timer size={18} color={C.muted} />} label="Duration" value={task.duration ? (task.duration < 60 ? `${task.duration} min` : `${task.duration / 60} h`) : ''} onPress={() => setPicker('duration')} />
+
         {/* Subtasks */}
         <View className="flex-row items-center mt-5 mb-1">
           <ListTree size={16} color={C.muted} />
@@ -234,7 +258,51 @@ export function TaskDetailSheet({
           {task.createdAt ? `Created ${fmtStamp(task.createdAt)}` : ''}
           {task.completed && task.completedAt ? ` · Completed ${fmtStamp(task.completedAt)}` : ''}
           {task.taskNumber ? `  · #${task.taskNumber}` : ''}
+          {task.source ? `  · added from ${task.agent ? `${task.agent} (${task.source})` : task.source}` : ''}
         </Text>
+
+        {/* Comments / notes */}
+        <View className="flex-row items-center mt-2 mb-1">
+          <MessageSquare size={16} color={C.muted} />
+          <Text className="text-ink-muted text-xs font-semibold ml-2 flex-1">COMMENTS{comments.length ? `  ${comments.length}` : ''}</Text>
+          <Pressable onPress={() => { onClose(); router.push(`/(app)/activity${task.projectId ? `?project=${task.projectId}` : ''}`); }} hitSlop={8} className="flex-row items-center" accessibilityLabel="Open activity history">
+            <History size={14} color={C.accent} /><Text className="text-accent text-xs ml-1">Activity</Text>
+          </Pressable>
+        </View>
+        {comments.map((c) => (
+          <Pressable
+            key={c.id}
+            onLongPress={async () => { if (await confirmDialog({ title: 'Delete comment', message: c.text.slice(0, 120), confirmText: 'Delete', destructive: true })) deleteComment(c.id); }}
+            className="py-2.5 border-b border-line"
+            accessibilityHint="Long-press to delete"
+          >
+            <View className="flex-row items-center mb-0.5">
+              {c.agent ? <Bot size={12} color={C.accent} /> : null}
+              <Text className="text-ink-muted text-[11px] ml-1">{c.agent ?? c.authorName ?? 'You'} · {new Date(c.createdAt).toLocaleString()}</Text>
+            </View>
+            <Text className="text-ink text-[14px]" selectable>{c.text}</Text>
+          </Pressable>
+        ))}
+        <View className="flex-row items-end py-2 mb-6">
+          <TextInput
+            value={commentText}
+            onChangeText={setCommentText}
+            placeholder="Add a comment or note"
+            placeholderTextColor={T.faint}
+            multiline
+            className="flex-1 text-ink text-[14px] bg-midnight rounded-xl px-3 py-2.5 border border-line"
+            style={{ maxHeight: 120 }}
+            accessibilityLabel="New comment"
+          />
+          <Pressable
+            onPress={() => { const t = commentText.trim(); if (!t) return; addComment({ taskId: task.id, text: t, authorName: profile?.nickname ?? user?.displayName ?? null }); setCommentText(''); }}
+            disabled={!commentText.trim()}
+            className={`ml-2 w-10 h-10 rounded-full items-center justify-center ${commentText.trim() ? 'bg-accent' : 'bg-midnight-lighter'}`}
+            accessibilityLabel="Send comment"
+          >
+            <Send size={16} color={commentText.trim() ? '#fff' : C.faint} />
+          </Pressable>
+        </View>
       </ScrollView>
 
       <SchedulePicker
@@ -264,6 +332,9 @@ export function TaskDetailSheet({
         onChange={(ids) => updateTask(task, { labelIds: ids })}
         onCreate={(name) => createLabel({ name }).id}
       />
+      <SectionPicker visible={picker === 'section'} value={task.sectionId} sections={sections} onClose={() => setPicker(null)} onChange={(id) => updateTask(task, { sectionId: id })} />
+      <RemindersPicker visible={picker === 'reminders'} value={task.reminders ?? []} hasTime={!!task.dueTime} dueDate={task.dueDate} onClose={() => setPicker(null)} onChange={(r) => updateTask(task, { reminders: r })} />
+      <DurationPicker visible={picker === 'duration'} value={task.duration} onClose={() => setPicker(null)} onChange={(m) => updateTask(task, { duration: m })} />
       <ActionMenu
         visible={picker === 'menu'}
         onClose={() => setPicker(null)}

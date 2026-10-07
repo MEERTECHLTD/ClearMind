@@ -56,8 +56,11 @@ export default function AccountSettings() {
   const pickPhoto = async (source: 'camera' | 'library') => {
     setPhotoMenu(false);
     try {
-      const perm = source === 'camera' ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) { toast.show(source === 'camera' ? 'Camera access is needed to take a photo' : 'Photo access is needed to choose a picture', 'error'); return; }
+      // The system photo picker needs no permission; only the camera does.
+      if (source === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) { toast.show('Camera access is needed to take a photo', 'error'); return; }
+      }
       const r = source === 'camera'
         ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.9 })
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.9 });

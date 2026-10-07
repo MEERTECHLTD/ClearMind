@@ -14,6 +14,8 @@ import { T } from '../../lib/theme';
 
 export interface QuickAddDefaults {
   projectId?: string | null;
+  /** Add into this section (kept only while the project stays the same). */
+  sectionId?: string | null;
   dueDate?: string | null;
   parentId?: string | null;
   labelIds?: string[];
@@ -49,13 +51,15 @@ function Chip({ icon, text, color = C.muted, onPress, onRemove, label }: {
  * after adding so several tasks can be entered in a row.
  */
 export function QuickAddSheet({
-  visible, defaults, projects, labels, onClose,
+  visible, defaults, projects, labels, onClose, prefs,
 }: {
   visible: boolean;
   defaults: QuickAddDefaults;
   projects: Project[];
   labels: Label[];
   onClose: () => void;
+  /** Settings → Quick Add / General (parsing, defaults, date interpretation). */
+  prefs?: { quickAddParse?: boolean; smartDates?: boolean; nextWeek?: 'monday' | 'plus7'; weekend?: 'saturday' | 'sunday'; quickAddPriority?: TaskPriority; quickAddProjectId?: string | null };
 }) {
   const [text, setText] = useState('');
   const [description, setDescription] = useState('');
@@ -81,7 +85,12 @@ export function QuickAddSheet({
   }
 
   const projectRefs = useMemo(() => projects.filter((p) => !p.archived).map((p) => ({ id: p.id, title: p.title })), [projects]);
-  const parsed = useMemo(() => parseQuickAdd(text, { projects: projectRefs, labels, ignore }), [text, projectRefs, labels, ignore]);
+  const parseOn = prefs?.quickAddParse !== false;
+  const parsed = useMemo(() => {
+    if (!parseOn) return { title: text.trim(), labels: [], reminders: [], tokens: [] } as ReturnType<typeof parseQuickAdd>;
+    return parseQuickAdd(text, { projects: projectRefs, labels, ignore, smartDates: prefs?.smartDates !== false, nextWeek: prefs?.nextWeek, weekend: prefs?.weekend });
+  }, [text, projectRefs, labels, ignore, parseOn, prefs?.smartDates, prefs?.nextWeek, prefs?.weekend]);
+  const defaultProjectId = defaults.projectId !== undefined ? defaults.projectId : prefs?.quickAddProjectId && projects.some((p) => p.id === prefs.quickAddProjectId && !p.archived) ? prefs.quickAddProjectId : null;
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
 
@@ -90,8 +99,8 @@ export function QuickAddSheet({
     dueDate: schedule ? schedule.dueDate ?? null : parsed.dueDate ?? defaults.dueDate ?? null,
     dueTime: schedule ? schedule.dueTime ?? null : parsed.dueTime ?? null,
     recurrence: schedule ? schedule.recurrence ?? null : parsed.recurrence ?? null,
-    priority: priority ?? parsed.priority ?? defaults.priority ?? 'None',
-    projectId: projectId !== undefined ? projectId : parsed.projectId ?? (parsed.projectName ? undefined : defaults.projectId ?? null),
+    priority: priority ?? parsed.priority ?? defaults.priority ?? prefs?.quickAddPriority ?? 'None',
+    projectId: projectId !== undefined ? projectId : parsed.projectId ?? (parsed.projectName ? undefined : defaultProjectId ?? null),
   };
   const newProjectName = projectId === undefined && !parsed.projectId ? parsed.projectName : undefined;
   const effLabelIds = labelIds ?? [...new Set([...(defaults.labelIds ?? []), ...parsed.labels.filter((l) => l.id).map((l) => l.id!)])];
@@ -116,7 +125,12 @@ export function QuickAddSheet({
         priority: eff.priority,
         projectId: resolved.projectId,
         parentId: defaults.parentId ?? null,
+        sectionId: defaults.sectionId && resolved.projectId === defaults.projectId ? defaults.sectionId : null,
         labelIds: resolved.labelIds,
+        duration: parsed.duration ?? null,
+        reminders: parsed.reminders.length && eff.dueDate
+          ? parsed.reminders.map((r, i) => (r.minutesBefore != null ? { id: `q${i}`, type: 'relative' as const, minutesBefore: r.minutesBefore } : { id: `q${i}`, type: 'absolute' as const, at: `${eff.dueDate}T${r.time}` }))
+          : undefined,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       const where = resolved.projectId ? projectById.get(resolved.projectId)?.title ?? newProjectName ?? 'project' : 'Inbox';

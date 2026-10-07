@@ -2,7 +2,11 @@ import { useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Search as SearchIcon, X, Tag, Hash, CircleCheck } from 'lucide-react-native';
-import { searchTasks, orderedProjects } from '@clearmind/shared/tasks';
+import { orderedProjects } from '@clearmind/shared/tasks';
+import { globalSearch } from '@clearmind/shared/domain';
+import type { Section, Comment } from '@clearmind/shared';
+import { useCollection } from '../../hooks/useCollection';
+import { STORES } from '../../services/db';
 import { TaskScreen, EmptyTasks } from '../../components/tasks/TaskScreen';
 import { TaskList, taskItems, type ListItem } from '../../components/tasks/TaskList';
 import { useTaskUI } from '../../components/tasks/TaskUIProvider';
@@ -22,9 +26,11 @@ export default function SearchScreen() {
   const [withDone, setWithDone] = useState(false);
   const query = q.trim();
 
+  const { items: sections } = useCollection<Section>(STORES.SECTIONS);
+  const { items: comments } = useCollection<Comment>(STORES.COMMENTS);
   const results = useMemo(
-    () => (query ? searchTasks(ui.tasks, query, ui.projectMap, ui.labelMap, withDone) : []),
-    [ui.tasks, ui.projectMap, ui.labelMap, query, withDone]
+    () => (query ? globalSearch({ tasks: ui.tasks, projects: ui.projects, labels: ui.labels, sections, comments }, query, { includeCompleted: withDone }).tasks : []),
+    [ui.tasks, ui.projects, ui.labels, sections, comments, query, withDone]
   );
   const items = useMemo<ListItem[]>(() => taskItems(results), [results]);
 

@@ -6,7 +6,11 @@ import {
   ArrowUp, ArrowDown, FolderPlus, LayoutDashboard, CalendarDays, Sparkles, NotebookPen, Flame, Target, ScrollText,
   LayoutGrid, Flag, FolderKanban, Briefcase, GraduationCap, Network, BarChart3, MessageSquareWarning,
 } from 'lucide-react-native';
-import type { Label, Project } from '@clearmind/shared';
+import type { Label, Project, SavedFilter } from '@clearmind/shared';
+import { Star, History, LayoutTemplate, Bot, Filter as FilterIcon, Search as SearchIcon } from 'lucide-react-native';
+import { useCollection } from '../../hooks/useCollection';
+import { STORES } from '../../services/db';
+import { SavedFilterSheet } from '../../components/tasks/SavedFilterSheet';
 import { orderedProjects, openCounts } from '@clearmind/shared/tasks';
 import { Screen, ActionMenu, confirmDialog, useToast } from '../../components/ui';
 import { OfflineBanner } from '../../components/tasks/TaskScreen';
@@ -86,7 +90,14 @@ export default function BrowseScreen() {
   const [projectMenu, setProjectMenu] = useState<Project | null>(null);
   const [labelMenu, setLabelMenu] = useState<Label | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [showTools, setShowTools] = useState(true);
+  const [showTools, setShowTools] = useState(false);
+  const { items: savedFilters } = useCollection<SavedFilter>(STORES.FILTERS);
+  const [filterForm, setFilterForm] = useState<null | { initial?: SavedFilter }>(null);
+  const favorites = useMemo(() => ({
+    projects: ui.projects.filter((p) => p.favorite && !p.archived && !p.deleted),
+    labels: ui.labels.filter((l) => l.favorite && !l.deleted),
+    filters: savedFilters.filter((f) => f.favorite && !f.deleted),
+  }), [ui.projects, ui.labels, savedFilters]);
 
   const tree = useMemo(() => orderedProjects(ui.projects), [ui.projects]);
   const archived = useMemo(() => ui.projects.filter((p) => p.archived).sort((a, b) => a.title.localeCompare(b.title)), [ui.projects]);
@@ -127,6 +138,17 @@ export default function BrowseScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <NavRow icon={<Inbox size={20} color={C.accent} />} label="Inbox" count={counts.get(null)} onPress={() => router.push('/(app)/inbox')} />
         <NavRow icon={<CircleCheck size={20} color={C.success} />} label="Completed" onPress={() => router.push('/(app)/completed')} />
+        <NavRow icon={<Flame size={20} color="#F97316" />} label="Productivity" onPress={() => router.push('/(app)/productivity')} />
+        <NavRow icon={<History size={20} color={C.muted} />} label="Activity" onPress={() => router.push('/(app)/activity')} />
+
+        {favorites.projects.length + favorites.labels.length + favorites.filters.length ? (
+          <>
+            <SectionTitle title="FAVORITES" />
+            {favorites.projects.map((p) => <NavRow key={p.id} icon={<Hash size={20} color={projectColor(p)} />} label={p.title} count={counts.get(p.id)} onPress={() => router.push(`/(app)/project/${p.id}`)} onLongPress={() => setProjectMenu(p)} right={<Star size={13} color="#F59E0B" fill="#F59E0B" />} />)}
+            {favorites.labels.map((l) => <NavRow key={l.id} icon={<Tag size={18} color={l.color} />} label={l.name} count={labelCounts.get(l.id)} onPress={() => router.push(`/(app)/label/${l.id}`)} />)}
+            {favorites.filters.map((f) => <NavRow key={f.id} icon={<FilterIcon size={18} color={f.color ?? C.accent} />} label={f.name} onPress={() => router.push(`/(app)/filter/saved:${f.id}`)} />)}
+          </>
+        ) : null}
 
         <SectionTitle title="MY PROJECTS" onAdd={() => setProjectForm({})} addLabel="Add project" />
         {tree.length ? tree.map(({ project, depth }) => (
@@ -160,10 +182,18 @@ export default function BrowseScreen() {
           <Text className="text-ink-muted text-[14px] px-4 py-3">Add labels with + or “@label” in Quick Add.</Text>
         )}
 
-        <SectionTitle title="FILTERS" />
+        <SectionTitle title="FILTERS" onAdd={() => setFilterForm({})} addLabel="Add filter" />
+        {savedFilters.filter((f) => !f.deleted).map((f) => (
+          <NavRow key={f.id} icon={<FilterIcon size={18} color={f.color ?? C.accent} />} label={f.name} onPress={() => router.push(`/(app)/filter/saved:${f.id}`)} onLongPress={() => setFilterForm({ initial: f })} />
+        ))}
         {FILTERS.map((f) => (
           <NavRow key={f.id} icon={f.icon} label={f.title} onPress={() => router.push(`/(app)/filter/${f.id}`)} />
         ))}
+
+        <SectionTitle title="MORE" />
+        <NavRow icon={<LayoutTemplate size={20} color={C.accent} />} label="Project templates" onPress={() => router.push('/(app)/templates')} />
+        <NavRow icon={<Bot size={20} color={C.accent} />} label="Integrations & AI agents" onPress={() => router.push('/(app)/settings/integrations')} />
+        <NavRow icon={<SearchIcon size={20} color={C.accent} />} label="Search" onPress={() => router.push('/(app)/search')} />
 
         <SectionTitle title="CLEARMIND TOOLS" open={showTools} onToggle={() => setShowTools((x) => !x)} />
         {showTools ? TOOLS.map((t) => (
@@ -171,6 +201,7 @@ export default function BrowseScreen() {
         )) : null}
       </ScrollView>
 
+      <SavedFilterSheet visible={!!filterForm} initial={filterForm?.initial} onClose={() => setFilterForm(null)} />
       <ProjectFormSheet
         visible={!!projectForm}
         initial={projectForm?.initial}

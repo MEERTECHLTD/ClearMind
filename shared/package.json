@@ -21,7 +21,8 @@
     "./data/firestoreSync": "./data/firestoreSync.ts",
     "./tasks/time": "./tasks/time.ts",
     "./data/account": "./data/account.ts",
-    "./agents": "./agents/index.ts"
+    "./agents": "./agents/index.ts",
+    "./data/agentTokens": "./data/agentTokens.ts"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",
