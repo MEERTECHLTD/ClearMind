@@ -34,6 +34,9 @@ The token screen also shows ready-to-paste snippets for each client.
 | `projects:write` | Create / rename / archive projects and sections |
 | `projects:delete` ⚠ | Delete a project (always needs confirmation) |
 | `productivity:read` | Momentum, goals, streaks, history |
+| `notes:read` | Notes vault: list, read, search, backlinks |
+| `notes:write` | Create, edit, rename/move and import notes |
+| `notes:delete` ⚠ | Delete notes (more than one needs confirmation) |
 | `bulk` ⚠ | Bulk changes and deletes (with confirmation) |
 
 Revoke one connection, or all of them, under **Settings → Integrations** or
@@ -115,6 +118,12 @@ clearmind add "Prepare Odyssey docs friday 4pm p2 @docs"
 clearmind done <task-id>
 clearmind stats
 clearmind call tasks_list '{"query":"#RanaWallet & overdue"}'
+clearmind notes "tag:#ranawallet"            # list / search notes
+clearmind read "Projects/RanaWallet/Payments"
+echo "# Retro" | clearmind write "Sprint retro" --folder Meetings
+clearmind append "Sprint retro" "- action: rotate keys"
+clearmind daily "- 09:00 standup done"
+clearmind import ~/Obsidian/RanaWallet --into Projects/RanaWallet   # whole vault folder, 200 per batch
 ```
 
 **Environment variables**
@@ -144,6 +153,7 @@ clearmind call tasks_list '{"query":"#RanaWallet & overdue"}'
   2. `tasks_create` with `project` + `section` + `due_string:"every friday 4pm"`
 - **Weekly review:** the `weekly_review` prompt, or `productivity_summary` + `productivity_interval {interval:"last_week"}`.
 - **Find blockers:** `productivity_project {project:"RanaWallet"}` returns progress, overdue, blocked and upcoming.
+- **Notes vault:** `notes_import` brings in a folder of markdown (keeps folders; existing notes are skipped unless `if_exists:"update"`, which asks for a confirm_token). `notes_get` returns content, properties, outgoing links and backlinks; `notes_update {note, title|folder}` renames/moves and rewrites `[[links]]` in every other note; `notes_daily {append}` logs to today's daily note. Agent-written notes show up in the web vault and on mobile in real time.
 - **Filters:** `tasks_list {query:"(today | overdue) & #Work & !@waiting"}`. The full syntax is the same as saved filters in the apps: `today`, `overdue`, `no date`, `next 7 days`, `p1`, `#Project`, `##Exact`, `/Section`, `@label`, `@wait*`, `search: words`, `due before: 2026-11-01`, `created by: agent`, combined with `& | !` and parentheses.
 
 ## 7. Tool reference
@@ -189,6 +199,14 @@ clearmind call tasks_list '{"query":"#RanaWallet & overdue"}'
 | `filters_save` | tasks:write | Save a reusable filter (appears on mobile and web). |
 | `templates_list` | projects:read | Available project templates (use projects_create with template=<id>). |
 | `preferences_get` | tasks:read | Time zone, week start, daily/weekly goals and other settings that affect dates and productivity. |
+| `notes_list` | notes:read | List notes in the vault (newest first) with path, tags, link counts and an excerpt. |
+| `notes_get` | notes:read | Read one note by id, vault path ("Folder/Title"), title or alias: full markdown content, frontmatter properties, headings, outgoing [[links]] (resolved or not) and backlinks with context. |
+| `notes_search` | notes:read | Full-text search across notes with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. |
+| `notes_create` | notes:write | Create a markdown note in the vault. |
+| `notes_update` | notes:write | Edit a note: replace content, append or prepend text, merge frontmatter properties (null removes a key), bookmark, or rename/move it (title/folder) — renames rewrite [[links]] in every other note automatically. |
+| `notes_daily` | notes:write | Get (or create) the daily note for a date (default today, user time zone) in the Daily folder, optionally appending text — e.g. |
+| `notes_import` | notes:write | Create many notes at once (max 200 per call) — e.g. |
+| `notes_delete` | notes:delete | Delete notes by id/path/title (moved to trash on every device). |
 
 ## 8. Development
 

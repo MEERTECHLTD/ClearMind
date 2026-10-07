@@ -36,7 +36,7 @@ export function adminApp(): App {
   return initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
 }
 
-const COLLS = ['tasks', 'projects', 'labels', 'sections', 'comments', 'completions', 'filters', 'preferences'] as const;
+const COLLS = ['tasks', 'projects', 'labels', 'sections', 'comments', 'completions', 'filters', 'preferences', 'notes'] as const;
 
 const strip = (d: Record<string, any>) => {
   const { _serverAt, syncedAt, ...rest } = d;
@@ -57,6 +57,7 @@ export class FirestoreAgentRepo implements AgentRepo {
     return {
       tasks: data.tasks, projects: data.projects, labels: data.labels, sections: data.sections,
       comments: data.comments, completions: data.completions, filters: data.filters, preferences: prefs,
+      notes: data.notes,
     };
   }
 

@@ -17,10 +17,11 @@
  *  - Every call is audited (users/{uid}/agentAudit) and every change carries
  *    source + agent name in activity history.
  */
-import type { Task, Project, Section, Comment, Completion, Activity, AgentScope, AgentToken, AgentAudit, ChangeSource, Preferences, SavedFilter, TaskPriority } from '../types';
+import type { Task, Project, Section, Comment, Completion, Activity, AgentScope, AgentToken, AgentAudit, ChangeSource, Preferences, SavedFilter, TaskPriority, Note } from '../types';
+import * as NV from '../notes';
 import * as D from '../domain';
 import { todayView, upcomingView, inboxTasks, compareTasks, isOverdue, priorityFromLevel, toISODate, orderedProjects, projectTasks, parseQuickAdd } from '../tasks';
-import { nowInZone } from '../tasks/time';
+import { nowInZone, dayInZone } from '../tasks/time';
 import { parseToken, DEFAULT_RATE_LIMIT } from './tokens';
 
 // ------------------------------------------------------------------ repository contract
@@ -30,6 +31,8 @@ export interface FullState extends D.DomainState {
   completions: Completion[];
   filters: SavedFilter[];
   preferences: Preferences | null;
+  /** Notes vault (optional so older repos/tests keep working). */
+  notes?: Note[];
 }
 
 export interface AgentRepo {
@@ -646,8 +649,143 @@ export const TOOLS: ToolDef[] = [
       const p = D.resolvePreferences(state.preferences);
       return { result: { timezone: p.timezone ?? 'device default', weekStart: p.weekStart, dailyGoal: p.dailyGoal, weeklyGoal: p.weeklyGoal, daysOff: p.daysOff, nextWeek: p.nextWeek, weekend: p.weekend } };
     },
+  },  // ---------------------------------------------------------------- notes (vault)
+  {
+    name: 'notes_list', title: 'List notes', scopes: ['notes:read'],
+    description: 'List notes in the vault (newest first) with path, tags, link counts and an excerpt. Filter by folder (includes sub-folders unless recursive=false), tag, kind, bookmarked, or a search query (same operators as notes_search). Also returns the folder tree.',
+    input: { type: 'object', properties: { folder: S, recursive: B, tag: S, kind: { type: 'string', enum: ['note', 'daily', 'template', 'canvas'] }, bookmarked: B, query: S, include_content: B, limit: { type: 'number', description: 'Default 50, max 200' } } },
+    run: async ({ state, args }) => {
+      const index = NV.buildIndex(state.notes ?? []);
+      let list = [...index.notes];
+      if (args.folder !== undefined && args.folder !== null) {
+        const f = NV.normPath(String(args.folder));
+        list = list.filter((n) => { const nf = NV.normPath(n.folder ?? ''); return args.recursive === false ? nf === f : nf === f || nf.startsWith(f + '/'); });
+      }
+      if (args.tag) { const t = String(args.tag).replace(/^#/, '').toLowerCase(); list = list.filter((n) => (index.tagsOf.get(n.id) ?? []).some((x) => x === t || x.startsWith(t + '/'))); }
+      if (args.kind) list = list.filter((n) => (n.kind ?? 'note') === args.kind);
+      if (args.bookmarked !== undefined) list = list.filter((n) => !!n.bookmarked === !!args.bookmarked);
+      if (args.query) { const hits = new Set(NV.searchVault(index, String(args.query), 1000).map((h) => h.note.id)); list = list.filter((n) => hits.has(n.id)); }
+      list.sort((a, b) => (b.lastEdited ?? '').localeCompare(a.lastEdited ?? ''));
+      const limit = Math.min(200, Math.max(1, Number(args.limit) || 50));
+      return { result: { total: list.length, notes: list.slice(0, limit).map((n) => NV.describeNote(index, n, { content: !!args.include_content })), folders: NV.folderSummary(index) } };
+    },
+  },
+  {
+    name: 'notes_get', title: 'Get note', scopes: ['notes:read'],
+    description: 'Read one note by id, vault path ("Folder/Title"), title or alias: full markdown content, frontmatter properties, headings, outgoing [[links]] (resolved or not) and backlinks with context.',
+    input: { type: 'object', properties: { note: { type: 'string', description: 'Note id, path, title or alias' } }, required: ['note'] },
+    run: async ({ state, args }) => {
+      const index = NV.buildIndex(state.notes ?? []);
+      return { result: NV.noteDetail(index, noteRef(() => NV.requireNote(index, args.note))) };
+    },
+  },
+  {
+    name: 'notes_search', title: 'Search notes', scopes: ['notes:read'],
+    description: 'Full-text search across notes with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Returns matching lines.',
+    input: { type: 'object', properties: { query: S, limit: N }, required: ['query'] },
+    run: async ({ state, args }) => {
+      const index = NV.buildIndex(state.notes ?? []);
+      const hits = NV.searchVault(index, String(args.query), Math.min(200, Number(args.limit) || 30));
+      return { result: { total: hits.length, results: hits.map((h) => ({ ...NV.describeNote(index, h.note), matches: h.matches })) } };
+    },
+  },
+  {
+    name: 'notes_create', title: 'Create note', scopes: ['notes:write'],
+    description: 'Create a markdown note in the vault. Use [[Other note]] links and #tags in content; folders are created implicitly ("Projects/RanaWallet"). Titles must be unique per folder. Pass idempotency_key to make retries safe; if_exists="skip" returns the existing note instead of failing.',
+    input: { type: 'object', properties: { title: S, folder: S, content: { type: 'string', description: 'Markdown body (may include YAML frontmatter)' }, properties: { type: 'object', description: 'Frontmatter properties to set, e.g. {"status":"draft","tags":["idea"]}' }, kind: { type: 'string', enum: ['note', 'template', 'canvas'] }, bookmarked: B, if_exists: { type: 'string', enum: ['error', 'skip'] }, idempotency_key: S }, required: ['title'] },
+    run: async ({ state, args, ctx }) => {
+      const notes = state.notes ?? [];
+      if (args.if_exists === 'skip') {
+        const index = NV.buildIndex(notes);
+        const folder = args.folder ? String(args.folder).replace(/^\/+|\/+$/g, '') : '';
+        const hit = index.notes.find((n) => NV.normPath(NV.notePath(n)) === NV.normPath(folder ? `${folder}/${args.title}` : String(args.title)));
+        if (hit) return { result: { ...NV.describeNote(index, hit), existed: true }, summary: `note "${hit.title}" already existed` };
+      }
+      const r = noteRef(() => NV.createNoteOp(notes, { title: args.title, folder: args.folder, content: args.content, properties: args.properties, kind: args.kind, bookmarked: args.bookmarked, idempotencyKey: args.idempotency_key }, noteCtx(ctx)));
+      const index = NV.buildIndex([...notes.filter((n) => n.id !== r.note.id), r.note]);
+      return { result: { ...NV.describeNote(index, r.note), existed: r.existed }, edits: r.edits as D.Edit[], summary: r.existed ? `note "${r.note.title}" (idempotent replay)` : `created note "${NV.notePath(r.note)}"` };
+    },
+  },
+  {
+    name: 'notes_update', title: 'Update note', scopes: ['notes:write'],
+    description: 'Edit a note: replace content, append or prepend text, merge frontmatter properties (null removes a key), bookmark, or rename/move it (title/folder) — renames rewrite [[links]] in every other note automatically.',
+    input: { type: 'object', properties: { note: { type: 'string', description: 'Note id, path, title or alias' }, content: S, append: S, prepend: S, title: S, folder: { type: 'string', description: 'Destination folder ("" = vault root)' }, properties: { type: 'object' }, bookmarked: B }, required: ['note'] },
+    run: async ({ state, args, ctx }) => {
+      const r = noteRef(() => NV.updateNoteOp(state.notes ?? [], args.note, { content: args.content, append: args.append, prepend: args.prepend, title: args.title, folder: args.folder, properties: args.properties, bookmarked: args.bookmarked }, noteCtx(ctx)));
+      const index = NV.buildIndex((state.notes ?? []).map((n) => (n.id === r.note.id ? r.note : n)));
+      return { result: { ...NV.describeNote(index, r.note), links_updated: r.linksUpdated }, edits: r.edits as D.Edit[], summary: `updated note "${NV.notePath(r.note)}"${r.linksUpdated ? ` (+${r.linksUpdated} link rewrites)` : ''}` };
+    },
+  },
+  {
+    name: 'notes_daily', title: 'Daily note', scopes: ['notes:write'],
+    description: "Get (or create) the daily note for a date (default today, user time zone) in the Daily folder, optionally appending text — e.g. a log line or a meeting summary.",
+    input: { type: 'object', properties: { date: DATE, append: S }, },
+    run: async ({ state, args, ctx, now }) => {
+      const tz = state.preferences?.timezone ?? null;
+      const day = args.date ? String(args.date) : dayInZone(now, tz);
+      const [y, m, d] = day.split('-').map(Number);
+      if (!y || !m || !d) throw new AgentError('invalid', 'date must be YYYY-MM-DD');
+      const r = noteRef(() => NV.dailyNoteOp(state.notes ?? [], new Date(y, m - 1, d, 12), { append: args.append ?? null }, noteCtx(ctx)));
+      const index = NV.buildIndex([...(state.notes ?? []).filter((n) => n.id !== r.note.id), r.note]);
+      return { result: { ...NV.noteDetail(index, r.note), created: r.created }, edits: r.edits as D.Edit[], summary: `${r.created ? 'created' : 'updated'} daily note ${day}` };
+    },
+  },
+  {
+    name: 'notes_import', title: 'Import notes', scopes: ['notes:write'],
+    description: 'Create many notes at once (max 200 per call) — e.g. importing an Obsidian vault folder. Items: {title, folder?, content?, properties?}. Existing notes (same folder + title): if_exists="skip" (default) leaves them, "update" overwrites their content (two-step: returns a confirm_token first), "error" fails.',
+    input: { type: 'object', properties: { notes: { type: 'array', items: { type: 'object', properties: { title: S, folder: S, content: S, properties: { type: 'object' } }, required: ['title'] } }, if_exists: { type: 'string', enum: ['skip', 'update', 'error'] }, confirm_token: S }, required: ['notes'] },
+    run: async ({ state, args, ctx, auth, now }) => {
+      const items = Array.isArray(args.notes) ? args.notes : [];
+      if (!items.length) throw new AgentError('invalid', 'notes must be a non-empty array');
+      if (items.length > BULK_MAX) throw new AgentError('invalid', `At most ${BULK_MAX} notes per call — split the import into batches.`);
+      const mode = (args.if_exists ?? 'skip') as NV.IfExists;
+      const plan = noteRef(() => NV.importNotesOp(state.notes ?? [], items, mode, noteCtx(ctx)));
+      if (plan.updated.length) {
+        const sha = sha256Ref.fn!;
+        const ids = plan.updated.map((n) => n.id);
+        const want = [await confirmToken(sha, auth.uid, 'notes_import', ids, now.getTime()), await confirmToken(sha, auth.uid, 'notes_import', ids, now.getTime(), 1)];
+        if (!args.confirm_token || !want.includes(args.confirm_token)) {
+          throw new AgentError('confirm_required', `This import overwrites ${plan.updated.length} existing note(s). Call again with confirm_token to proceed.`, { confirm_token: want[0], overwrite: plan.updated.map((n) => NV.notePath(n)).slice(0, 20), create: plan.created.length, skip: plan.skipped.length });
+        }
+      }
+      return {
+        result: { created: plan.created.map((n) => ({ id: n.id, path: NV.notePath(n) })), updated: plan.updated.map((n) => ({ id: n.id, path: NV.notePath(n) })), skipped: plan.skipped },
+        edits: plan.edits as D.Edit[],
+        summary: `imported notes: ${plan.created.length} created, ${plan.updated.length} updated, ${plan.skipped.length} skipped`,
+      };
+    },
+  },
+  {
+    name: 'notes_delete', title: 'Delete notes', scopes: ['notes:delete'],
+    description: 'Delete notes by id/path/title (moved to trash on every device). Deleting more than one note is two-step: the first call returns a preview and confirm_token.',
+    input: { type: 'object', properties: { notes: { type: 'array', items: S, description: 'Note ids, paths or titles' }, confirm_token: S }, required: ['notes'] },
+    run: async ({ state, args, ctx, auth, now }) => {
+      const refs = (Array.isArray(args.notes) ? args.notes : [args.notes]).map(String);
+      if (!refs.length) throw new AgentError('invalid', 'notes must list at least one note');
+      if (refs.length > BULK_MAX) throw new AgentError('invalid', `At most ${BULK_MAX} notes per call.`);
+      const r = noteRef(() => NV.deleteNotesOp(state.notes ?? [], refs, noteCtx(ctx)));
+      if (r.deleted.length > 1) {
+        const sha = sha256Ref.fn!;
+        const ids = r.deleted.map((n) => n.id);
+        const want = [await confirmToken(sha, auth.uid, 'notes_delete', ids, now.getTime()), await confirmToken(sha, auth.uid, 'notes_delete', ids, now.getTime(), 1)];
+        if (!args.confirm_token || !want.includes(args.confirm_token)) {
+          throw new AgentError('confirm_required', `This deletes ${ids.length} notes. Call again with confirm_token to proceed.`, { confirm_token: want[0], notes: r.deleted.map((n) => NV.notePath(n)).slice(0, 20) });
+        }
+      }
+      return { result: { deleted: r.deleted.map((n) => ({ id: n.id, path: NV.notePath(n) })) }, edits: r.edits as D.Edit[], summary: `deleted ${r.deleted.length} note(s)` };
+    },
   },
 ];
+
+/** Run a pure note op, translating its errors to agent errors. */
+function noteRef<T>(fn: () => T): T {
+  try { return fn(); } catch (e) {
+    if (e instanceof NV.NoteOpError) throw new AgentError(e.code, e.message);
+    throw e;
+  }
+}
+const noteCtx = (ctx: D.Ctx): NV.NoteCtx => ({ now: ctx.now, source: ctx.source, agent: ctx.agent ?? null });
+
 
 // Bulk helper: resolves ids/query, enforces caps, scopes and confirmation.
 async function bulk(

@@ -401,7 +401,8 @@ export interface AgentToken {
 export type AgentScope =
   | 'tasks:read' | 'tasks:write' | 'tasks:delete'
   | 'projects:read' | 'projects:write' | 'projects:delete'
-  | 'productivity:read' | 'bulk';
+  | 'productivity:read' | 'bulk'
+  | 'notes:read' | 'notes:write' | 'notes:delete';
 
 /** Audit entry for every agent/API call (users/{uid}/agentAudit). */
 export interface AgentAudit {
@@ -432,6 +433,10 @@ export interface Note extends SyncMeta {
   /** 'canvas' notes hold JSON Canvas 1.0 in `content` (see shared/notes/canvas.ts). */
   kind?: 'note' | 'daily' | 'template' | 'canvas';
   dailyDate?: string | null;
+  /** Where the note was created/last written from (e.g. 'mcp', 'api', 'cli', 'web'). */
+  source?: ChangeSource;
+  /** Agent (token) name when written by an AI agent. */
+  agent?: string | null;
 }
 
 /**

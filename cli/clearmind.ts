@@ -17,7 +17,7 @@
  * Set CLEARMIND_LOCAL=1 to run against Firestore directly with a local service
  * account (~/.config/clearmind/service-account.json).
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -33,6 +33,12 @@ const HELP = `clearmind — your ClearMind workspace from the terminal
   clearmind search <words…>
   clearmind projects | project <name>
   clearmind stats                  Momentum, goals, streak
+  clearmind notes [query]          list notes (or search: tag:#x path:Folder "phrase")
+  clearmind read <note>            print a note (id, Folder/Title, title or alias)
+  clearmind write "<title>" [--folder F]   create a note from stdin
+  clearmind append <note> "<text>" append text to a note
+  clearmind daily ["<text>"]       today's daily note (optionally append a line)
+  clearmind import <dir> [--into F] [--update]   import a folder of .md files (Obsidian vault)
   clearmind tools                  list every tool
   clearmind call <tool> '<json>'   run any tool
 
@@ -80,6 +86,24 @@ const R = '\x1b[0m';
 const line = (t: any) => `${P[t.priority] ?? ''}●${R} ${t.title}${t.due ? `  \x1b[2m${t.due.human}${t.due.time ? ' ' + t.due.time : ''}${R}` : ''}${t.project && t.project !== 'Inbox' ? `  \x1b[36m#${t.project}${R}` : ''}  \x1b[2m${t.id}${R}`;
 const print = (title: string, tasks: any[]) => { console.log(`\x1b[1m${title}\x1b[0m (${tasks.length})`); for (const t of tasks) console.log('  ' + line(t)); };
 
+/** Every .md file under `dir` → {title, folder, content}; skips hidden dirs like .obsidian/.trash. */
+function collectMarkdown(dir: string, into: string): { title: string; folder?: string; content: string }[] {
+  const out: { title: string; folder?: string; content: string }[] = [];
+  const walk = (abs: string, rel: string) => {
+    for (const e of readdirSync(abs, { withFileTypes: true })) {
+      if (e.name.startsWith('.')) continue;
+      const p = join(abs, e.name);
+      if (e.isDirectory()) walk(p, rel ? `${rel}/${e.name}` : e.name);
+      else if (e.isFile() && e.name.toLowerCase().endsWith('.md')) {
+        const folder = [into, rel].filter(Boolean).join('/');
+        out.push({ title: e.name.replace(/\.md$/i, ''), ...(folder ? { folder } : {}), content: readFileSync(p, 'utf8') });
+      }
+    }
+  };
+  walk(dir, '');
+  return out;
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const text = rest.join(' ');
@@ -104,6 +128,48 @@ async function main() {
     case 'projects': { const r = await call('projects_list'); for (const p of r) console.log(`${'  '.repeat(p.depth)}#${p.name}  \x1b[2m${p.open} open · ${p.progress}%${p.overdue ? ` · ${p.overdue} overdue` : ''}${R}`); return; }
     case 'project': { const r = await call('projects_get', { project: text }); console.log(`\x1b[1m#${r.name}\x1b[0m  ${r.stats.progress}% · ${r.stats.open} open · ${r.stats.overdue} overdue · ${r.stats.blocked} blocked`); print('(no section)', r.no_section); for (const s of r.sections) print(s.name, s.tasks); return; }
     case 'stats': { const r = await call('productivity_summary'); console.log(`Momentum ${r.momentum.score} (${r.momentum.level}) · today ${r.today.completed}/${r.today.goal} · week ${r.week.completed}/${r.week.goal} · streak ${r.momentum.streak.current}d`); return; }
+    case 'notes': {
+      const r = text ? { notes: (await call('notes_search', { query: text, limit: 50 })).results } : await call('notes_list', { limit: 100 });
+      for (const n of r.notes) console.log(`${n.path}  \x1b[2m${n.tags.map((t: string) => '#' + t).join(' ')}${n.backlink_count ? ` · ${n.backlink_count} backlinks` : ''}${R}`);
+      if (r.folders) console.log(`\n\x1b[2m${r.total} notes · ${r.folders.length} folders${R}`);
+      return;
+    }
+    case 'read': { if (!text) fail('usage: clearmind read <note>'); const n = await call('notes_get', { note: text }); console.log(`\x1b[1m${n.path}\x1b[0m\n`); console.log(n.content); if (n.backlinks.length) console.log(`\n\x1b[2mBacklinks: ${n.backlinks.map((b: any) => b.path).join(', ')}${R}`); return; }
+    case 'write': {
+      const fi = rest.indexOf('--folder');
+      const folder = fi >= 0 ? rest[fi + 1] : undefined;
+      const title = rest.filter((_, i) => i !== fi && i !== fi + 1).join(' ');
+      if (!title) fail('usage: echo "# Body" | clearmind write "<title>" [--folder F]');
+      const content = process.stdin.isTTY ? '' : readFileSync(0, 'utf8');
+      const n = await call('notes_create', { title, folder, content });
+      console.log('Created:', n.path);
+      return;
+    }
+    case 'append': { const [ref, ...t] = rest; if (!ref || !t.length) fail('usage: clearmind append <note> "<text>"'); const n = await call('notes_update', { note: ref, append: t.join(' ') }); console.log('Updated:', n.path); return; }
+    case 'daily': { const n = await call('notes_daily', text ? { append: text } : {}); console.log(`\x1b[1m${n.path}\x1b[0m\n`); console.log(n.content); return; }
+    case 'import': {
+      const dir = rest[0];
+      if (!dir) fail('usage: clearmind import <dir> [--into Folder] [--update]');
+      const into = rest.includes('--into') ? rest[rest.indexOf('--into') + 1] : '';
+      const items = collectMarkdown(dir, into);
+      if (!items.length) fail(`No .md files found in ${dir}`);
+      const ifExists = rest.includes('--update') ? 'update' : 'skip';
+      let created = 0, updated = 0, skipped = 0;
+      for (let i = 0; i < items.length; i += 200) {
+        const batch = items.slice(i, i + 200);
+        let r: any;
+        try { r = await call('notes_import', { notes: batch, if_exists: ifExists }); }
+        catch (e: any) {
+          if (e?.data?.code !== 'confirm_required') throw e;
+          console.log(e.message); for (const p of e.data.data.overwrite ?? []) console.log('  overwrite: ' + p);
+          r = await call('notes_import', { notes: batch, if_exists: ifExists, confirm_token: e.data.data.confirm_token });
+        }
+        created += r.created.length; updated += r.updated.length; skipped += r.skipped.length;
+        console.log(`  batch ${i / 200 + 1}: +${r.created.length} created, ${r.updated.length} updated, ${r.skipped.length} skipped`);
+      }
+      console.log(`Imported ${items.length} files → ${created} created, ${updated} updated, ${skipped} skipped`);
+      return;
+    }
     case 'tools': {
       const res = await fetch(`${API}/v1/tools`, { headers: { Authorization: `Bearer ${token()}` } });
       const body: any = await res.json();

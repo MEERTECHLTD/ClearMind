@@ -4,9 +4,774 @@ import { createRequire as __cr } from "module"; const require = __cr(import.meta
 // api-src/mcp.ts
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
-// shared/tasks/dates.ts
+// shared/notes/parse.ts
+function maskCode(content, maskFrontmatter = true) {
+  const out = content.split("");
+  const blank = (a, b) => {
+    for (let i = a; i < b; i++) if (out[i] !== "\n") out[i] = " ";
+  };
+  if (maskFrontmatter) {
+    const fm = parseFrontmatter(content);
+    if (fm.raw !== null) blank(0, fm.bodyStart);
+  }
+  const fence = /^( {0,3})(`{3,}|~{3,})[^\n]*$/gm;
+  let m;
+  while (m = fence.exec(content)) {
+    const marker = m[2];
+    const close = new RegExp(`^ {0,3}${marker[0] === "`" ? "`" : "~"}{${marker.length},}\\s*$`, "gm");
+    close.lastIndex = m.index + m[0].length;
+    const c = close.exec(content);
+    const end = c ? c.index + c[0].length : content.length;
+    blank(m.index, end);
+    fence.lastIndex = end;
+  }
+  const masked = out.join("");
+  const inline = /(`+)([^`\n]|[^`\n][\s\S]*?[^`\n])\1(?!`)/g;
+  while (m = inline.exec(masked)) blank(m.index, m.index + m[0].length);
+  return out.join("");
+}
+var lineAt = (content, offset) => {
+  let n = 0;
+  for (let i = 0; i < offset && i < content.length; i++) if (content.charCodeAt(i) === 10) n++;
+  return n;
+};
+function parseScalar(v) {
+  const t = v.trim();
+  if (t === "" || t === "~" || t === "null") return null;
+  if (t === "true") return true;
+  if (t === "false") return false;
+  if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+  if (t.startsWith('"') && t.endsWith('"') || t.startsWith("'") && t.endsWith("'")) return t.slice(1, -1);
+  if (t.startsWith("[") && t.endsWith("]")) return t.slice(1, -1).split(",").map((x) => String(parseScalar(x) ?? "").trim()).filter(Boolean);
+  return t;
+}
+function parseFrontmatter(content) {
+  const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/.exec(content);
+  if (!m) return { props: {}, body: content, bodyStart: 0, raw: null };
+  const props = {};
+  let listKey = null;
+  for (const line of m[1].split(/\r?\n/)) {
+    const item = /^\s*-\s+(.*)$/.exec(line);
+    if (item && listKey) {
+      const cur = props[listKey];
+      props[listKey] = [...Array.isArray(cur) ? cur : [], String(parseScalar(item[1]) ?? "")];
+      continue;
+    }
+    const kv = /^([A-Za-z0-9_\- ]+):\s*(.*)$/.exec(line);
+    if (!kv) continue;
+    const key = kv[1].trim();
+    if (kv[2].trim() === "") {
+      props[key] = null;
+      listKey = key;
+    } else {
+      props[key] = parseScalar(kv[2]);
+      listKey = null;
+    }
+  }
+  return { props, body: content.slice(m[0].length), bodyStart: m[0].length, raw: m[1] };
+}
+var yamlValue = (v) => {
+  if (v === null) return "";
+  if (Array.isArray(v)) return v.length ? "\n" + v.map((x) => `  - ${x}`).join("\n") : "[]";
+  if (typeof v === "string" && (/^[\s]|[\s]$|^[\[{>|*&!%@`#'"]|: | #/.test(v) || v === "" || /^(true|false|null|-?\d+(\.\d+)?)$/.test(v))) return JSON.stringify(v);
+  return String(v);
+};
+function setFrontmatter(content, props) {
+  const { body } = parseFrontmatter(content);
+  const keys = Object.keys(props);
+  if (!keys.length) return body;
+  const yaml = keys.map((k) => {
+    const v = yamlValue(props[k]);
+    return v.startsWith("\n") ? `${k}:${v}` : `${k}: ${v}`.trimEnd();
+  }).join("\n");
+  return `---
+${yaml}
+---
+${body}`;
+}
+var LINK_RE = /(!?)\[\[([^\[\]\n]+?)\]\]/g;
+function parseLinkInner(inner) {
+  let s = inner;
+  let alias;
+  const pipe = s.indexOf("|");
+  if (pipe >= 0) {
+    alias = s.slice(pipe + 1).trim() || void 0;
+    s = s.slice(0, pipe);
+  }
+  let heading;
+  let block;
+  const hash = s.indexOf("#");
+  if (hash >= 0) {
+    const frag = s.slice(hash + 1).trim();
+    s = s.slice(0, hash);
+    if (frag.startsWith("^")) block = frag.slice(1);
+    else heading = frag || void 0;
+  }
+  return { target: s.trim(), heading, block, alias };
+}
+function extractLinks(content) {
+  const masked = maskCode(content);
+  const out = [];
+  let m;
+  LINK_RE.lastIndex = 0;
+  while (m = LINK_RE.exec(masked)) {
+    const inner = content.slice(m.index + m[1].length + 2, m.index + m[0].length - 2);
+    out.push({ ...parseLinkInner(inner), embed: m[1] === "!", start: m.index, end: m.index + m[0].length, line: lineAt(content, m.index) });
+  }
+  const md = /(!?)\[([^\]\n]*)\]\(([^)\s]+?\.md)(#[^)\s]*)?\)/g;
+  while (m = md.exec(masked)) {
+    const raw = content.slice(m.index, m.index + m[0].length);
+    const mm = /(!?)\[([^\]\n]*)\]\(([^)\s]+?\.md)(#[^)\s]*)?\)/.exec(raw);
+    if (/^[a-z]+:\/\//i.test(mm[3])) continue;
+    const target = decodeURIComponent(mm[3]).replace(/\.md$/i, "");
+    const frag = mm[4] ? decodeURIComponent(mm[4].slice(1)) : void 0;
+    out.push({ target, heading: frag && !frag.startsWith("^") ? frag : void 0, block: frag?.startsWith("^") ? frag.slice(1) : void 0, alias: mm[2] || void 0, embed: mm[1] === "!", start: m.index, end: m.index + m[0].length, line: lineAt(content, m.index) });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+var TAG_RE = /(^|[\s(,;!?])#([\p{L}\p{N}_\-/]*[\p{L}_\-/][\p{L}\p{N}_\-/]*)/gu;
+var normTag = (t) => t.replace(/^#/, "").replace(/\/+$/, "").trim();
+function extractTags(content) {
+  const { props } = parseFrontmatter(content);
+  const masked = maskCode(content);
+  const set = /* @__PURE__ */ new Map();
+  const add = (t) => {
+    const n = normTag(t);
+    if (n && !/^\d+$/.test(n)) {
+      const k = n.toLowerCase();
+      if (!set.has(k)) set.set(k, n);
+    }
+  };
+  let m;
+  TAG_RE.lastIndex = 0;
+  while (m = TAG_RE.exec(masked)) add(m[2]);
+  for (const key of ["tags", "tag"]) {
+    const v = props[key];
+    if (Array.isArray(v)) v.forEach((x) => String(x).split(/[ ,]+/).forEach(add));
+    else if (typeof v === "string") v.split(/[ ,]+/).forEach(add);
+  }
+  return [...set.keys()];
+}
+var tagAncestors = (tag) => tag.split("/").map((_, i, a) => a.slice(0, i + 1).join("/"));
+var slugify = (s) => s.toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu, "").replace(/\s+/g, "-");
+function extractHeadings(content) {
+  const masked = maskCode(content);
+  const out = [];
+  masked.split("\n").forEach((l, i) => {
+    const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(l);
+    if (m) out.push({ level: m[1].length, text: m[2], line: i, slug: slugify(m[2]) });
+  });
+  return out;
+}
+function plainText(content) {
+  return parseFrontmatter(content).body.replace(/```[\s\S]*?```/g, " ").replace(/!?\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_, t, a) => a || t).replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/^#{1,6}\s+/gm, "").replace(/[*_~`>]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// shared/notes/canvas.ts
+var num = (v, d = 0) => typeof v === "number" && Number.isFinite(v) ? v : d;
+var str = (v) => typeof v === "string" ? v : void 0;
+var SIDES = /* @__PURE__ */ new Set(["top", "right", "bottom", "left"]);
+function parseCanvas(content) {
+  let raw;
+  try {
+    raw = content?.trim() ? JSON.parse(content) : {};
+  } catch {
+    return { nodes: [], edges: [] };
+  }
+  const nodes = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const n of Array.isArray(raw?.nodes) ? raw.nodes : []) {
+    const id = str(n?.id);
+    if (!id || seen.has(id)) continue;
+    const base = { id, x: num(n.x), y: num(n.y), width: Math.max(20, num(n.width, 250)), height: Math.max(20, num(n.height, 60)), ...str(n.color) ? { color: n.color } : {} };
+    if (n.type === "text") nodes.push({ ...base, type: "text", text: str(n.text) ?? "" });
+    else if (n.type === "file" && str(n.file)) nodes.push({ ...base, type: "file", file: n.file, ...str(n.subpath) ? { subpath: n.subpath } : {} });
+    else if (n.type === "link" && str(n.url)) nodes.push({ ...base, type: "link", url: n.url });
+    else if (n.type === "group") nodes.push({ ...base, type: "group", ...str(n.label) ? { label: n.label } : {}, ...str(n.background) ? { background: n.background } : {}, ...str(n.backgroundStyle) ? { backgroundStyle: n.backgroundStyle } : {} });
+    else continue;
+    seen.add(id);
+  }
+  const edges = [];
+  const eSeen = /* @__PURE__ */ new Set();
+  for (const e of Array.isArray(raw?.edges) ? raw.edges : []) {
+    const id = str(e?.id);
+    if (!id || eSeen.has(id) || !seen.has(e.fromNode) || !seen.has(e.toNode)) continue;
+    eSeen.add(id);
+    edges.push({
+      id,
+      fromNode: e.fromNode,
+      toNode: e.toNode,
+      ...SIDES.has(e.fromSide) ? { fromSide: e.fromSide } : {},
+      ...SIDES.has(e.toSide) ? { toSide: e.toSide } : {},
+      ...e.fromEnd === "arrow" || e.fromEnd === "none" ? { fromEnd: e.fromEnd } : {},
+      ...e.toEnd === "arrow" || e.toEnd === "none" ? { toEnd: e.toEnd } : {},
+      ...str(e.color) ? { color: e.color } : {},
+      ...str(e.label) ? { label: e.label } : {}
+    });
+  }
+  return { nodes, edges };
+}
+function serializeCanvas(c) {
+  const round = (n) => ({ ...n, x: Math.round(n.x), y: Math.round(n.y), width: Math.round(n.width), height: Math.round(n.height) });
+  return JSON.stringify({ nodes: c.nodes.map(round), edges: c.edges }, null, "	");
+}
+function canvasLinks(content) {
+  const c = parseCanvas(content);
+  const out = [];
+  for (const n of c.nodes) {
+    if (n.type === "file") {
+      const sub = n.subpath?.replace(/^#/, "");
+      out.push({ target: n.file.replace(/\.md$/i, ""), heading: sub && !sub.startsWith("^") ? sub : void 0, block: sub?.startsWith("^") ? sub.slice(1) : void 0, embed: true });
+    } else if (n.type === "text") {
+      for (const l of extractLinks(n.text)) out.push({ target: l.target, heading: l.heading, block: l.block, alias: l.alias, embed: l.embed });
+    }
+  }
+  return out;
+}
+var canvasText = (content) => parseCanvas(content).nodes.map((n) => n.type === "text" ? n.text : n.type === "group" ? n.label ?? "" : n.type === "file" ? n.file : n.url).filter(Boolean).join("\n");
+
+// shared/notes/vault.ts
+var notePath = (n) => n.folder ? `${n.folder.replace(/\/+$/, "")}/${n.title}` : n.title;
+var normPath = (p) => p.trim().replace(/\\/g, "/").replace(/\.md$/i, "").replace(/^\/+|\/+$/g, "").replace(/\/{2,}/g, "/").toLowerCase();
+var INVALID_TITLE = /[\\/:*?"<>|#^[\]]/;
+var isValidTitle = (t) => !!t.trim() && !INVALID_TITLE.test(t);
+function aliasesOf(n) {
+  const v = parseFrontmatter(n.content).props.aliases ?? parseFrontmatter(n.content).props.alias;
+  return (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map((x) => String(x).trim()).filter(Boolean);
+}
+var attachmentPath = (a) => a.folder ? `${a.folder.replace(/\/+$/, "")}/${a.name}` : a.name;
+var isFileTarget = (target) => /\.[a-z0-9]{1,8}$/i.test(target.trim()) && !/\.md$/i.test(target.trim());
+var searchableText = (n) => n.kind === "canvas" ? canvasText(n.content) : n.content;
+var live = (notes) => notes.filter((n) => !n.deleted);
+function buildIndex(all, allAttachments = []) {
+  const notes = live(all);
+  const attachments = allAttachments.filter((a) => !a.deleted);
+  const attachmentsById = new Map(attachments.map((a) => [a.id, a]));
+  const attByPath = /* @__PURE__ */ new Map();
+  const attByName = /* @__PURE__ */ new Map();
+  for (const a of [...attachments].sort((x, y) => x.createdAt.localeCompare(y.createdAt))) {
+    if (!attByPath.has(normPath(attachmentPath(a)))) attByPath.set(normPath(attachmentPath(a)), a);
+    const k = a.name.toLowerCase();
+    attByName.set(k, [...attByName.get(k) ?? [], a]);
+  }
+  const byId = new Map(notes.map((n) => [n.id, n]));
+  const byPath = /* @__PURE__ */ new Map();
+  const byTitle = /* @__PURE__ */ new Map();
+  const byAlias = /* @__PURE__ */ new Map();
+  const ordered = [...notes].sort((a, b) => (a.createdAt ?? a.lastEdited ?? "").localeCompare(b.createdAt ?? b.lastEdited ?? "") || a.id.localeCompare(b.id));
+  for (const n of ordered) {
+    byPath.set(normPath(notePath(n)), byPath.get(normPath(notePath(n))) ?? n);
+    const t = n.title.trim().toLowerCase();
+    byTitle.set(t, [...byTitle.get(t) ?? [], n]);
+    for (const a of aliasesOf(n)) if (!byAlias.has(a.toLowerCase())) byAlias.set(a.toLowerCase(), n);
+  }
+  const resolve = (target, fromId) => {
+    const t = target.trim();
+    if (!t) return fromId ? byId.get(fromId) ?? null : null;
+    const p = normPath(t);
+    const exact = byPath.get(p);
+    if (exact) return exact;
+    const base = p.split("/").pop();
+    const titled = byTitle.get(base);
+    if (titled?.length) {
+      if (titled.length === 1 || !p.includes("/")) {
+        const from = fromId ? byId.get(fromId) : void 0;
+        return titled.find((n) => (n.folder ?? "") === (from?.folder ?? "")) ?? titled[0];
+      }
+      const suffix = titled.find((n) => normPath(notePath(n)).endsWith(p));
+      if (suffix) return suffix;
+    }
+    return byAlias.get(t.toLowerCase()) ?? null;
+  };
+  const resolveAttachment = (target, fromId) => {
+    const p = normPath(target);
+    if (!p) return null;
+    const exact = attByPath.get(p);
+    if (exact) return exact;
+    const named = attByName.get(p.split("/").pop());
+    if (!named?.length) return null;
+    const from = fromId ? byId.get(fromId) : void 0;
+    return named.find((a) => (a.folder ?? "") === (from?.folder ?? "")) ?? named.find((a) => normPath(attachmentPath(a)).endsWith(p)) ?? named[0];
+  };
+  const links = /* @__PURE__ */ new Map();
+  const backlinks = /* @__PURE__ */ new Map();
+  const unresolved = /* @__PURE__ */ new Map();
+  const tags = /* @__PURE__ */ new Map();
+  const tagsOf = /* @__PURE__ */ new Map();
+  const folders = /* @__PURE__ */ new Set();
+  const attachmentBacklinks = /* @__PURE__ */ new Map();
+  for (const n of notes) {
+    const raw = n.kind === "canvas" ? canvasLinks(n.content).map((l) => ({ ...l, start: 0, end: 0, line: 0 })) : extractLinks(n.content);
+    const out = raw.map((l) => {
+      const att = isFileTarget(l.target) ? resolveAttachment(l.target, n.id) : null;
+      const to = att ? null : resolve(l.target, n.id)?.id ?? null;
+      const toAttachment = att?.id ?? (to ? null : resolveAttachment(l.target, n.id)?.id ?? null);
+      return { ...l, from: n.id, to, toAttachment, ...n.kind === "canvas" ? { context: l.alias ?? l.target } : {} };
+    });
+    links.set(n.id, out);
+    for (const l of out) {
+      if (l.toAttachment) attachmentBacklinks.set(l.toAttachment, [...attachmentBacklinks.get(l.toAttachment) ?? [], l]);
+      else if (l.to) {
+        if (l.to !== n.id || l.target) backlinks.set(l.to, [...backlinks.get(l.to) ?? [], l]);
+      } else if (l.target) {
+        const k = normPath(l.target);
+        const u = unresolved.get(k) ?? { target: l.target, from: /* @__PURE__ */ new Set() };
+        u.from.add(n.id);
+        unresolved.set(k, u);
+      }
+    }
+    const ts = extractTags(searchableText(n));
+    tagsOf.set(n.id, ts);
+    for (const t of ts) for (const a of tagAncestors(t)) tags.set(a, (tags.get(a) ?? /* @__PURE__ */ new Set()).add(n.id));
+    if (n.folder) {
+      const parts = n.folder.split("/");
+      parts.forEach((_, i) => folders.add(parts.slice(0, i + 1).join("/")));
+    }
+  }
+  for (const a of attachments) if (a.folder) {
+    const parts = a.folder.split("/");
+    parts.forEach((_, i) => folders.add(parts.slice(0, i + 1).join("/")));
+  }
+  return { notes, byId, resolve, links, backlinks, unresolved, tags, tagsOf, folders: [...folders].sort(), attachments, attachmentsById, resolveAttachment, attachmentBacklinks };
+}
+var lineOf = (content, offset) => {
+  const a = content.lastIndexOf("\n", offset - 1) + 1;
+  const b = content.indexOf("\n", offset);
+  return { line: content.slice(0, a).split("\n").length - 1, text: content.slice(a, b < 0 ? void 0 : b).trim() };
+};
+function linkedMentions(index, noteId) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const l of index.backlinks.get(noteId) ?? []) {
+    if (l.from === noteId) continue;
+    const src = index.byId.get(l.from);
+    const { line, text } = src.kind === "canvas" ? { line: 0, text: `Canvas card: ${l.context ?? l.target}` } : lineOf(src.content, l.start);
+    groups.set(l.from, [...groups.get(l.from) ?? [], { noteId: l.from, line, text, start: l.start, end: l.end }]);
+  }
+  return [...groups].map(([id, mentions]) => ({ note: index.byId.get(id), mentions })).sort((a, b) => a.note.title.localeCompare(b.note.title));
+}
+function rewriteLinksForRename(index, noteId, next) {
+  const note = index.byId.get(noteId);
+  const changes = /* @__PURE__ */ new Map();
+  if (!note) return changes;
+  const titles = /* @__PURE__ */ new Map();
+  for (const n of index.notes) titles.set(n.title.toLowerCase(), (titles.get(n.title.toLowerCase()) ?? 0) + 1);
+  const dupes = (titles.get(next.title.toLowerCase()) ?? 0) + (next.title.toLowerCase() === note.title.toLowerCase() ? 0 : 1) > 1;
+  const newTarget = dupes ? notePath({ title: next.title, folder: next.folder ?? null }) : next.title;
+  for (const [from, ls] of index.links) {
+    const mine = ls.filter((l) => l.to === noteId && l.target);
+    if (!mine.length) continue;
+    const srcNote = index.byId.get(from);
+    if (srcNote.kind === "canvas") {
+      const out2 = rewriteCanvasLinks(srcNote.content, (target, fromText) => {
+        if (index.resolve(target, from)?.id !== noteId) return null;
+        return fromText ? newTarget : `${notePath({ title: next.title, folder: next.folder ?? null })}.md`;
+      });
+      if (out2 !== srcNote.content) changes.set(from, out2);
+      continue;
+    }
+    const src = changes.get(from) ?? srcNote.content;
+    let out = src;
+    for (const l of [...mine].sort((a, b) => b.start - a.start)) {
+      const raw = src.slice(l.start, l.end);
+      let rep;
+      if (raw.startsWith("[[") || raw.startsWith("![[")) {
+        const frag = l.heading ? `#${l.heading}` : l.block ? `#^${l.block}` : "";
+        rep = `${l.embed ? "!" : ""}[[${newTarget}${frag}${l.alias ? `|${l.alias}` : ""}]]`;
+      } else {
+        rep = raw.replace(/\]\(([^)#\s]+?)\.md/, `](${encodeURI(notePath({ title: next.title, folder: next.folder ?? null }))}.md`);
+      }
+      out = out.slice(0, l.start) + rep + out.slice(l.end);
+    }
+    if (out !== index.byId.get(from).content) changes.set(from, out);
+  }
+  return changes;
+}
+function rewriteCanvasLinks(content, map) {
+  const c = parseCanvas(content);
+  let changed = false;
+  for (const n of c.nodes) {
+    if (n.type === "file") {
+      const t = map(n.file.replace(/\.md$/i, ""), false);
+      if (t !== null && t !== n.file) {
+        n.file = t;
+        changed = true;
+      }
+    } else if (n.type === "text") {
+      const ls = extractLinks(n.text);
+      let text = n.text;
+      for (const l of [...ls].sort((a, b) => b.start - a.start)) {
+        const t = map(l.target, true);
+        if (t === null) continue;
+        const raw = text.slice(l.start, l.end);
+        if (!raw.includes("[[")) continue;
+        const frag = l.heading ? `#${l.heading}` : l.block ? `#^${l.block}` : "";
+        text = text.slice(0, l.start) + `${l.embed ? "!" : ""}[[${t}${frag}${l.alias ? `|${l.alias}` : ""}]]` + text.slice(l.end);
+      }
+      if (text !== n.text) {
+        n.text = text;
+        changed = true;
+      }
+    }
+  }
+  return changed ? serializeCanvas(c) : content;
+}
+function parseSearch(q) {
+  const groups = [[]];
+  const re = /(-?)(?:\[([^\]:]+):?([^\]]*)\]|(tag|path|file|line|content|task|task-todo|task-done):("[^"]*"|\S+)|"([^"]*)"|(\S+))/gi;
+  let m;
+  while (m = re.exec(q)) {
+    const neg = m[1] === "-";
+    if (!m[2] && !m[4] && !m[6] && m[7] === "OR") {
+      groups.push([]);
+      continue;
+    }
+    const cur = groups[groups.length - 1];
+    if (m[2]) cur.push({ field: "prop", key: m[2].trim().toLowerCase(), value: m[3].trim().replace(/^"|"$/g, "").toLowerCase(), neg });
+    else if (m[4]) cur.push({ field: m[4].toLowerCase(), value: m[5].replace(/^"|"$/g, "").replace(/^#/, "").toLowerCase(), neg });
+    else cur.push({ field: "any", value: (m[6] ?? m[7]).toLowerCase(), neg });
+  }
+  return groups.filter((g) => g.length);
+}
+function searchVault(index, q, limit = 200) {
+  const groups = parseSearch(q);
+  if (!groups.length) return [];
+  const hits = [];
+  for (const n of index.notes) {
+    const body = searchableText(n);
+    const lc = body.toLowerCase();
+    const lines = body.split("\n");
+    const title = n.title.toLowerCase();
+    const path = normPath(notePath(n));
+    const tags = index.tagsOf.get(n.id) ?? [];
+    const props = parseFrontmatter(n.content).props;
+    const matchLines = /* @__PURE__ */ new Set();
+    const test = (t) => {
+      const v = t.value;
+      switch (t.field) {
+        case "tag":
+          return tags.some((x) => x === v || x.startsWith(v + "/"));
+        case "path":
+          return path.includes(v);
+        case "file":
+          return title.includes(v);
+        case "content":
+          return lc.includes(v);
+        case "line": {
+          let ok2 = false;
+          lines.forEach((l, i) => {
+            if (l.toLowerCase().includes(v)) {
+              ok2 = true;
+              matchLines.add(i);
+            }
+          });
+          return ok2;
+        }
+        case "task":
+        case "task-todo":
+        case "task-done": {
+          let ok2 = false;
+          lines.forEach((l, i) => {
+            const m = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(l);
+            if (!m || !m[2].toLowerCase().includes(v)) return;
+            const done = m[1] !== " ";
+            if (t.field === "task" || t.field === "task-done" === done) {
+              ok2 = true;
+              matchLines.add(i);
+            }
+          });
+          return ok2;
+        }
+        case "prop": {
+          const key = Object.keys(props).find((k) => k.toLowerCase() === t.key);
+          if (!key) return false;
+          if (!v) return true;
+          const pv = props[key];
+          return (Array.isArray(pv) ? pv : [pv]).some((x) => String(x ?? "").toLowerCase().includes(v));
+        }
+        default: {
+          const inTitle = title.includes(v);
+          let inBody = false;
+          lines.forEach((l, i) => {
+            if (l.toLowerCase().includes(v)) {
+              inBody = true;
+              matchLines.add(i);
+            }
+          });
+          return inTitle || inBody;
+        }
+      }
+    };
+    const ok = groups.some((g) => g.every((t) => t.neg ? !test(t) : test(t)));
+    if (!ok) continue;
+    const positives = groups.flat().filter((t) => !t.neg && (t.field === "any" || t.field === "file"));
+    const score = positives.reduce((s, t) => s + (title === t.value ? 10 : title.startsWith(t.value) ? 6 : title.includes(t.value) ? 4 : 1), 0) + matchLines.size * 0.1;
+    hits.push({ note: n, score, matches: [...matchLines].slice(0, 5).map((i) => ({ line: i, text: lines[i].trim().slice(0, 200) })) });
+  }
+  return hits.sort((a, b) => b.score - a.score || (b.note.lastEdited ?? "").localeCompare(a.note.lastEdited ?? "")).slice(0, limit);
+}
 var pad = (n) => String(n).padStart(2, "0");
-var toISODate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+var WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function formatDate(d, fmt = "YYYY-MM-DD") {
+  const map = {
+    YYYY: String(d.getFullYear()),
+    YY: String(d.getFullYear()).slice(2),
+    MMMM: MONTHS[d.getMonth()],
+    MMM: MONTHS[d.getMonth()].slice(0, 3),
+    MM: pad(d.getMonth() + 1),
+    M: String(d.getMonth() + 1),
+    DD: pad(d.getDate()),
+    D: String(d.getDate()),
+    dddd: WEEKDAYS[d.getDay()],
+    ddd: WEEKDAYS[d.getDay()].slice(0, 3),
+    HH: pad(d.getHours()),
+    H: String(d.getHours()),
+    hh: pad(d.getHours() % 12 || 12),
+    h: String(d.getHours() % 12 || 12),
+    mm: pad(d.getMinutes()),
+    ss: pad(d.getSeconds()),
+    A: d.getHours() < 12 ? "AM" : "PM",
+    a: d.getHours() < 12 ? "am" : "pm"
+  };
+  return fmt.replace(/\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|HH|H|hh|h|mm|ss|A|a/g, (t, lit) => lit !== void 0 ? lit : map[t]);
+}
+function applyTemplateVars(text, ctx) {
+  const now = ctx.now ?? /* @__PURE__ */ new Date();
+  return text.replace(/\{\{\s*(title|date|time)(?::([^}]+))?\s*\}\}/gi, (_, k, fmt) => {
+    const key = k.toLowerCase();
+    if (key === "title") return ctx.title;
+    if (key === "date") return formatDate(now, fmt?.trim() || ctx.dateFormat || "YYYY-MM-DD");
+    return formatDate(now, fmt?.trim() || ctx.timeFormat || "HH:mm");
+  });
+}
+var dailyTitle = (date, s = {}) => formatDate(date, s.format || "YYYY-MM-DD");
+function prepareNote(n, now = /* @__PURE__ */ new Date()) {
+  const iso2 = now.toISOString();
+  return {
+    ...n,
+    title: n.title.trim(),
+    content: n.content,
+    tags: extractTags(n.content),
+    folder: n.folder ? n.folder.replace(/^\/+|\/+$/g, "") || null : null,
+    createdAt: n.createdAt ?? iso2,
+    lastEdited: iso2
+  };
+}
+var excerpt = (n, len = 160) => plainText(searchableText(n)).slice(0, len);
+
+// shared/notes/ops.ts
+var NoteOpError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+};
+var live2 = (notes) => notes.filter((n) => !n.deleted);
+var cleanFolder = (f) => f ? f.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").replace(/\/{2,}/g, "/") || null : null;
+function noteIdFromKey(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  let h2 = 16777619;
+  for (let i = key.length - 1; i >= 0; i--) {
+    h2 ^= key.charCodeAt(i);
+    h2 = Math.imul(h2, 2166136261) >>> 0;
+  }
+  return `note-k${h.toString(36)}${h2.toString(36)}`;
+}
+var newNoteId = (now) => `note-${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function validate(title, folder) {
+  if (!isValidTitle(title)) throw new NoteOpError("invalid", 'Note titles can\u2019t be empty or contain \\ / : * ? " < > | # ^ [ ]');
+  if (title.length > 200) throw new NoteOpError("invalid", "Title is too long (max 200 characters)");
+  if (folder && folder.split("/").some((p) => !isValidTitle(p))) throw new NoteOpError("invalid", `Invalid folder "${folder}"`);
+}
+var clash = (notes, title, folder, exceptId) => live2(notes).find((n) => n.id !== exceptId && (n.folder ?? null) === folder && n.title.trim().toLowerCase() === title.trim().toLowerCase());
+var stamp = (ctx) => ({ ...ctx.source ? { source: ctx.source } : {}, ...ctx.agent !== void 0 ? { agent: ctx.agent } : {} });
+function findNote(index, ref) {
+  const r = String(ref ?? "").trim();
+  if (!r) return null;
+  return index.byId.get(r) ?? index.notes.find((n) => normPath(notePath(n)) === normPath(r)) ?? index.resolve(r);
+}
+function requireNote(index, ref) {
+  const n = findNote(index, ref);
+  if (!n) throw new NoteOpError("not_found", `No note matches "${ref}"`);
+  return n;
+}
+function mergeProperties(content, props) {
+  const cur = parseFrontmatter(content).props;
+  const next = { ...cur };
+  for (const [k, v] of Object.entries(props)) {
+    if (v === null || v === void 0) delete next[k];
+    else next[k] = v;
+  }
+  return setFrontmatter(content, next);
+}
+function createNoteOp(notes, input, ctx = {}) {
+  const now = ctx.now ?? /* @__PURE__ */ new Date();
+  const title = String(input.title ?? "").trim();
+  const folder = cleanFolder(input.folder);
+  if (input.idempotencyKey) {
+    const id2 = noteIdFromKey(`note:${input.idempotencyKey}`);
+    const prior = notes.find((n) => n.id === id2 && !n.deleted);
+    if (prior) return { note: prior, edits: [], existed: true };
+  }
+  validate(title, folder);
+  if (clash(notes, title, folder)) throw new NoteOpError("conflict", `A note "${notePath({ title, folder })}" already exists`);
+  let content = input.content ?? "";
+  if (input.properties && Object.keys(input.properties).length) content = mergeProperties(content, input.properties);
+  const id = input.idempotencyKey ? noteIdFromKey(`note:${input.idempotencyKey}`) : newNoteId(now);
+  const note = prepareNote({ id, title, folder, content, kind: input.kind ?? "note", dailyDate: input.dailyDate ?? null, bookmarked: !!input.bookmarked, ...stamp(ctx) }, now);
+  return { note, edits: [{ coll: "notes", id, edit: { ...note, deleted: false } }], existed: false };
+}
+function updateNoteOp(notes, ref, input, ctx = {}) {
+  const now = ctx.now ?? /* @__PURE__ */ new Date();
+  const index = buildIndex(notes);
+  const n = requireNote(index, ref);
+  let content = n.content;
+  if (input.content !== void 0) content = String(input.content);
+  if (input.prepend) {
+    const fm = parseFrontmatter(content);
+    content = content.slice(0, fm.bodyStart) + input.prepend.replace(/\n*$/, "\n") + content.slice(fm.bodyStart);
+  }
+  if (input.append) content = content.replace(/\n*$/, content.trim() ? "\n" : "") + input.append;
+  if (input.properties) content = mergeProperties(content, input.properties);
+  const title = input.title !== void 0 ? String(input.title).trim() : n.title;
+  const folder = input.folder !== void 0 ? cleanFolder(input.folder) : n.folder ?? null;
+  const renamed = title !== n.title || folder !== (n.folder ?? null);
+  const edits = [];
+  let linksUpdated = 0;
+  if (renamed) {
+    validate(title, folder);
+    if (clash(notes, title, folder, n.id)) throw new NoteOpError("conflict", `A note "${notePath({ title, folder })}" already exists`);
+    const changes = rewriteLinksForRename(index, n.id, { title, folder });
+    for (const [id, c] of changes) {
+      if (id === n.id) {
+        if (input.content === void 0) content = rewriteSelf(c, content, n.content);
+        continue;
+      }
+      const other = index.byId.get(id);
+      const next2 = prepareNote({ ...other, content: c }, now);
+      edits.push({ coll: "notes", id, edit: { content: next2.content, tags: next2.tags, lastEdited: next2.lastEdited, ...stamp(ctx) } });
+      linksUpdated++;
+    }
+  }
+  const next = prepareNote({ ...n, title, folder, content, ...input.bookmarked !== void 0 ? { bookmarked: input.bookmarked } : {}, ...stamp(ctx) }, now);
+  const edit = { title: next.title, folder: next.folder ?? null, content: next.content, tags: next.tags, lastEdited: next.lastEdited, ...stamp(ctx) };
+  if (input.bookmarked !== void 0) edit.bookmarked = !!input.bookmarked;
+  edits.unshift({ coll: "notes", id: n.id, edit });
+  return { note: next, edits, linksUpdated };
+}
+function rewriteSelf(rewrittenOriginal, edited, original) {
+  return edited === original ? rewrittenOriginal : edited;
+}
+function deleteNotesOp(notes, refs, ctx = {}) {
+  const now = (ctx.now ?? /* @__PURE__ */ new Date()).toISOString();
+  const index = buildIndex(notes);
+  const found = [...new Map(refs.map((r) => requireNote(index, r)).map((n) => [n.id, n])).values()];
+  return { deleted: found, edits: found.map((n) => ({ coll: "notes", id: n.id, edit: { deleted: true, deletedAt: now, ...stamp(ctx) } })) };
+}
+function dailyNoteOp(notes, date, opts = {}, ctx = {}) {
+  const iso2 = formatDate(date, "YYYY-MM-DD");
+  const folder = opts.folder === void 0 ? "Daily" : cleanFolder(opts.folder);
+  const title = dailyTitle(date, { format: opts.format });
+  const existing = live2(notes).find((n) => n.kind === "daily" && n.dailyDate === iso2) ?? clash(notes, title, folder);
+  if (existing) {
+    if (!opts.append) return { note: existing, edits: [], created: false };
+    const r2 = updateNoteOp(notes, existing.id, { append: opts.append }, ctx);
+    return { note: r2.note, edits: r2.edits, created: false };
+  }
+  const body = opts.template ? applyTemplateVars(opts.template, { title, now: date }) : "";
+  const content = opts.append ? (body ? body.replace(/\n*$/, "\n") : "") + opts.append : body;
+  const r = createNoteOp(notes, { title, folder, content, kind: "daily", dailyDate: iso2 }, ctx);
+  return { note: r.note, edits: r.edits, created: true };
+}
+function importNotesOp(notes, items, ifExists, ctx = {}) {
+  let state = [...notes];
+  const created = [], updated = [], skipped = [];
+  const edits = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const it of items) {
+    const title = String(it.title ?? "").trim();
+    const folder = cleanFolder(it.folder);
+    const key = normPath(notePath({ title, folder }));
+    if (seen.has(key)) throw new NoteOpError("invalid", `Duplicate item in import: "${notePath({ title, folder })}"`);
+    seen.add(key);
+    const existing = clash(state, title, folder);
+    if (existing) {
+      if (ifExists === "skip") {
+        skipped.push(notePath({ title, folder }));
+        continue;
+      }
+      if (ifExists === "error") throw new NoteOpError("conflict", `"${notePath({ title, folder })}" already exists (use if_exists: "skip" or "update")`);
+      let content = it.content ?? existing.content;
+      if (it.properties) content = mergeProperties(content, it.properties);
+      const next = prepareNote({ ...existing, content, ...stamp(ctx) }, ctx.now);
+      edits.push({ coll: "notes", id: existing.id, edit: { content: next.content, tags: next.tags, lastEdited: next.lastEdited, ...stamp(ctx) } });
+      updated.push(next);
+      state = state.map((n) => n.id === next.id ? next : n);
+      continue;
+    }
+    const r = createNoteOp(state, { title, folder, content: it.content, properties: it.properties }, ctx);
+    created.push(r.note);
+    edits.push(...r.edits);
+    state.push(r.note);
+  }
+  return { created, updated, skipped, edits };
+}
+function describeNote(index, n, opts = {}) {
+  const out = index.links.get(n.id) ?? [];
+  return {
+    id: n.id,
+    title: n.title,
+    folder: n.folder ?? null,
+    path: notePath(n),
+    kind: n.kind ?? "note",
+    tags: index.tagsOf.get(n.id) ?? n.tags ?? [],
+    bookmarked: !!n.bookmarked,
+    created_at: n.createdAt ?? null,
+    updated_at: n.lastEdited ?? null,
+    ...n.agent ? { written_by: { agent: n.agent, source: n.source ?? null } } : {},
+    backlink_count: (index.backlinks.get(n.id) ?? []).filter((l) => l.from !== n.id).length,
+    outgoing_link_count: out.filter((l) => l.target).length,
+    ...opts.content ? { content: n.content } : { excerpt: excerpt(n, 200) }
+  };
+}
+function noteDetail(index, n) {
+  const out = index.links.get(n.id) ?? [];
+  const fm = parseFrontmatter(n.content);
+  return {
+    ...describeNote(index, n, { content: true }),
+    properties: fm.props,
+    headings: n.kind === "canvas" ? [] : extractHeadings(n.content).map((h) => ({ level: h.level, text: h.text })),
+    outgoing_links: out.filter((l) => l.target).map((l) => ({
+      target: l.target,
+      heading: l.heading ?? null,
+      embed: l.embed,
+      note_id: l.to,
+      path: l.to ? notePath(index.byId.get(l.to)) : null,
+      attachment_id: l.toAttachment ?? null,
+      resolved: !!(l.to || l.toAttachment)
+    })),
+    backlinks: linkedMentions(index, n.id).map((g) => ({ note_id: g.note.id, path: notePath(g.note), lines: g.mentions.map((m) => m.text).slice(0, 5) }))
+  };
+}
+function folderSummary(index) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const n of index.notes) {
+    const parts = (n.folder ?? "").split("/").filter(Boolean);
+    for (let i = 1; i <= parts.length; i++) {
+      const f = parts.slice(0, i).join("/");
+      counts.set(f, (counts.get(f) ?? 0) + 1);
+    }
+  }
+  return index.folders.map((f) => ({ folder: f, notes: counts.get(f) ?? 0 }));
+}
+
+// shared/tasks/dates.ts
+var pad2 = (n) => String(n).padStart(2, "0");
+var toISODate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 function parseISODate(s) {
   if (!s) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -187,12 +952,12 @@ function describeRecurrence(rule) {
 // shared/tasks/quickAdd.ts
 var WD = "mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?";
 var MONTH = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
-var MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+var MONTHS2 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 var WDS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 var NUM_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 var wdIndex = (s) => WDS.indexOf(s.toLowerCase().slice(0, 3));
-var monthIndex = (s) => MONTHS.indexOf(s.toLowerCase().slice(0, 3));
-var pad2 = (n) => String(n).padStart(2, "0");
+var monthIndex = (s) => MONTHS2.indexOf(s.toLowerCase().slice(0, 3));
+var pad3 = (n) => String(n).padStart(2, "0");
 var toNum = (s) => /^\d+$/.test(s) ? Number(s) : NUM_WORDS[s.toLowerCase()] ?? NaN;
 var B = "(^|\\s)";
 var E = "(?=$|\\s|[,.;!?])";
@@ -265,7 +1030,7 @@ function parseQuickAdd(input, ctx = {}) {
       h = h === 12 ? pm ? 12 : 0 : pm ? h + 12 : h;
     } else if (!m[2]) return false;
     if (h > 23 || min > 59) return false;
-    result.reminders.push({ time: `${pad2(h)}:${pad2(min)}` });
+    result.reminders.push({ time: `${pad3(h)}:${pad3(min)}` });
     return true;
   });
   if (smart) take("duration", `for\\s+(\\d+(?:\\.\\d+)?)\\s*(m|min|mins|minutes?|h|hr|hrs|hours?)`, (m) => {
@@ -326,7 +1091,7 @@ function parseQuickAdd(input, ctx = {}) {
   if (smart) {
     const setTime = (h, min) => {
       if (h < 0 || h > 23 || min < 0 || min > 59) return false;
-      result.dueTime = `${pad2(h)}:${pad2(min)}`;
+      result.dueTime = `${pad3(h)}:${pad3(min)}`;
       return true;
     };
     const AT = "(?:at\\s+)?";
@@ -629,7 +1394,7 @@ function get(list, id, what) {
   if (!x) throw new DomainError("not_found", `${what} ${id} not found`);
   return x;
 }
-var live = (list) => (list ?? []).filter((x) => !x.deleted);
+var live3 = (list) => (list ?? []).filter((x) => !x.deleted);
 function activity(state, ctx, a) {
   const at = iso(ctx);
   return {
@@ -742,7 +1507,7 @@ function updateTask(state, id, patch, ctx) {
 function completeTask(state, id, ctx) {
   const t = get(state.tasks, id, "Task");
   if (t.completed) return { edits: [], result: { task: t, nextDueDate: null } };
-  const stamp = iso(ctx);
+  const stamp2 = iso(ctx);
   const nowLocal = localNow(state, ctx);
   const day = dayInZone(ctx.now ?? /* @__PURE__ */ new Date(), tz(state, ctx));
   const rule = normalizeRecurrence(t.recurrence);
@@ -757,7 +1522,7 @@ function completeTask(state, id, ctx) {
       projectId: task2.projectId ?? null,
       priority: priorityOf(task2),
       occurrence,
-      completedAt: stamp,
+      completedAt: stamp2,
       day,
       wasOverdue: isOverdue(task2, nowLocal),
       source: ctx.source,
@@ -774,10 +1539,10 @@ function completeTask(state, id, ctx) {
     for (const s of subs) if (s.completed) edits.push({ coll: "tasks", id: s.id, edit: { completed: false, completedAt: null } });
   } else {
     edits.push(completion(t));
-    edits.push({ coll: "tasks", id, edit: { completed: true, completedAt: stamp } });
+    edits.push({ coll: "tasks", id, edit: { completed: true, completedAt: stamp2 } });
     for (const s of subs) if (!s.completed) {
       edits.push(completion(s));
-      edits.push({ coll: "tasks", id: s.id, edit: { completed: true, completedAt: stamp } });
+      edits.push({ coll: "tasks", id: s.id, edit: { completed: true, completedAt: stamp2 } });
     }
   }
   edits.push(fixId(activity(state, ctx, { entity: "task", entityId: id, action: "completed", title: t.title, projectId: t.projectId ?? null, details: nextDueDate ? { next: nextDueDate } : null })));
@@ -809,7 +1574,7 @@ function deleteTask(state, id, ctx) {
   const t = get(state.tasks, id, "Task");
   const ids = [id, ...descendantIds(state.tasks, id)];
   const edits = ids.map((x) => ({ coll: "tasks", id: x, edit: { deleted: true } }));
-  for (const c of live(state.comments)) if (c.taskId && ids.includes(c.taskId)) edits.push({ coll: "comments", id: c.id, edit: { deleted: true } });
+  for (const c of live3(state.comments)) if (c.taskId && ids.includes(c.taskId)) edits.push({ coll: "comments", id: c.id, edit: { deleted: true } });
   edits.push(fixId(activity(state, ctx, { entity: "task", entityId: id, action: "deleted", title: t.title, projectId: t.projectId ?? null, details: ids.length > 1 ? { subtasks: ids.length - 1 } : null })));
   return { edits, result: { ids } };
 }
@@ -854,8 +1619,8 @@ function captureInbox(state, text, ctx, opts = {}) {
   }
   const p = parseQuickAdd(trimmed, {
     now: localNow(state, ctx),
-    projects: live(state.projects).filter((x) => !x.archived).map((x) => ({ id: x.id, title: x.title })),
-    labels: live(state.labels),
+    projects: live3(state.projects).filter((x) => !x.archived).map((x) => ({ id: x.id, title: x.title })),
+    labels: live3(state.labels),
     smartDates: prefs?.smartDates !== false,
     nextWeek: prefs?.nextWeek,
     weekend: prefs?.weekend
@@ -919,7 +1684,7 @@ function createProject(state, input, ctx) {
   const id = input.idempotencyKey ? idFromKey(`project:${input.idempotencyKey}`, "p") : newId(ctx);
   const existing = state.projects.find((p2) => p2.id === id && !p2.deleted);
   if (existing) return { edits: [], result: existing };
-  const all = live(state.projects);
+  const all = live3(state.projects);
   const p = {
     id,
     title,
@@ -965,9 +1730,9 @@ function deleteProject(state, id, ctx) {
   const ids = new Set(projectSubtree(state.projects, id));
   const edits = [];
   for (const pid of ids) edits.push({ coll: "projects", id: pid, edit: { deleted: true } });
-  const tasks = live(state.tasks).filter((t) => t.projectId && ids.has(t.projectId));
+  const tasks = live3(state.tasks).filter((t) => t.projectId && ids.has(t.projectId));
   for (const t of tasks) edits.push({ coll: "tasks", id: t.id, edit: { deleted: true } });
-  for (const s of live(state.sections)) if (ids.has(s.projectId)) edits.push({ coll: "sections", id: s.id, edit: { deleted: true } });
+  for (const s of live3(state.sections)) if (ids.has(s.projectId)) edits.push({ coll: "sections", id: s.id, edit: { deleted: true } });
   edits.push(fixId(activity(state, ctx, { entity: "project", entityId: id, action: "deleted", title: p.title, projectId: id, details: { tasks: tasks.length, subprojects: ids.size - 1 } })));
   return { edits, result: { projects: ids.size, tasks: tasks.length } };
 }
@@ -978,7 +1743,7 @@ function createSection(state, input, ctx) {
   const id = input.idempotencyKey ? idFromKey(`section:${input.idempotencyKey}`, "s") : newId(ctx);
   const existing = state.sections.find((s2) => s2.id === id && !s2.deleted);
   if (existing) return { edits: [], result: existing };
-  const siblings = live(state.sections).filter((s2) => s2.projectId === input.projectId);
+  const siblings = live3(state.sections).filter((s2) => s2.projectId === input.projectId);
   const s = { id, projectId: input.projectId, name, order: siblings.reduce((m, x) => Math.max(m, x.order), 0) + 1, collapsed: false, archived: false };
   return { edits: [{ coll: "sections", id, edit: s }, fixId(activity(state, ctx, { entity: "section", entityId: id, action: "created", title: name, projectId: input.projectId }))], result: s };
 }
@@ -988,16 +1753,16 @@ function updateSection(state, id, patch) {
   return { edits: [{ coll: "sections", id, edit: { ...patch, ...patch.name ? { name: patch.name.trim() } : {} } }], result: { ...cur, ...patch } };
 }
 function reorderSections(state, projectId, orderedIds) {
-  const valid = new Set(live(state.sections).filter((s) => s.projectId === projectId).map((s) => s.id));
+  const valid = new Set(live3(state.sections).filter((s) => s.projectId === projectId).map((s) => s.id));
   for (const id of orderedIds) if (!valid.has(id)) throw new DomainError("invalid", `section ${id} is not in project ${projectId}`);
   return { edits: orderedIds.map((id, i) => ({ coll: "sections", id, edit: { order: i + 1 } })), result: null };
 }
 function createLabel(state, input, ctx) {
   const name = input.name?.trim().replace(/^[@%]/, "").replace(/\s+/g, "_");
   if (!name || name.length > 60) throw new DomainError("invalid", "label name must be 1\u201360 characters");
-  const dupe = live(state.labels).find((l2) => l2.name.toLowerCase() === name.toLowerCase());
+  const dupe = live3(state.labels).find((l2) => l2.name.toLowerCase() === name.toLowerCase());
   if (dupe) return { edits: [], result: dupe };
-  const all = live(state.labels);
+  const all = live3(state.labels);
   const id = idFromKey(`label:${name.toLowerCase()}`, "l");
   const l = { id, name, color: input.color ?? LIST_COLORS[(all.length + 5) % LIST_COLORS.length].hex, order: all.length + 1 };
   return { edits: [{ coll: "labels", id, edit: l }], result: l };
@@ -1208,7 +1973,7 @@ var LEVELS = [
   { name: "Masterful", min: 5e3 },
   { name: "Legendary", min: 1e4 }
 ];
-var live2 = (cs) => cs.filter((c) => !c.deleted);
+var live4 = (cs) => cs.filter((c) => !c.deleted);
 function weekStartDate(day, weekStart) {
   const delta = (day.getDay() - weekStart + 7) % 7;
   return addDays(day, -delta);
@@ -1247,7 +2012,7 @@ function resolveInterval(iv, prefs, now = /* @__PURE__ */ new Date()) {
 }
 function countsByDay(completions) {
   const m = /* @__PURE__ */ new Map();
-  for (const c of live2(completions)) m.set(c.day, (m.get(c.day) ?? 0) + 1);
+  for (const c of live4(completions)) m.set(c.day, (m.get(c.day) ?? 0) + 1);
   return m;
 }
 var isRestDay = (iso2, prefs) => {
@@ -1289,7 +2054,7 @@ function daySummary(input, day) {
   const prefs = input.preferences;
   const now = input.now ?? /* @__PURE__ */ new Date();
   const d = day ?? dayInZone(now, prefs?.timezone ?? null);
-  const cs = live2(input.completions).filter((c) => c.day === d);
+  const cs = live4(input.completions).filter((c) => c.day === d);
   const goal = prefs?.dailyGoal ?? DEFAULT_DAILY_GOAL;
   const localNow2 = nowInZone(prefs?.timezone ?? null, now);
   const open = input.tasks.filter((t) => !t.deleted && !t.completed);
@@ -1310,7 +2075,7 @@ function weekSummary(input, which = "this_week") {
   const prevRange = resolveInterval(which === "this_week" ? "last_week" : { from: toISODate(addDays(parseISODate(from), -7)), to: toISODate(addDays(parseISODate(from), -1)) }, prefs, now);
   const byDay = countsByDay(input.completions);
   const highByDay = /* @__PURE__ */ new Map();
-  for (const c of live2(input.completions)) if (c.priority === "High") highByDay.set(c.day, (highByDay.get(c.day) ?? 0) + 1);
+  for (const c of live4(input.completions)) if (c.priority === "High") highByDay.set(c.day, (highByDay.get(c.day) ?? 0) + 1);
   const goalD = prefs?.dailyGoal ?? DEFAULT_DAILY_GOAL;
   const days = [];
   for (let x = parseISODate(from); toISODate(x) <= to; x = addDays(x, 1)) {
@@ -1327,7 +2092,7 @@ function weekSummary(input, which = "this_week") {
 }
 function intervalSummary(input, iv) {
   const r = resolveInterval(iv, input.preferences, input.now);
-  const cs = live2(input.completions).filter((c) => c.day >= r.from && c.day <= r.to);
+  const cs = live4(input.completions).filter((c) => c.day >= r.from && c.day <= r.to);
   const byProject = /* @__PURE__ */ new Map();
   for (const c of cs) byProject.set(c.projectId ?? null, (byProject.get(c.projectId ?? null) ?? 0) + 1);
   return {
@@ -1343,7 +2108,7 @@ function intervalSummary(input, iv) {
 function momentum(input) {
   const prefs = input.preferences;
   const now = input.now ?? /* @__PURE__ */ new Date();
-  const cs = live2(input.completions);
+  const cs = live4(input.completions);
   let points = 0;
   for (const c of cs) points += POINTS[c.priority ?? "None"] + (c.wasOverdue ? 0 : 1);
   const byDay = countsByDay(cs);
@@ -1413,7 +2178,7 @@ function projectStats(projectIds, input) {
   const open = tasks.filter((t) => !t.completed);
   const done = tasks.filter((t) => t.completed);
   const blockedSections = new Set((input.sections ?? []).filter((s) => /block|waiting|on hold/i.test(s.name)).map((s) => s.id));
-  const cs = live2(input.completions).filter((c) => c.projectId && ids.has(c.projectId));
+  const cs = live4(input.completions).filter((c) => c.projectId && ids.has(c.projectId));
   const total = tasks.length;
   return {
     total,
@@ -1590,11 +2355,11 @@ function lookups(s) {
     sections: new Map(s.sections.filter((x) => !x.deleted).map((x) => [x.id, x]))
   };
 }
-var live3 = (xs) => xs.filter((x) => !x.deleted);
+var live5 = (xs) => xs.filter((x) => !x.deleted);
 function resolveProject(s, ref) {
   if (ref === void 0) return void 0;
   if (ref === null || ref === "" || /^inbox$/i.test(ref)) return null;
-  const ps = live3(s.projects);
+  const ps = live5(s.projects);
   const p = ps.find((x) => x.id === ref) ?? ps.find((x) => x.title.toLowerCase() === ref.replace(/^#/, "").toLowerCase());
   if (!p) throw new AgentError("not_found", `Project "${ref}" not found. Use projects_list to see names.`);
   return p;
@@ -1602,7 +2367,7 @@ function resolveProject(s, ref) {
 function resolveSection(s, projectId, ref) {
   if (ref === void 0) return void 0;
   if (ref === null || ref === "") return null;
-  const sec = live3(s.sections).find((x) => x.id === ref) ?? live3(s.sections).find((x) => x.name.toLowerCase() === ref.replace(/^\//, "").toLowerCase() && (!projectId || x.projectId === projectId));
+  const sec = live5(s.sections).find((x) => x.id === ref) ?? live5(s.sections).find((x) => x.name.toLowerCase() === ref.replace(/^\//, "").toLowerCase() && (!projectId || x.projectId === projectId));
   if (!sec) throw new AgentError("not_found", `Section "${ref}" not found${projectId ? " in that project" : ""}.`);
   return sec;
 }
@@ -1612,7 +2377,7 @@ function resolveLabels(s, names, ctx, edits) {
   const ids = [];
   for (const n of names) {
     const clean = n.replace(/^[@%]/, "");
-    const hit = live3(state.labels).find((l) => l.id === n || l.name.toLowerCase() === clean.toLowerCase());
+    const hit = live5(state.labels).find((l) => l.id === n || l.name.toLowerCase() === clean.toLowerCase());
     if (hit) {
       ids.push(hit.id);
       continue;
@@ -1713,7 +2478,7 @@ var TOOLS = [
     input: { type: "object", properties: { limit: N } },
     run: async ({ state, args, now }) => {
       const lk = lookups(state);
-      const items = inboxTasks(live3(state.tasks), lk.projects).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, args.limit ?? 100);
+      const items = inboxTasks(live5(state.tasks), lk.projects).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, args.limit ?? 100);
       return { result: { count: items.length, items: items.map(describe(state, now)) } };
     }
   },
@@ -1741,7 +2506,7 @@ var TOOLS = [
     run: async ({ state, args, now }) => {
       const t = getTask(state, args.id);
       const d = describe(state, now);
-      return { result: { ...d(t), subtasks: state.tasks.filter((x) => x.parentId === t.id && !x.deleted).map(d), comments: live3(state.comments).filter((c) => c.taskId === t.id).map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, source: c.source, agent: c.agent })) } };
+      return { result: { ...d(t), subtasks: state.tasks.filter((x) => x.parentId === t.id && !x.deleted).map(d), comments: live5(state.comments).filter((c) => c.taskId === t.id).map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, source: c.source, agent: c.agent })) } };
     }
   },
   {
@@ -1751,7 +2516,7 @@ var TOOLS = [
     description: 'List tasks, optionally filtered by project, section, label, priority or a filter query (e.g. "p1 & #Work & !@waiting", "overdue | today", "no date"). Open tasks only unless include_completed.',
     input: { type: "object", properties: { project: S, section: S, label: S, priority: PRIORITY, query: { type: "string", description: "Filter query language" }, include_completed: B2, limit: N } },
     run: async ({ state, args, now }) => {
-      let ts = live3(state.tasks).filter((t) => args.include_completed || !t.completed);
+      let ts = live5(state.tasks).filter((t) => args.include_completed || !t.completed);
       if (args.project !== void 0) {
         const p = resolveProject(state, args.project);
         ts = ts.filter((t) => (t.projectId ?? null) === (p?.id ?? null));
@@ -1761,7 +2526,7 @@ var TOOLS = [
         ts = ts.filter((t) => t.sectionId === sec.id);
       }
       if (args.label) {
-        const l = live3(state.labels).find((x) => x.name.toLowerCase() === String(args.label).replace(/^@/, "").toLowerCase());
+        const l = live5(state.labels).find((x) => x.name.toLowerCase() === String(args.label).replace(/^@/, "").toLowerCase());
         ts = l ? ts.filter((t) => (t.labelIds ?? []).includes(l.id)) : [];
       }
       if (args.priority) ts = ts.filter((t) => (t.priority ?? "None") === toPriority(args.priority));
@@ -1916,7 +2681,7 @@ var TOOLS = [
     input: { type: "object", properties: {} },
     run: async ({ state, now }) => {
       const local = nowInZone(state.preferences?.timezone ?? null, now);
-      const v = todayView(live3(state.tasks), local);
+      const v = todayView(live5(state.tasks), local);
       const d = describe(state, local);
       const day = daySummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now });
       return { result: { date: toISODate(local), overdue: v.overdue.map(d), today: v.today.map(d), completed_today: day.completed, daily_goal: day.goal } };
@@ -1931,7 +2696,7 @@ var TOOLS = [
     run: async ({ state, args, now }) => {
       const local = nowInZone(state.preferences?.timezone ?? null, now);
       const d = describe(state, local);
-      const groups = upcomingView(live3(state.tasks), local, Math.min(args.days ?? 7, 60)).filter((g) => g.tasks.length);
+      const groups = upcomingView(live5(state.tasks), local, Math.min(args.days ?? 7, 60)).filter((g) => g.tasks.length);
       return { result: { days: groups.map((g) => ({ date: g.date, tasks: g.tasks.map(d) })) } };
     }
   },
@@ -1943,7 +2708,7 @@ var TOOLS = [
     input: { type: "object", properties: {} },
     run: async ({ state, now }) => {
       const local = nowInZone(state.preferences?.timezone ?? null, now);
-      const ts = live3(state.tasks).filter((t) => isOverdue(t, local)).sort(compareTasks);
+      const ts = live5(state.tasks).filter((t) => isOverdue(t, local)).sort(compareTasks);
       return { result: { count: ts.length, tasks: ts.map(describe(state, local)) } };
     }
   },
@@ -1955,7 +2720,7 @@ var TOOLS = [
     description: "All projects (nested order) with open task counts and progress.",
     input: { type: "object", properties: { include_archived: B2 } },
     run: async ({ state, args }) => {
-      const list = orderedProjects(live3(state.projects), !!args.include_archived);
+      const list = orderedProjects(live5(state.projects), !!args.include_archived);
       return { result: list.map(({ project: p, depth }) => {
         const st = projectStats([p.id], { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections });
         return { id: p.id, name: p.title, parent_id: p.parentId ?? null, depth, color: p.color, favorite: !!p.favorite, archived: !!p.archived, open: st.open, overdue: st.overdue, progress: st.progress };
@@ -1972,8 +2737,8 @@ var TOOLS = [
       const p = resolveProject(state, args.project);
       if (!p) throw new AgentError("invalid", "Pass a project name or id.");
       const d = describe(state, now);
-      const secs = live3(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
-      const open = projectTasks(live3(state.tasks), p.id);
+      const secs = live5(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
+      const open = projectTasks(live5(state.tasks), p.id);
       const stats = projectStats([p.id], { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections, now });
       const acts = (await repo2.recentActivity(auth.uid, 300)).filter((a) => a.projectId === p.id).slice(0, 20);
       return { result: {
@@ -1984,7 +2749,7 @@ var TOOLS = [
         stats,
         no_section: open.filter((t) => !t.sectionId).map(d),
         sections: secs.map((s) => ({ id: s.id, name: s.name, tasks: open.filter((t) => t.sectionId === s.id).map(d) })),
-        completed: args.include_completed ? live3(state.tasks).filter((t) => t.projectId === p.id && t.completed).map(d) : void 0,
+        completed: args.include_completed ? live5(state.tasks).filter((t) => t.projectId === p.id && t.completed).map(d) : void 0,
         recent_activity: acts.map((a) => ({ at: a.at, action: a.action, title: a.title, source: a.source, agent: a.agent, details: a.details }))
       } };
     }
@@ -2035,7 +2800,7 @@ var TOOLS = [
     run: async ({ state, args, ctx, auth, now }) => {
       const p = resolveProject(state, args.project);
       const ids = projectSubtree(state.projects, p.id);
-      const tasks = live3(state.tasks).filter((t) => t.projectId && ids.includes(t.projectId));
+      const tasks = live5(state.tasks).filter((t) => t.projectId && ids.includes(t.projectId));
       const sha = sha256Ref.fn;
       const want = [await confirmToken(sha, auth.uid, "projects_delete", ids, now.getTime()), await confirmToken(sha, auth.uid, "projects_delete", ids, now.getTime(), 1)];
       if (!args.confirm_token || !want.includes(args.confirm_token)) {
@@ -2053,8 +2818,8 @@ var TOOLS = [
     input: { type: "object", properties: { project: S }, required: ["project"] },
     run: async ({ state, args }) => {
       const p = resolveProject(state, args.project);
-      const secs = live3(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
-      return { result: secs.map((s) => ({ id: s.id, name: s.name, open: live3(state.tasks).filter((t) => t.sectionId === s.id && !t.completed).length })) };
+      const secs = live5(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
+      return { result: secs.map((s) => ({ id: s.id, name: s.name, open: live5(state.tasks).filter((t) => t.sectionId === s.id && !t.completed).length })) };
     }
   },
   {
@@ -2081,7 +2846,7 @@ var TOOLS = [
       const edits = [];
       if (args.name) edits.push(...updateSection(state, sec.id, { name: args.name }).edits);
       if (typeof args.position === "number") {
-        const ids = live3(state.sections).filter((s) => s.projectId === sec.projectId).sort((a, b) => a.order - b.order).map((s) => s.id).filter((id) => id !== sec.id);
+        const ids = live5(state.sections).filter((s) => s.projectId === sec.projectId).sort((a, b) => a.order - b.order).map((s) => s.id).filter((id) => id !== sec.id);
         ids.splice(Math.max(0, Math.min(args.position, ids.length)), 0, sec.id);
         edits.push(...reorderSections(state, sec.projectId, ids).edits);
       }
@@ -2094,7 +2859,7 @@ var TOOLS = [
     scopes: ["tasks:read"],
     description: "All labels with open task counts.",
     input: { type: "object", properties: {} },
-    run: async ({ state }) => ({ result: live3(state.labels).map((l) => ({ id: l.id, name: l.name, color: l.color, open: live3(state.tasks).filter((t) => !t.completed && (t.labelIds ?? []).includes(l.id)).length })) })
+    run: async ({ state }) => ({ result: live5(state.labels).map((l) => ({ id: l.id, name: l.name, color: l.color, open: live5(state.tasks).filter((t) => !t.completed && (t.labelIds ?? []).includes(l.id)).length })) })
   },
   {
     name: "labels_create",
@@ -2127,7 +2892,7 @@ var TOOLS = [
     input: { type: "object", properties: { task_id: S, project: S } },
     run: async ({ state, args }) => {
       const proj = args.project ? resolveProject(state, args.project) : null;
-      const cs = live3(state.comments).filter((c) => args.task_id ? c.taskId === args.task_id : proj ? c.projectId === proj.id && !c.taskId : false);
+      const cs = live5(state.comments).filter((c) => args.task_id ? c.taskId === args.task_id : proj ? c.projectId === proj.id && !c.taskId : false);
       return { result: cs.map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, source: c.source, agent: c.agent })) };
     }
   },
@@ -2196,7 +2961,7 @@ var TOOLS = [
     scopes: ["tasks:read"],
     description: "Saved filters/views and the filter query syntax.",
     input: { type: "object", properties: {} },
-    run: async ({ state }) => ({ result: { filters: live3(state.filters).map((f) => ({ id: f.id, name: f.name, query: f.query })), syntax: 'Terms: today, tomorrow, overdue, "no date", "this week", "next 7 days", recurring, p1\u2013p4, #Project, ##Project (exact), /Section, @label, search: words, completed, subtask, assigned, "due before: YYYY-MM-DD", "created by: mcp". Operators: & | ! and parentheses.' } })
+    run: async ({ state }) => ({ result: { filters: live5(state.filters).map((f) => ({ id: f.id, name: f.name, query: f.query })), syntax: 'Terms: today, tomorrow, overdue, "no date", "this week", "next 7 days", recurring, p1\u2013p4, #Project, ##Project (exact), /Section, @label, search: words, completed, subtask, assigned, "due before: YYYY-MM-DD", "created by: mcp". Operators: & | ! and parentheses.' } })
   },
   {
     name: "filters_save",
@@ -2232,14 +2997,174 @@ var TOOLS = [
       const p = resolvePreferences(state.preferences);
       return { result: { timezone: p.timezone ?? "device default", weekStart: p.weekStart, dailyGoal: p.dailyGoal, weeklyGoal: p.weeklyGoal, daysOff: p.daysOff, nextWeek: p.nextWeek, weekend: p.weekend } };
     }
+  },
+  // ---------------------------------------------------------------- notes (vault)
+  {
+    name: "notes_list",
+    title: "List notes",
+    scopes: ["notes:read"],
+    description: "List notes in the vault (newest first) with path, tags, link counts and an excerpt. Filter by folder (includes sub-folders unless recursive=false), tag, kind, bookmarked, or a search query (same operators as notes_search). Also returns the folder tree.",
+    input: { type: "object", properties: { folder: S, recursive: B2, tag: S, kind: { type: "string", enum: ["note", "daily", "template", "canvas"] }, bookmarked: B2, query: S, include_content: B2, limit: { type: "number", description: "Default 50, max 200" } } },
+    run: async ({ state, args }) => {
+      const index = buildIndex(state.notes ?? []);
+      let list = [...index.notes];
+      if (args.folder !== void 0 && args.folder !== null) {
+        const f = normPath(String(args.folder));
+        list = list.filter((n) => {
+          const nf = normPath(n.folder ?? "");
+          return args.recursive === false ? nf === f : nf === f || nf.startsWith(f + "/");
+        });
+      }
+      if (args.tag) {
+        const t = String(args.tag).replace(/^#/, "").toLowerCase();
+        list = list.filter((n) => (index.tagsOf.get(n.id) ?? []).some((x) => x === t || x.startsWith(t + "/")));
+      }
+      if (args.kind) list = list.filter((n) => (n.kind ?? "note") === args.kind);
+      if (args.bookmarked !== void 0) list = list.filter((n) => !!n.bookmarked === !!args.bookmarked);
+      if (args.query) {
+        const hits = new Set(searchVault(index, String(args.query), 1e3).map((h) => h.note.id));
+        list = list.filter((n) => hits.has(n.id));
+      }
+      list.sort((a, b) => (b.lastEdited ?? "").localeCompare(a.lastEdited ?? ""));
+      const limit = Math.min(200, Math.max(1, Number(args.limit) || 50));
+      return { result: { total: list.length, notes: list.slice(0, limit).map((n) => describeNote(index, n, { content: !!args.include_content })), folders: folderSummary(index) } };
+    }
+  },
+  {
+    name: "notes_get",
+    title: "Get note",
+    scopes: ["notes:read"],
+    description: 'Read one note by id, vault path ("Folder/Title"), title or alias: full markdown content, frontmatter properties, headings, outgoing [[links]] (resolved or not) and backlinks with context.',
+    input: { type: "object", properties: { note: { type: "string", description: "Note id, path, title or alias" } }, required: ["note"] },
+    run: async ({ state, args }) => {
+      const index = buildIndex(state.notes ?? []);
+      return { result: noteDetail(index, noteRef(() => requireNote(index, args.note))) };
+    }
+  },
+  {
+    name: "notes_search",
+    title: "Search notes",
+    scopes: ["notes:read"],
+    description: 'Full-text search across notes with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Returns matching lines.',
+    input: { type: "object", properties: { query: S, limit: N }, required: ["query"] },
+    run: async ({ state, args }) => {
+      const index = buildIndex(state.notes ?? []);
+      const hits = searchVault(index, String(args.query), Math.min(200, Number(args.limit) || 30));
+      return { result: { total: hits.length, results: hits.map((h) => ({ ...describeNote(index, h.note), matches: h.matches })) } };
+    }
+  },
+  {
+    name: "notes_create",
+    title: "Create note",
+    scopes: ["notes:write"],
+    description: 'Create a markdown note in the vault. Use [[Other note]] links and #tags in content; folders are created implicitly ("Projects/RanaWallet"). Titles must be unique per folder. Pass idempotency_key to make retries safe; if_exists="skip" returns the existing note instead of failing.',
+    input: { type: "object", properties: { title: S, folder: S, content: { type: "string", description: "Markdown body (may include YAML frontmatter)" }, properties: { type: "object", description: 'Frontmatter properties to set, e.g. {"status":"draft","tags":["idea"]}' }, kind: { type: "string", enum: ["note", "template", "canvas"] }, bookmarked: B2, if_exists: { type: "string", enum: ["error", "skip"] }, idempotency_key: S }, required: ["title"] },
+    run: async ({ state, args, ctx }) => {
+      const notes = state.notes ?? [];
+      if (args.if_exists === "skip") {
+        const index2 = buildIndex(notes);
+        const folder = args.folder ? String(args.folder).replace(/^\/+|\/+$/g, "") : "";
+        const hit = index2.notes.find((n) => normPath(notePath(n)) === normPath(folder ? `${folder}/${args.title}` : String(args.title)));
+        if (hit) return { result: { ...describeNote(index2, hit), existed: true }, summary: `note "${hit.title}" already existed` };
+      }
+      const r = noteRef(() => createNoteOp(notes, { title: args.title, folder: args.folder, content: args.content, properties: args.properties, kind: args.kind, bookmarked: args.bookmarked, idempotencyKey: args.idempotency_key }, noteCtx(ctx)));
+      const index = buildIndex([...notes.filter((n) => n.id !== r.note.id), r.note]);
+      return { result: { ...describeNote(index, r.note), existed: r.existed }, edits: r.edits, summary: r.existed ? `note "${r.note.title}" (idempotent replay)` : `created note "${notePath(r.note)}"` };
+    }
+  },
+  {
+    name: "notes_update",
+    title: "Update note",
+    scopes: ["notes:write"],
+    description: "Edit a note: replace content, append or prepend text, merge frontmatter properties (null removes a key), bookmark, or rename/move it (title/folder) \u2014 renames rewrite [[links]] in every other note automatically.",
+    input: { type: "object", properties: { note: { type: "string", description: "Note id, path, title or alias" }, content: S, append: S, prepend: S, title: S, folder: { type: "string", description: 'Destination folder ("" = vault root)' }, properties: { type: "object" }, bookmarked: B2 }, required: ["note"] },
+    run: async ({ state, args, ctx }) => {
+      const r = noteRef(() => updateNoteOp(state.notes ?? [], args.note, { content: args.content, append: args.append, prepend: args.prepend, title: args.title, folder: args.folder, properties: args.properties, bookmarked: args.bookmarked }, noteCtx(ctx)));
+      const index = buildIndex((state.notes ?? []).map((n) => n.id === r.note.id ? r.note : n));
+      return { result: { ...describeNote(index, r.note), links_updated: r.linksUpdated }, edits: r.edits, summary: `updated note "${notePath(r.note)}"${r.linksUpdated ? ` (+${r.linksUpdated} link rewrites)` : ""}` };
+    }
+  },
+  {
+    name: "notes_daily",
+    title: "Daily note",
+    scopes: ["notes:write"],
+    description: "Get (or create) the daily note for a date (default today, user time zone) in the Daily folder, optionally appending text \u2014 e.g. a log line or a meeting summary.",
+    input: { type: "object", properties: { date: DATE, append: S } },
+    run: async ({ state, args, ctx, now }) => {
+      const tz2 = state.preferences?.timezone ?? null;
+      const day = args.date ? String(args.date) : dayInZone(now, tz2);
+      const [y, m, d] = day.split("-").map(Number);
+      if (!y || !m || !d) throw new AgentError("invalid", "date must be YYYY-MM-DD");
+      const r = noteRef(() => dailyNoteOp(state.notes ?? [], new Date(y, m - 1, d, 12), { append: args.append ?? null }, noteCtx(ctx)));
+      const index = buildIndex([...(state.notes ?? []).filter((n) => n.id !== r.note.id), r.note]);
+      return { result: { ...noteDetail(index, r.note), created: r.created }, edits: r.edits, summary: `${r.created ? "created" : "updated"} daily note ${day}` };
+    }
+  },
+  {
+    name: "notes_import",
+    title: "Import notes",
+    scopes: ["notes:write"],
+    description: 'Create many notes at once (max 200 per call) \u2014 e.g. importing an Obsidian vault folder. Items: {title, folder?, content?, properties?}. Existing notes (same folder + title): if_exists="skip" (default) leaves them, "update" overwrites their content (two-step: returns a confirm_token first), "error" fails.',
+    input: { type: "object", properties: { notes: { type: "array", items: { type: "object", properties: { title: S, folder: S, content: S, properties: { type: "object" } }, required: ["title"] } }, if_exists: { type: "string", enum: ["skip", "update", "error"] }, confirm_token: S }, required: ["notes"] },
+    run: async ({ state, args, ctx, auth, now }) => {
+      const items = Array.isArray(args.notes) ? args.notes : [];
+      if (!items.length) throw new AgentError("invalid", "notes must be a non-empty array");
+      if (items.length > BULK_MAX) throw new AgentError("invalid", `At most ${BULK_MAX} notes per call \u2014 split the import into batches.`);
+      const mode = args.if_exists ?? "skip";
+      const plan = noteRef(() => importNotesOp(state.notes ?? [], items, mode, noteCtx(ctx)));
+      if (plan.updated.length) {
+        const sha = sha256Ref.fn;
+        const ids = plan.updated.map((n) => n.id);
+        const want = [await confirmToken(sha, auth.uid, "notes_import", ids, now.getTime()), await confirmToken(sha, auth.uid, "notes_import", ids, now.getTime(), 1)];
+        if (!args.confirm_token || !want.includes(args.confirm_token)) {
+          throw new AgentError("confirm_required", `This import overwrites ${plan.updated.length} existing note(s). Call again with confirm_token to proceed.`, { confirm_token: want[0], overwrite: plan.updated.map((n) => notePath(n)).slice(0, 20), create: plan.created.length, skip: plan.skipped.length });
+        }
+      }
+      return {
+        result: { created: plan.created.map((n) => ({ id: n.id, path: notePath(n) })), updated: plan.updated.map((n) => ({ id: n.id, path: notePath(n) })), skipped: plan.skipped },
+        edits: plan.edits,
+        summary: `imported notes: ${plan.created.length} created, ${plan.updated.length} updated, ${plan.skipped.length} skipped`
+      };
+    }
+  },
+  {
+    name: "notes_delete",
+    title: "Delete notes",
+    scopes: ["notes:delete"],
+    description: "Delete notes by id/path/title (moved to trash on every device). Deleting more than one note is two-step: the first call returns a preview and confirm_token.",
+    input: { type: "object", properties: { notes: { type: "array", items: S, description: "Note ids, paths or titles" }, confirm_token: S }, required: ["notes"] },
+    run: async ({ state, args, ctx, auth, now }) => {
+      const refs = (Array.isArray(args.notes) ? args.notes : [args.notes]).map(String);
+      if (!refs.length) throw new AgentError("invalid", "notes must list at least one note");
+      if (refs.length > BULK_MAX) throw new AgentError("invalid", `At most ${BULK_MAX} notes per call.`);
+      const r = noteRef(() => deleteNotesOp(state.notes ?? [], refs, noteCtx(ctx)));
+      if (r.deleted.length > 1) {
+        const sha = sha256Ref.fn;
+        const ids = r.deleted.map((n) => n.id);
+        const want = [await confirmToken(sha, auth.uid, "notes_delete", ids, now.getTime()), await confirmToken(sha, auth.uid, "notes_delete", ids, now.getTime(), 1)];
+        if (!args.confirm_token || !want.includes(args.confirm_token)) {
+          throw new AgentError("confirm_required", `This deletes ${ids.length} notes. Call again with confirm_token to proceed.`, { confirm_token: want[0], notes: r.deleted.map((n) => notePath(n)).slice(0, 20) });
+        }
+      }
+      return { result: { deleted: r.deleted.map((n) => ({ id: n.id, path: notePath(n) })) }, edits: r.edits, summary: `deleted ${r.deleted.length} note(s)` };
+    }
   }
 ];
+function noteRef(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    if (e instanceof NoteOpError) throw new AgentError(e.code, e.message);
+    throw e;
+  }
+}
+var noteCtx = (ctx) => ({ now: ctx.now, source: ctx.source, agent: ctx.agent ?? null });
 async function bulk(x, tool, op, opts = {}) {
   const { state, args, auth, now, ctx } = x;
   let ids = Array.isArray(args.ids) ? args.ids.map(String) : [];
   if (!ids.length && args.query) {
     try {
-      ids = runFilter(live3(state.tasks), args.query, { projects: state.projects, labels: state.labels, sections: state.sections, now }).map((t) => t.id);
+      ids = runFilter(live5(state.tasks), args.query, { projects: state.projects, labels: state.labels, sections: state.sections, now }).map((t) => t.id);
     } catch (e) {
       throw new AgentError("invalid", `Bad filter query: ${e.message}`);
     }
@@ -2468,7 +3393,7 @@ function adminApp() {
   if (path) return initializeApp({ credential: cert(JSON.parse(readFileSync(path, "utf8"))) });
   return initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
 }
-var COLLS = ["tasks", "projects", "labels", "sections", "comments", "completions", "filters", "preferences"];
+var COLLS = ["tasks", "projects", "labels", "sections", "comments", "completions", "filters", "preferences", "notes"];
 var strip = (d) => {
   const { _serverAt, syncedAt, ...rest } = d;
   return rest;
@@ -2492,7 +3417,8 @@ var FirestoreAgentRepo = class {
       comments: data.comments,
       completions: data.completions,
       filters: data.filters,
-      preferences: prefs
+      preferences: prefs,
+      notes: data.notes
     };
   }
   async commit(uid, edits, meta) {
