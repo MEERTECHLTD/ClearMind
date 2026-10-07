@@ -2301,6 +2301,24 @@ function parseToken(token) {
   if (!/^[A-Za-z0-9]{20,128}$/.test(uid) || !/^[A-Za-z0-9]{32,}$/.test(secret)) return null;
   return { uid, secret };
 }
+var SCOPES = [
+  { scope: "tasks:read", label: "Read tasks", detail: "Inbox, Today, Upcoming, search, comments" },
+  { scope: "tasks:write", label: "Create & edit tasks", detail: "Capture, update, complete, move, comment" },
+  { scope: "tasks:delete", label: "Delete tasks", detail: "Single deletes (bulk needs \u201CBulk\u201D)", risky: true },
+  { scope: "projects:read", label: "Read projects", detail: "Projects, sections, labels, progress" },
+  { scope: "projects:write", label: "Manage projects", detail: "Create/rename/archive projects & sections" },
+  { scope: "projects:delete", label: "Delete projects", detail: "Removes a project and its tasks", risky: true },
+  { scope: "productivity:read", label: "Read productivity", detail: "Momentum, goals, streaks, history" },
+  { scope: "notes:read", label: "Read notes", detail: "Notes vault: list, read, search, backlinks" },
+  { scope: "notes:write", label: "Write notes", detail: "Create, edit, rename/move, import notes" },
+  { scope: "notes:delete", label: "Delete notes", detail: "Remove notes (multiple needs confirmation)", risky: true },
+  { scope: "bulk", label: "Bulk operations", detail: "Change or delete many items at once (with confirmation)", risky: true }
+];
+var SCOPE_PRESETS = [
+  { id: "read", label: "Read only", scopes: ["tasks:read", "projects:read", "productivity:read", "notes:read"] },
+  { id: "standard", label: "Standard (no deletes)", scopes: ["tasks:read", "tasks:write", "projects:read", "projects:write", "productivity:read", "notes:read", "notes:write"] },
+  { id: "full", label: "Full access", scopes: ["tasks:read", "tasks:write", "tasks:delete", "projects:read", "projects:write", "projects:delete", "productivity:read", "notes:read", "notes:write", "notes:delete", "bulk"] }
+];
 var DEFAULT_RATE_LIMIT = 60;
 
 // shared/agents/tools.ts
@@ -3148,6 +3166,85 @@ var TOOLS = [
       }
       return { result: { deleted: r.deleted.map((n) => ({ id: n.id, path: notePath(n) })) }, edits: r.edits, summary: `deleted ${r.deleted.length} note(s)` };
     }
+  },
+  // ---------------------------------------------------------------- ChatGPT connector contract
+  // ChatGPT's connectors (deep research / company knowledge) require exactly
+  // `search` and `fetch` with these shapes; Claude and other clients can use them too.
+  {
+    name: "search",
+    title: "Search ClearMind",
+    scopes: [],
+    description: "Search the user's ClearMind tasks, projects and notes. Returns result ids to pass to `fetch` for the full text.",
+    input: { type: "object", properties: { query: { type: "string", description: "What to look for" } }, required: ["query"] },
+    run: async ({ state, args, auth, now }) => {
+      const canTasks = auth.token.scopes.includes("tasks:read");
+      const canNotes = auth.token.scopes.includes("notes:read");
+      if (!canTasks && !canNotes) throw new AgentError("forbidden", "This token can read neither tasks nor notes.");
+      const q = String(args.query ?? "").trim();
+      const results = [];
+      const origin = "https://clearmind.meertech.tech";
+      if (canNotes) {
+        const index = buildIndex(state.notes ?? []);
+        for (const h of searchVault(index, q, 15)) results.push({ id: `note:${h.note.id}`, title: notePath(h.note), url: `${origin}/#notes/${h.note.id}`, text: h.matches[0]?.text ?? excerpt(h.note, 160) });
+      }
+      if (canTasks) {
+        const r = globalSearch(state, q, { includeCompleted: true, limit: 15 });
+        const d = describe(state, now);
+        for (const t of r.tasks) {
+          const x = d(t);
+          results.push({ id: `task:${t.id}`, title: t.title, url: `${origin}/#today?task=${t.id}`, text: [x.due?.human, x.project, t.completed ? "completed" : null].filter(Boolean).join(" \xB7 ") });
+        }
+        for (const p of r.projects) results.push({ id: `project:${p.id}`, title: `Project: ${p.title}`, url: `${origin}/#project/${p.id}` });
+      }
+      return { result: { results } };
+    }
+  },
+  {
+    name: "fetch",
+    title: "Fetch ClearMind item",
+    scopes: [],
+    description: "Get the full content of a search result by id (note:\u2026, task:\u2026 or project:\u2026).",
+    input: { type: "object", properties: { id: { type: "string", description: "An id returned by search" } }, required: ["id"] },
+    run: async ({ state, args, auth, now }) => {
+      const [kind, ...rest] = String(args.id ?? "").split(":");
+      const id = rest.join(":");
+      const origin = "https://clearmind.meertech.tech";
+      const need = (scope) => {
+        if (!auth.token.scopes.includes(scope)) throw new AgentError("forbidden", `This token is missing scope: ${scope}.`);
+      };
+      if (kind === "note") {
+        need("notes:read");
+        const index = buildIndex(state.notes ?? []);
+        const n = noteRef(() => requireNote(index, id));
+        const d = noteDetail(index, n);
+        return { result: { id: args.id, title: d.path, text: n.content, url: `${origin}/#notes/${n.id}`, metadata: { tags: d.tags, updated_at: d.updated_at, backlinks: d.backlinks.map((b) => b.path) } } };
+      }
+      if (kind === "task") {
+        need("tasks:read");
+        const t = getTask(state, id);
+        const x = describe(state, now)(t);
+        const comments = (state.comments ?? []).filter((c) => c.taskId === t.id && !c.deleted).map((c) => `- ${c.text}`);
+        const text = [t.title, t.description ? `
+${t.description}` : "", x.due ? `
+Due: ${x.due.human}${x.due.time ? " " + x.due.time : ""}` : "", `
+Project: ${x.project}`, `
+Priority: ${x.priority}`, t.completed ? "\nCompleted" : "", comments.length ? `
+
+Comments:
+${comments.join("\n")}` : ""].join("");
+        return { result: { id: args.id, title: t.title, text, url: `${origin}/#today?task=${t.id}`, metadata: x } };
+      }
+      if (kind === "project") {
+        need("projects:read");
+        const p = resolveProject(state, id);
+        const tasks = live5(state.tasks).filter((t) => t.projectId === p.id && !t.completed);
+        return { result: { id: args.id, title: p.title, text: `${p.title}
+
+Open tasks:
+${tasks.map((t) => `- ${t.title}`).join("\n") || "(none)"}`, url: `${origin}/#project/${p.id}`, metadata: { open: tasks.length } } };
+      }
+      throw new AgentError("invalid", "Unknown id \u2014 use an id returned by search.");
+    }
   }
 ];
 function noteRef(fn) {
@@ -3536,15 +3633,54 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// api-src/oauth.ts
+import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
+
+// shared/agents/oauth.ts
+var OAUTH_CODE_TTL_MS = 5 * 60 * 1e3;
+var ALL_SCOPES = SCOPES.map((s) => s.scope);
+var DEFAULT_CONNECTOR_SCOPES = SCOPE_PRESETS.find((p) => p.id === "standard").scopes;
+
+// api-src/oauth.ts
+function originOf(req) {
+  const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "clearmind.meertech.tech";
+  const proto = req.headers["x-forwarded-proto"] ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto.split(",")[0]}://${host.split(",")[0]}`;
+}
+
 // api-src/mcp.ts
 var repo = null;
+function credential(req) {
+  const b = bearer(req);
+  if (b) return b;
+  try {
+    return new URL(req.url ?? "/", "http://x").searchParams.get("key");
+  } catch {
+    return null;
+  }
+}
+function unauthorized(req, res, message, hadToken) {
+  const origin = originOf(req);
+  res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"${hadToken ? ', error="invalid_token"' : ""}`);
+  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
+  return sendJson(res, 401, { jsonrpc: "2.0", error: { code: -32001, message }, id: null });
+}
 async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id");
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    return res.end();
+  }
+  const token = credential(req);
+  if (!token) return unauthorized(req, res, "Sign in required. Connect with OAuth, or create a token in ClearMind \u2192 Settings \u2192 Integrations.", false);
   if (req.method === "GET" || req.method === "DELETE") {
     return sendJson(res, 405, { jsonrpc: "2.0", error: { code: -32e3, message: "Use POST (stateless Streamable HTTP)." }, id: null });
   }
   try {
     repo ??= new FirestoreAgentRepo();
-    const auth = await authenticate(repo, bearer(req), sha256, "mcp");
+    const auth = await authenticate(repo, token, sha256, "mcp");
     const body = await readJson(req);
     const server = createMcpServer(repo, auth);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: void 0, enableJsonResponse: true });
@@ -3555,8 +3691,11 @@ async function handler(req, res) {
     await server.connect(transport);
     await transport.handleRequest(req, res, body);
   } catch (e) {
-    const status = e instanceof AgentError && e.code === "unauthorized" ? 401 : 500;
-    if (!res.headersSent) sendJson(res, status, { jsonrpc: "2.0", error: { code: status === 401 ? -32001 : -32603, message: status === 401 ? e.message : "Internal error" }, id: null });
+    if (e instanceof AgentError && e.code === "unauthorized") {
+      if (!res.headersSent) unauthorized(req, res, e.message, true);
+      return;
+    }
+    if (!res.headersSent) sendJson(res, 500, { jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null });
   }
 }
 export {

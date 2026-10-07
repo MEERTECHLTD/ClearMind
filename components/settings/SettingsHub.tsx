@@ -343,6 +343,13 @@ function IntegrationsSection({ cloud, toast }: { cloud: boolean; toast: ReturnTy
           ))}
         </Group>
       ) : null}
+      <Group title="Claude.ai & ChatGPT (no token needed)" footer="You sign in to ClearMind and choose permissions when connecting. The connection then appears under Connected agents, where you can revoke it.">
+        <Row label="Connector URL" detail="https://clearmind.meertech.tech/api/mcp">
+          <button className="text-blue-600 dark:text-blue-400 text-xs inline-flex items-center gap-1" onClick={async () => { await navigator.clipboard.writeText('https://clearmind.meertech.tech/api/mcp'); toast('Connector URL copied'); }}><Copy size={13} />Copy</button>
+        </Row>
+        <Row label="Claude (claude.ai, desktop, mobile)" detail="Settings → Connectors → Add custom connector → paste the URL → Connect → sign in and Allow." />
+        <Row label="ChatGPT" detail="Settings → Apps & Connectors → Advanced → Developer mode on → Create → paste the URL, Authentication: OAuth → Create → sign in and Allow." />
+      </Group>
       <Group title="Endpoints" footer="Tokens and permissions are shared by MCP, REST and the CLI.">
         <Row label="MCP (Streamable HTTP)" detail="https://clearmind.meertech.tech/api/mcp" />
         <Row label="REST API" detail="POST https://clearmind.meertech.tech/api/v1/tools/<tool>" />
