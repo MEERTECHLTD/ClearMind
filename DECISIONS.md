@@ -278,7 +278,7 @@ pickers/dialogs match the dark design instead of flipping with the OS theme.
 ## D12 — Publishing is managed by Expo (EAS)
 
 **Decision:** Android builds, signing, versioning and Play submission run on EAS
-(project `@ameer911/clearmind`); the web app is also hosted on EAS Hosting.
+(project `@meertech/clearmind`); the web app is also hosted on EAS Hosting.
 
 - **Build:** `eas build -p android --profile production` → signed AAB. Config
   (Firebase, Gemini, Google web client id, `google-services.json`) lives in EAS
