@@ -22,6 +22,7 @@
     "./tasks/time": "./tasks/time.ts",
     "./data/account": "./data/account.ts",
     "./agents": "./agents/index.ts",
+    "./notes": "./notes/index.ts",
     "./data/agentTokens": "./data/agentTokens.ts"
   },
   "dependencies": {

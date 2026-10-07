@@ -416,12 +416,21 @@ export interface AgentAudit {
   source: ChangeSource;
 }
 
-export interface Note {
+export interface Note extends SyncMeta {
   id: string;
   title: string;
+  /** Markdown. Supports [[wikilinks]], ![[embeds]], #tags and YAML frontmatter. */
   content: string;
+  /** Derived from #tags in the body + frontmatter `tags` (kept for search/mobile). */
   tags: string[];
   lastEdited: string;
+  /** Vault folder path, e.g. "Projects/ClearMind" (null/absent = vault root). */
+  folder?: string | null;
+  createdAt?: string;
+  bookmarked?: boolean;
+  /** 'daily' notes are keyed by `dailyDate`; 'template' notes feed "Insert template". */
+  kind?: 'note' | 'daily' | 'template';
+  dailyDate?: string | null;
 }
 
 export interface Habit {

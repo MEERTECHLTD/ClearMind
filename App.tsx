@@ -30,7 +30,7 @@ const ProjectsView = lazy(() => import('./components/views/ProjectsView'));
 const DashboardView = lazy(() => import('./components/views/DashboardView'));
 const IrisView = lazy(() => import('./components/views/IrisView'));
 const RantCorner = lazy(() => import('./components/views/RantCorner'));
-const NotesView = lazy(() => import('./components/views/NotesView'));
+const VaultView = lazy(() => import('./components/views/VaultView'));
 const HabitsView = lazy(() => import('./components/views/HabitsView'));
 const GoalsView = lazy(() => import('./components/views/GoalsView'));
 const MilestonesView = lazy(() => import('./components/views/MilestonesView'));
@@ -469,7 +469,7 @@ const App: React.FC = () => {
       case 'learningvault':
         return <LearningVaultView />;
       case 'notes':
-        return <NotesView />;
+        return <VaultView noteId={viewParam} />;
       case 'habits':
         return <HabitsView />;
       case 'goals':
