@@ -3462,11 +3462,14 @@ function adminApp() {
   if (getApps().length) return getApps()[0];
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (raw) {
-    const json = raw.trim().startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8");
-    return initializeApp({ credential: cert(JSON.parse(json)) });
+    const json = JSON.parse(raw.trim().startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8"));
+    return initializeApp({ credential: cert(json), projectId: json.project_id });
   }
   const path = process.env.CLEARMIND_SERVICE_ACCOUNT || (existsSync(DEFAULT_KEY_PATH) ? DEFAULT_KEY_PATH : null);
-  if (path) return initializeApp({ credential: cert(JSON.parse(readFileSync(path, "utf8"))) });
+  if (path) {
+    const json = JSON.parse(readFileSync(path, "utf8"));
+    return initializeApp({ credential: cert(json), projectId: json.project_id });
+  }
   return initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
 }
 var COLLS = ["tasks", "projects", "labels", "sections", "comments", "completions", "filters", "preferences", "notes"];
