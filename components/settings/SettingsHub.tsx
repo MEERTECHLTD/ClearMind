@@ -104,7 +104,7 @@ async function toAvatarDataUrl(file: File): Promise<string> {
 
 // ------------------------------------------------------------------ hub
 
-export default function SettingsHub({ user, onUpdateUser, onLogout }: { user: UserProfile | null; onUpdateUser: (u: UserProfile) => void; onLogout: () => void }) {
+export default function SettingsHub({ user, onUpdateUser, onLogout, onAccountDeleted }: { user: UserProfile | null; onUpdateUser: (u: UserProfile) => void; onLogout: () => void; onAccountDeleted?: () => void }) {
   const [section, setSection] = useState<Section>(() => (new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('s') as Section) || 'account');
   const prefsSnap = useStore<Preferences>(STORES.PREFERENCES);
   const projects = useStore<Project>(STORES.PROJECTS).items;
@@ -199,7 +199,7 @@ export default function SettingsHub({ user, onUpdateUser, onLogout }: { user: Us
           {section === 'notifications' ? <NotificationsSection prefs={prefs} set={set} /> : null}
           {section === 'integrations' ? <IntegrationsSection cloud={cloud} toast={toast} /> : null}
           {section === 'security' ? <SecuritySection cloud={cloud} toast={toast} /> : null}
-          {section === 'data' ? <DataSection cloud={cloud} toast={toast} onDeleted={onLogout} /> : null}
+          {section === 'data' ? <DataSection cloud={cloud} toast={toast} onDeleted={onAccountDeleted ?? onLogout} /> : null}
         </main>
       </div>
     </div>

@@ -5,7 +5,7 @@
  */
 import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { Note } from '../../types';
+import type { Note, Attachment } from '../../types';
 import type { Vault, VaultSettings } from './useVault';
 import type { LeftTab, RightTab, ViewMode } from './workspace';
 import { hotkeyLabel } from './workspace';
@@ -46,6 +46,8 @@ export interface VaultApi {
   openGraph: (opts?: { newTab?: boolean; split?: boolean }) => void;
   openSearch: (query: string) => void;
   newNote: (folder?: string | null, opts?: { newTab?: boolean; title?: string }) => void;
+  /** Create a new canvas (JSON Canvas note) and open it. */
+  newCanvas?: (folder?: string | null) => void;
   newFolder: (parent: string | null) => void;
   reveal: (noteId: string) => void;
   renameNote: (id: string, title: string) => Promise<boolean>;
@@ -66,6 +68,17 @@ export interface VaultApi {
   scrollActive: (req: { line?: number; heading?: string }) => void;
   setMode: (paneId: string, tabId: string, mode: ViewMode) => void;
   closeMobile: () => void;
+  // ---- attachments (files in the vault)
+  openAttachment: (id: string, opts?: OpenOpts) => void;
+  attachmentMenu: (a: Attachment, paneId?: string) => MenuItemDef[];
+  renameAttachment: (id: string, name: string) => Promise<boolean>;
+  deleteAttachment: (id: string) => void;
+  /** Upload files (e.g. dropped from the OS) into a folder. */
+  uploadFiles: (files: File[], folder: string | null) => void;
+  /** Attachment shown in the active pane's active tab, if any. */
+  activeAttachmentId?: string | null;
+  /** Reveal an attachment in the file explorer (explorer key `a:<id>`). */
+  revealAttachment?: (id: string) => void;
 }
 
 export const VaultCtx = createContext<VaultApi | null>(null);

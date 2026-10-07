@@ -10,7 +10,7 @@ import {
   FolderClosed, Search, Bookmark, Tags, Link2, ArrowUpRight, ListTree, Waypoints, Info, FileSearch, SquarePen, CalendarDays,
   SquareTerminal, LayoutTemplate, Settings, FilePlus2, Columns2, Pencil, FolderInput, Copy, Trash2, Star, Link as LinkIcon,
   PanelLeft, PanelRight, BookOpen, Bold, Italic, Highlighter, ListChecks, TextSearch, Shuffle, X, Pin, Sparkles, ArrowLeft, ArrowRight,
-  Code2, ExternalLink, Locate, Strikethrough,
+  Code2, ExternalLink, Locate, Strikethrough, Paperclip, LayoutDashboard,
 } from 'lucide-react';
 import type { Note } from '../../types';
 import { useTaskToast } from '../tasks/ui';
@@ -21,7 +21,7 @@ import {
 import type { NoteEditorHandle } from '../vault/editor';
 import {
   loadWorkspace, saveWorkspace, loadLayout, saveLayout, activePaneOf, activeTabOf, openIn, openInSplit, splitActive, closeTab, closeOthers,
-  closeNote, moveTab, updateTab, focusTab, navigate, pruneWorkspace, type Workspace, type Layout, type LeftTab, type RightTab, type ViewMode,
+  closeNote, closeAttachment, moveTab, updateTab, focusTab, navigate, pruneWorkspace, type Workspace, type Layout, type LeftTab, type RightTab, type ViewMode,
   type OpenTarget, type NoteTab,
 } from '../vault/workspace';
 import { VaultCtx, vx, ContextMenu, useMediaQuery, type VaultApi, type MenuItemDef, type OpenOpts } from '../vault/shell';
@@ -30,8 +30,13 @@ import { SearchPane, BookmarksPane, TagsPane } from '../vault/LeftPanes';
 import { RightPane } from '../vault/RightPanes';
 import { PaneView, type PaneCtl } from '../vault/PaneView';
 import { NotePane, type ScrollReq } from '../vault/NotePane';
+import { CanvasView } from '../vault/canvas/CanvasView';
+import { serializeCanvas, EMPTY_CANVAS, uniqueTitle } from '../../shared/notes';
 import { QuickSwitcher, CommandPalette, TemplatePicker, FolderPicker, VaultSettingsModal, ConfirmModal, type Command } from '../vault/Modals';
 import { duplicateNote, seedSampleNotes } from '../vault/vaultActions';
+import { AttachmentPane } from '../vault/AttachmentPane';
+import { useAttachmentActions } from '../vault/attachmentActions';
+import { attachmentFor } from '../vault/editor/attachmentEmbeds';
 
 const LEFT_TABS: { id: LeftTab; label: string; icon: React.ReactNode }[] = [
   { id: 'files', label: 'Files', icon: <FolderClosed size={16} /> },
@@ -124,11 +129,13 @@ export default function VaultView({ noteId }: { noteId?: string }) {
     if (opts.line !== undefined || opts.heading || opts.block) setScrollReq({ noteId: id, line: opts.line, heading: opts.heading, block: opts.block, nonce: Date.now() });
   }, [open]);
   const openLink = useCallback((target: string, from: Note | null, opts: OpenOpts = {}) => {
+    const file = attachmentFor(vaultRef.current.index, target, from?.id);
+    if (file) { open({ type: 'attachment', attachmentId: file.id }, opts); return; }
     const existed = !!vaultRef.current.index.resolve(target, from?.id);
     openOrCreateLink(target, from)
       .then((n) => { if (!existed) toast(`Created “${n.title}”`); openNote(n.id, opts); })
       .catch((e) => toast(e instanceof VaultError ? e.message : 'Could not open link'));
-  }, [openNote, toast]);
+  }, [open, openNote, toast]);
   const openGraph = useCallback((opts: { newTab?: boolean; split?: boolean } = {}) => open({ type: 'graph' }, { ...opts, newTab: true }), [open]);
   const openSearch = useCallback((q: string) => {
     setSearchQuery(q);
@@ -146,6 +153,14 @@ export default function VaultView({ noteId }: { noteId?: string }) {
     window.setTimeout(() => setRenameReq((r) => (r?.noteId === id ? null : r)), 600);
   }, []);
 
+  const atts = useAttachmentActions({
+    toast, open, flushAll, desktop,
+    closeTabs: (id) => setWs((cur) => closeAttachment(cur, id)),
+    activeEditor: () => { const t = activeTabOf(activePaneOf(wsRef.current)); return t?.type === 'note' && modeOf(t) !== 'reading' ? activeHandle() : null; },
+    activeNote: () => noteRef.current,
+    reveal: (id) => reveal(`a:${id}`),
+  });
+
   const newNote = useCallback((folder?: string | null, opts: { newTab?: boolean; title?: string } = {}) => {
     const f = folder === undefined ? newNoteFolder(noteRef.current) : folder;
     createNote({ folder: f, title: opts.title })
@@ -155,6 +170,16 @@ export default function VaultView({ noteId }: { noteId?: string }) {
         if (!opts.title) requestRename(n.id);
       })
       .catch((e) => toast(e instanceof VaultError ? e.message : 'Could not create note'));
+  }, [open, requestRename, toast]);
+  const newCanvas = useCallback((folder?: string | null) => {
+    const f = folder === undefined ? newNoteFolder(noteRef.current) : folder;
+    createNote({ folder: f, kind: 'canvas', title: uniqueTitle(vaultRef.current.index, 'Untitled canvas', f), content: serializeCanvas(EMPTY_CANVAS) })
+      .then((n) => {
+        const cur = activeTabOf(activePaneOf(wsRef.current));
+        open({ type: 'note', noteId: n.id }, { newTab: cur?.type !== 'empty' && !!cur });
+        requestRename(n.id);
+      })
+      .catch((e) => toast(e instanceof VaultError ? e.message : 'Could not create canvas'));
   }, [open, requestRename, toast]);
   const newFolder = useCallback((parent: string | null) => {
     const taken = new Set(vaultRef.current.folders.map((f) => f.toLowerCase()));
@@ -249,6 +274,7 @@ export default function VaultView({ noteId }: { noteId?: string }) {
       { label: n.bookmarked ? 'Remove bookmark' : 'Bookmark', icon: <Star size={14} />, onClick: () => void toggleBookmark(n) },
       { label: 'Copy wikilink', icon: <LinkIcon size={14} />, onClick: () => copyLink(n) },
       ...(isActive ? [{ label: 'Insert template…', icon: <LayoutTemplate size={14} />, onClick: () => setModal('templates') } as MenuItemDef] : []),
+      ...(isActive ? [{ label: 'Attach file…', icon: <Paperclip size={14} />, onClick: () => atts.attachFile() } as MenuItemDef] : []),
       { label: 'Reveal in file explorer', icon: <Locate size={14} />, onClick: () => reveal(n.id) },
       { label: 'Open local graph', icon: <Waypoints size={14} />, onClick: () => { if (!isActive) openNote(n.id, { paneId }); showRight('graph'); } },
       'sep',
@@ -269,6 +295,7 @@ export default function VaultView({ noteId }: { noteId?: string }) {
     { id: 'switcher', name: 'Quick switcher: Open quick switcher', icon: <FileSearch size={14} />, hotkey: 'Mod+O', run: () => setModal('switcher') },
     { id: 'palette', name: 'Command palette: Open command palette', icon: <SquareTerminal size={14} />, hotkey: 'Mod+P', run: () => setModal('palette') },
     { id: 'new-note', name: 'Create new note', icon: <SquarePen size={14} />, hotkey: 'Mod+Alt+N', run: () => newNote(undefined) },
+    { id: 'new-canvas', name: 'Canvas: Create new canvas', icon: <LayoutDashboard size={14} />, run: () => newCanvas(undefined) },
     { id: 'new-note-split', name: 'Create new note to the right', icon: <Columns2 size={14} />, run: () => { createNote({ folder: newNoteFolder(noteRef.current) }).then((n) => { openNote(n.id, { split: desktop, newTab: true }); requestRename(n.id); }).catch((e) => toast(e.message)); } },
     { id: 'daily', name: 'Daily notes: Open today’s daily note', icon: <CalendarDays size={14} />, hotkey: 'Mod+Alt+D', run: () => openDaily() },
     { id: 'graph', name: 'Graph view: Open graph view', icon: <Waypoints size={14} />, hotkey: 'Mod+G', run: () => openGraph() },
@@ -288,6 +315,7 @@ export default function VaultView({ noteId }: { noteId?: string }) {
     { id: 'pin', name: 'Pin / unpin current tab', icon: <Pin size={14} />, run: () => { const p = activePaneOf(wsRef.current), t = activeTabOf(p); if (t) setWs((c) => updateTab(c, p.id, t.id, { pinned: !t.pinned })); }, when: () => !!activeTabOf(activePaneOf(wsRef.current)) },
     { id: 'back', name: 'Navigate back', icon: <ArrowLeft size={14} />, run: () => { const p = activePaneOf(wsRef.current); if (p.activeTab) setWs((c) => navigate(c, p.id, p.activeTab!, -1)); }, when: needNote },
     { id: 'forward', name: 'Navigate forward', icon: <ArrowRight size={14} />, run: () => { const p = activePaneOf(wsRef.current); if (p.activeTab) setWs((c) => navigate(c, p.id, p.activeTab!, 1)); }, when: needNote },
+    { id: 'attach-file', name: 'Attach file', icon: <Paperclip size={14} />, run: () => atts.attachFile() },
     { id: 'template', name: 'Templates: Insert template', icon: <LayoutTemplate size={14} />, hotkey: 'Mod+Alt+T', run: () => setModal('templates'), when: needNote },
     { id: 'rename', name: 'Rename file', icon: <Pencil size={14} />, hotkey: 'F2', run: () => noteRef.current && requestRename(noteRef.current.id), when: needNote },
     { id: 'move', name: 'Move current file to another folder', icon: <FolderInput size={14} />, hotkey: 'Mod+Alt+M', run: () => noteRef.current && setMovePicker(noteRef.current.id), when: needNote },
@@ -382,7 +410,7 @@ export default function VaultView({ noteId }: { noteId?: string }) {
       const pane = c.panes.find((x) => x.id === p), tab = pane?.tabs.find((x) => x.id === t);
       if (!tab) return c;
       if (c.panes.length > 1) { const other = c.panes.find((x) => x.id !== p)!; return moveTab(c, p, t, other.id, other.tabs.length); }
-      const target: OpenTarget = tab.type === 'note' ? { type: 'note', noteId: tab.noteId } : { type: tab.type };
+      const target: OpenTarget = tab.type === 'note' ? { type: 'note', noteId: tab.noteId } : tab.type === 'attachment' ? { type: 'attachment', attachmentId: tab.attachmentId } : { type: tab.type };
       return openInSplit({ ...c, activePane: p }, target);
     }),
     splitActive: () => setWs((c) => splitActive(c)),
@@ -428,16 +456,20 @@ export default function VaultView({ noteId }: { noteId?: string }) {
   // ---------------------------------------------------------------- api
   const api: VaultApi = {
     vault, settings, desktop, activeNote, activePaneId: ws.activePane,
-    openNote, openLink, openGraph, openSearch, newNote, newFolder, reveal, renameNote,
+    openNote, openLink, openGraph, openSearch, newNote, newCanvas, newFolder, reveal, renameNote,
     moveNotePrompt: (id) => setMovePicker(id), deleteNote: (id) => void deleteNote(id), noteMenu, showMenu,
     setLeft: showLeft, setRight: showRight, explorerRename, setExplorerRename, revealNonce, toast, confirm,
     cursorLine, setCursorLine, scrollActive, setMode, closeMobile: () => setDrawer(null),
+    openAttachment: atts.openAttachment, attachmentMenu: atts.attachmentMenu, renameAttachment: atts.renameAttachment,
+    deleteAttachment: atts.deleteAttachment, uploadFiles: atts.uploadFiles, revealAttachment: (id) => reveal(`a:${id}`),
+    activeAttachmentId: activeTab?.type === 'attachment' ? activeTab.attachmentId : null,
   };
 
   // ---------------------------------------------------------------- render pieces
   const ribbonItems = [
     { label: 'Open quick switcher', icon: <FileSearch size={18} />, run: () => setModal('switcher'), hk: 'Mod+O' },
     { label: 'Create new note', icon: <SquarePen size={18} />, run: () => newNote(undefined), hk: 'Mod+Alt+N' },
+    { label: 'Create new canvas', icon: <LayoutDashboard size={18} />, run: () => newCanvas(undefined), hk: '' },
     { label: 'Open today’s daily note', icon: <CalendarDays size={18} />, run: () => openDaily(), hk: 'Mod+Alt+D' },
     { label: 'Open graph view', icon: <Waypoints size={18} />, run: () => openGraph(), hk: 'Mod+G' },
     { label: 'Open command palette', icon: <SquareTerminal size={18} />, run: () => setModal('palette'), hk: 'Mod+P' },
@@ -480,6 +512,21 @@ export default function VaultView({ noteId }: { noteId?: string }) {
   const renderNote = (paneId: string) => (tab: NoteTab) => {
     const note = vault.index.byId.get(tab.noteId);
     const isActive = ws.activePane === paneId;
+    if (note?.kind === 'canvas') {
+      return (
+        <CanvasView
+          key={`${tab.id}:${tab.noteId}`}
+          paneId={paneId}
+          tab={tab}
+          note={note}
+          activePane={isActive}
+          registerFlush={registerFlush}
+          renameNonce={renameReq && isActive && renameReq.noteId === tab.noteId ? renameReq.nonce : 0}
+          onNavigate={(dir) => setWs((c) => navigate(c, paneId, tab.id, dir))}
+          onClose={() => setWs((c) => closeTab(c, paneId, tab.id))}
+        />
+      );
+    }
     return (
       <NotePane
         key={`${tab.id}:${tab.noteId}`}
@@ -524,6 +571,7 @@ export default function VaultView({ noteId }: { noteId?: string }) {
               leftToggle={i === 0 ? { open: desktop ? layout.leftOpen : drawer === 'left', onClick: () => toggleSidebar('left') } : undefined}
               rightToggle={i === visiblePanes.length - 1 ? { open: desktop ? layout.rightOpen : drawer === 'right', onClick: () => toggleSidebar('right') } : undefined}
               renderNote={renderNote(p.id)}
+              renderAttachment={(tab) => <AttachmentPane key={tab.id} tab={tab} paneId={p.id} onClose={() => setWs((c) => closeTab(c, p.id, tab.id))} />}
             />
           </div>
         </React.Fragment>
@@ -581,6 +629,7 @@ export default function VaultView({ noteId }: { noteId?: string }) {
       <VaultSettingsModal open={modal === 'settings'} onClose={() => setModal(null)} settings={settings} />
       <ConfirmModal state={confirmState} onDone={(ok) => { setConfirmState(null); confirmResolve.current?.(ok); confirmResolve.current = null; }} />
       <ContextMenu at={menu?.at ?? null} items={menu?.items ?? []} onClose={() => setMenu(null)} />
+      {atts.elements}
     </VaultCtx.Provider>
   );
 }

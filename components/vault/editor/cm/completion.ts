@@ -8,6 +8,8 @@ import type { EditorView } from '@codemirror/view';
 import { quickSwitch, extractHeadings, extractBlocks, aliasesOf, notePath } from '../../../../shared/notes';
 import { linkCompletionContext, tagCompletionContext } from '../../../../shared/notes/markdown';
 import { editorCtx } from './context';
+import { fuzzyScore } from '../../workspace';
+import { linkTargetFor } from '../../attachmentUtils';
 
 const CODE_NODES = new Set(['InlineCode', 'FencedCode', 'CodeBlock', 'CodeText', 'CodeMark', 'Frontmatter']);
 
@@ -54,7 +56,11 @@ function linkSource(cc: CompletionContext): CompletionResult | null {
       apply: linkApply(h.via ? `${linkText(h.note)}|${h.via}` : linkText(h.note)),
     }));
     const q = lc.query.trim();
-    if (q && !index.resolve(q, ctx.noteId)) {
+    // Files (attachments): fuzzy by name, listed after notes.
+    const files = (q ? index.attachments.map((a) => ({ a, s: fuzzyScore(a.name, q) })).filter((x) => x.s > 0).sort((x, y) => y.s - x.s) : index.attachments.map((a) => ({ a, s: 0 })))
+      .slice(0, 15);
+    files.forEach(({ a }, i) => options.push({ label: a.name, detail: a.folder ? `${a.folder}/ · file` : 'file', type: 'variable', boost: -50 - i, apply: linkApply(linkTargetFor(a, index.attachments)) }));
+    if (q && !index.resolve(q, ctx.noteId) && !index.resolveAttachment(q, ctx.noteId)) {
       options.push({ label: `Create “${q}”`, detail: 'new note', type: 'keyword', boost: -999, apply: linkApply(q) });
     }
     return { from, options, filter: false };

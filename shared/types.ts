@@ -429,8 +429,30 @@ export interface Note extends SyncMeta {
   createdAt?: string;
   bookmarked?: boolean;
   /** 'daily' notes are keyed by `dailyDate`; 'template' notes feed "Insert template". */
-  kind?: 'note' | 'daily' | 'template';
+  /** 'canvas' notes hold JSON Canvas 1.0 in `content` (see shared/notes/canvas.ts). */
+  kind?: 'note' | 'daily' | 'template' | 'canvas';
   dailyDate?: string | null;
+}
+
+/**
+ * A file in the notes vault (image, PDF, audio, video, any file). Metadata is
+ * a Firestore doc at users/{uid}/attachments/{id}; the bytes are stored in
+ * `chunks` base64 docs at users/{uid}/attachmentChunks/{id}_{i} (works on the
+ * free Firebase plan; swap for Cloud Storage later behind shared/data/attachments).
+ */
+export interface Attachment {
+  id: string;
+  /** File name with extension, e.g. "diagram.png". Unique per folder. */
+  name: string;
+  folder?: string | null;
+  mime: string;
+  size: number;
+  chunks: number;
+  createdAt: string;
+  updatedAt: string;
+  width?: number | null;
+  height?: number | null;
+  deleted?: boolean;
 }
 
 export interface Habit {

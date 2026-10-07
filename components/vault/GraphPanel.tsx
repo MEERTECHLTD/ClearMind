@@ -19,7 +19,7 @@ export interface GraphPanelProps {
   activeId?: string | null;
   /** 'global' = whole vault with full settings; 'local' = neighbourhood of activeId (compact, for the right sidebar). */
   mode: 'global' | 'local';
-  /** Open a node (note, or unresolved target → create, or tag → search). `newTab` when Cmd/Ctrl/middle-click. */
+  /** Open a node (note, unresolved target → create, tag → search, attachment → file tab). `newTab` when Cmd/Ctrl/middle-click. */
   onOpen: (node: GraphNode, opts: { newTab: boolean }) => void;
   className?: string;
   /** Global mode: start with the settings drawer open. */
@@ -57,8 +57,8 @@ function GlobalGraph({ index, activeId, onOpen, className, defaultSettingsOpen =
   const f = settings.filters;
 
   const opts = useMemo<GraphOptions>(
-    () => ({ query: f.query, showTags: f.showTags, showUnresolved: f.showUnresolved, showOrphans: f.showOrphans, showDaily: f.showDaily, showTemplates: f.showTemplates }),
-    [f.query, f.showTags, f.showUnresolved, f.showOrphans, f.showDaily, f.showTemplates],
+    () => ({ query: f.query, showTags: f.showTags, showUnresolved: f.showUnresolved, showOrphans: f.showOrphans, showDaily: f.showDaily, showTemplates: f.showTemplates, showAttachments: f.showAttachments }),
+    [f.query, f.showTags, f.showUnresolved, f.showOrphans, f.showDaily, f.showTemplates, f.showAttachments],
   );
   const graph = useMemo(() => buildGraph(index, opts), [index, opts]);
   const colors = useGroupColors(index, graph);
@@ -122,7 +122,7 @@ function LocalGraph({ index, activeId, onOpen, className }: GraphPanelProps) {
   const { depth, showTags, neighborLinks } = settings.local;
 
   const full = useMemo(
-    () => buildGraph(index, { showTags, showUnresolved: true, showOrphans: true, showDaily: true, showTemplates: true }),
+    () => buildGraph(index, { showTags, showUnresolved: true, showOrphans: true, showDaily: true, showTemplates: true, showAttachments: true }),
     [index, showTags],
   );
   const graph = useMemo<Graph | null>(() => {

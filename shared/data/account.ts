@@ -22,7 +22,7 @@ async function deleteCollection(db: Firestore, path: string): Promise<number> {
 
 export async function deleteAccountData(db: Firestore, uid: string, collections: string[], onProgress?: (msg: string) => void): Promise<{ documents: number }> {
   let documents = 0;
-  for (const c of [...collections, 'agentTokens', 'agentAudit']) {
+  for (const c of [...collections, 'agentTokens', 'agentAudit', 'attachments', 'attachmentChunks']) {
     onProgress?.(`Deleting ${c}…`);
     documents += await deleteCollection(db, `users/${uid}/${c}`);
   }

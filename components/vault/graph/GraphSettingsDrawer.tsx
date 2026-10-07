@@ -34,6 +34,7 @@ export function GraphSettingsDrawer({ settings, groups, onGroups, onAnimate, onC
         <Toggle label="Orphans" hint="Notes without any links" checked={filters.showOrphans} onChange={(v) => updateGraphSettings({ filters: { showOrphans: v } })} />
         <Toggle label="Daily notes" checked={filters.showDaily} onChange={(v) => updateGraphSettings({ filters: { showDaily: v } })} />
         <Toggle label="Templates" checked={filters.showTemplates} onChange={(v) => updateGraphSettings({ filters: { showTemplates: v } })} />
+        <Toggle label="Attachments" hint="Images, PDFs and other files linked from notes" checked={filters.showAttachments} onChange={(v) => updateGraphSettings({ filters: { showAttachments: v } })} />
       </Section>
 
       <Section title="Groups" open={open.groups} onToggle={() => updateGraphSettings({ open: { groups: !open.groups } })}>

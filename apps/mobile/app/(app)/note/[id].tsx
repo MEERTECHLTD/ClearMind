@@ -20,6 +20,7 @@ import { toggleTaskLine } from '@clearmind/shared/notes/markdown';
 import { Screen, Spinner, Sheet, ActionMenu, EmptyState, Input, Button, useToast, type MenuAction } from '../../../components/ui';
 import { MarkdownBlocks, type LinkRef } from '../../../components/notes/MarkdownBlocks';
 import { NoteEditor } from '../../../components/notes/NoteEditor';
+import { CanvasSummary } from '../../../components/notes/CanvasSummary';
 import { NoteSections } from '../../../components/notes/NoteSections';
 import { useVault, createNote, saveContent, renameNote, deleteNotes, toggleBookmark, openOrCreateLink, VaultError } from '../../../services/notes';
 import { T } from '../../../lib/theme';
@@ -203,9 +204,11 @@ function NoteScreen({ id, startEditing, goTo, goBack }: { id: string; startEditi
           placeholderTextColor={T.faint}
           accessibilityLabel="Note title"
         />
-        <Pressable onPress={() => setEditing((e) => !e)} hitSlop={8} className="p-2 active:opacity-60" accessibilityRole="button" accessibilityLabel={editing ? 'Reading view' : 'Edit note'}>
-          {editing ? <BookOpen size={20} color={T.accent} /> : <Pencil size={20} color={T.ink} />}
-        </Pressable>
+        {note.kind === 'canvas' ? null : (
+          <Pressable onPress={() => setEditing((e) => !e)} hitSlop={8} className="p-2 active:opacity-60" accessibilityRole="button" accessibilityLabel={editing ? 'Reading view' : 'Edit note'}>
+            {editing ? <BookOpen size={20} color={T.accent} /> : <Pencil size={20} color={T.ink} />}
+          </Pressable>
+        )}
         <Pressable onPress={() => toggleBookmark(note).catch(() => {})} hitSlop={8} className="p-2 active:opacity-60" accessibilityRole="button" accessibilityLabel={note.bookmarked ? 'Remove bookmark' : 'Bookmark'} accessibilityState={{ selected: !!note.bookmarked }}>
           <Star size={20} color={note.bookmarked ? '#F59E0B' : T.muted} fill={note.bookmarked ? '#F59E0B' : 'transparent'} />
         </Pressable>
@@ -220,12 +223,14 @@ function NoteScreen({ id, startEditing, goTo, goBack }: { id: string; startEditi
         </View>
       ) : null}
 
-      {editing ? (
+      {editing && note.kind !== 'canvas' ? (
         <NoteEditor note={note} index={index} autoFocus={!note.content} onError={(m) => toast.show(m, 'error')} />
       ) : (
         <ScrollView ref={scroll} className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
           <View onLayout={(e) => { contentY.current = e.nativeEvent.layout.y; }}>
-            {note.content.trim() ? (
+            {note.kind === 'canvas' ? (
+              <CanvasSummary note={note} index={index} onLink={openLink} onTag={openTag} />
+            ) : note.content.trim() ? (
               <MarkdownBlocks
                 note={note}
                 index={index}

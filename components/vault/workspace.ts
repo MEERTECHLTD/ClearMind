@@ -10,15 +10,18 @@ interface TabBase { id: string; pinned?: boolean }
 export interface NoteTab extends TabBase { type: 'note'; noteId: string; mode?: ViewMode; back?: string[]; fwd?: string[] }
 export interface GraphTab extends TabBase { type: 'graph' }
 export interface EmptyTab extends TabBase { type: 'empty' }
-export type Tab = NoteTab | GraphTab | EmptyTab;
+/** A vault file (image, PDF, audio, video, …) shown in the attachment viewer. */
+export interface AttachmentTab extends TabBase { type: 'attachment'; attachmentId: string }
+export type Tab = NoteTab | GraphTab | EmptyTab | AttachmentTab;
 
 export interface Pane { id: string; tabs: Tab[]; activeTab: string | null }
 export interface Workspace { panes: Pane[]; activePane: string }
 
-export type OpenTarget = { type: 'note'; noteId: string } | { type: 'graph' } | { type: 'empty' };
+export type OpenTarget = { type: 'note'; noteId: string } | { type: 'graph' } | { type: 'empty' } | { type: 'attachment'; attachmentId: string };
 
 const uid = (p: string) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-const makeTab = (t: OpenTarget): Tab => (t.type === 'note' ? { id: uid('tab'), type: 'note', noteId: t.noteId } : { id: uid('tab'), type: t.type });
+const makeTab = (t: OpenTarget): Tab => (t.type === 'note' ? { id: uid('tab'), type: 'note', noteId: t.noteId }
+  : t.type === 'attachment' ? { id: uid('tab'), type: 'attachment', attachmentId: t.attachmentId } : { id: uid('tab'), type: t.type });
 
 export const emptyWorkspace = (): Workspace => {
   const id = uid('pane');
@@ -56,6 +59,15 @@ export function openIn(ws: Workspace, paneId: string, target: OpenTarget, how: '
       : { id: cur.id, type: 'note', noteId: target.noteId };
     return { ...mapPane(ws, pane.id, (p) => ({ ...p, tabs: p.tabs.map((t) => (t.id === cur.id ? next : t)) })), activePane: pane.id };
   }
+  if (target.type === 'attachment') {
+    const existing = pane.tabs.find((t) => t.type === 'attachment' && t.attachmentId === target.attachmentId);
+    if (existing) return focus(existing.id);
+    // Attachments replace an empty tab or another (unpinned) attachment tab; never a note (keeps its history).
+    if (how === 'replace' && cur && !cur.pinned && (cur.type === 'empty' || cur.type === 'attachment')) {
+      const next: Tab = { id: cur.id, type: 'attachment', attachmentId: target.attachmentId };
+      return { ...mapPane(ws, pane.id, (p) => ({ ...p, tabs: p.tabs.map((t) => (t.id === cur.id ? next : t)) })), activePane: pane.id };
+    }
+  }
   if (how === 'replace' && cur?.type === 'empty' && target.type === 'graph') {
     const next: Tab = { id: cur.id, type: 'graph' };
     return { ...mapPane(ws, pane.id, (p) => ({ ...p, tabs: p.tabs.map((t) => (t.id === cur.id ? next : t)) })), activePane: pane.id };
@@ -79,7 +91,7 @@ export function openInSplit(ws: Workspace, target: OpenTarget): Workspace {
 /** Split right: duplicate the active tab into a new pane (or focus the other pane). */
 export function splitActive(ws: Workspace): Workspace {
   const t = activeTabOf(activePaneOf(ws));
-  const target: OpenTarget = t?.type === 'note' ? { type: 'note', noteId: t.noteId } : t?.type === 'graph' ? { type: 'graph' } : { type: 'empty' };
+  const target: OpenTarget = t?.type === 'note' ? { type: 'note', noteId: t.noteId } : t?.type === 'attachment' ? { type: 'attachment', attachmentId: t.attachmentId } : t?.type === 'graph' ? { type: 'graph' } : { type: 'empty' };
   return openInSplit(ws, target);
 }
 
@@ -105,6 +117,13 @@ export function closeOthers(ws: Workspace, paneId: string, tabId: string): Works
 export function closeNote(ws: Workspace, noteId: string): Workspace {
   let out = ws;
   for (const p of ws.panes) for (const t of p.tabs) if (t.type === 'note' && t.noteId === noteId) out = closeTab(out, p.id, t.id);
+  return out;
+}
+
+/** Close every tab showing an attachment (after delete). */
+export function closeAttachment(ws: Workspace, attachmentId: string): Workspace {
+  let out = ws;
+  for (const p of ws.panes) for (const t of p.tabs) if (t.type === 'attachment' && t.attachmentId === attachmentId) out = closeTab(out, p.id, t.id);
   return out;
 }
 

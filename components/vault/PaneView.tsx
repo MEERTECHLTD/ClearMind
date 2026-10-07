@@ -1,7 +1,9 @@
 /** A workspace pane: scrollable tab strip (drag to reorder / move between panes, pin, middle-click close) + the active tab's view. */
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Plus, Pin, Columns2, Waypoints, FileText, PanelLeft, PanelRight, FilePlus2, Search as SearchIcon, CalendarDays } from 'lucide-react';
-import type { Note } from '../../types';
+import { X, Plus, Pin, Columns2, Waypoints, FileText, PanelLeft, PanelRight, FilePlus2, Search as SearchIcon, CalendarDays, LayoutDashboard } from 'lucide-react';
+import type { Note, Attachment } from '../../types';
+import { attachmentKind } from '../../shared/notes';
+import { KIND_ICON } from './AttachmentPane';
 import type { GraphNode } from '../../shared/notes';
 import { GraphPanel } from './GraphPanel';
 import type { Pane, Tab } from './workspace';
@@ -25,10 +27,11 @@ export interface PaneCtl {
   openDaily: () => void;
 }
 
-export function PaneView({ pane, active, ctl, single, leftToggle, rightToggle, renderNote }: {
+export function PaneView({ pane, active, ctl, single, leftToggle, rightToggle, renderNote, renderAttachment }: {
   pane: Pane; active: boolean; ctl: PaneCtl; single: boolean;
   leftToggle?: { open: boolean; onClick: () => void }; rightToggle?: { open: boolean; onClick: () => void };
   renderNote: (tab: Extract<Tab, { type: 'note' }>) => React.ReactNode;
+  renderAttachment?: (tab: Extract<Tab, { type: 'attachment' }>) => React.ReactNode;
 }) {
   const api = useVaultApi();
   const stripRef = useRef<HTMLDivElement>(null);
@@ -40,11 +43,16 @@ export function PaneView({ pane, active, ctl, single, leftToggle, rightToggle, r
     stripRef.current?.querySelector<HTMLElement>(`[data-tab="${pane.activeTab}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [pane.activeTab]);
 
-  const titleOf = (t: Tab): { title: string; icon: React.ReactNode; note?: Note } => {
+  const titleOf = (t: Tab): { title: string; icon: React.ReactNode; note?: Note; attachment?: Attachment } => {
     if (t.type === 'graph') return { title: 'Graph view', icon: <Waypoints size={13} /> };
     if (t.type === 'empty') return { title: 'New tab', icon: <FileText size={13} /> };
+    if (t.type === 'attachment') {
+      const a = api.vault.index.attachmentsById.get(t.attachmentId);
+      const Icon = KIND_ICON[a ? attachmentKind(a) : 'other'];
+      return { title: a?.name ?? 'File not found', icon: <Icon size={13} />, attachment: a };
+    }
     const n = api.vault.index.byId.get(t.noteId);
-    return { title: n?.title ?? 'Not found', icon: null, note: n };
+    return { title: n?.title ?? 'Not found', icon: n?.kind === 'canvas' ? <LayoutDashboard size={13} /> : null, note: n };
   };
 
   const indexFromEvent = (e: React.DragEvent) => {
@@ -65,6 +73,7 @@ export function PaneView({ pane, active, ctl, single, leftToggle, rightToggle, r
       { label: t.pinned ? 'Unpin' : 'Pin', icon: <Pin size={14} />, onClick: () => ctl.togglePin(pane.id, t.id) },
       { label: single ? 'Split right' : 'Move to other pane', icon: <Columns2 size={14} />, onClick: () => ctl.splitTab(pane.id, t.id) },
       ...(info.note ? ['sep' as const, ...api.noteMenu(info.note, pane.id)] : []),
+      ...(info.attachment ? ['sep' as const, ...api.attachmentMenu(info.attachment, pane.id).filter((it) => it === 'sep' || !/^Open/.test(it.label))] : []),
     ];
   };
 
@@ -161,8 +170,11 @@ export function PaneView({ pane, active, ctl, single, leftToggle, rightToggle, r
               if (node.type === 'note' && node.noteId) api.openNote(node.noteId, { newTab: true, split: opts.newTab, paneId: pane.id });
               else if (node.type === 'unresolved') api.openLink(node.label, null, { newTab: true, paneId: pane.id });
               else if (node.type === 'tag') api.openSearch(`tag:${node.label.startsWith('#') ? node.label : `#${node.label}`}`);
+              else if (node.type === 'attachment') api.openAttachment(node.id.replace(/^attachment:/, ''), { newTab: true, split: opts.newTab, paneId: pane.id });
             }}
           /></div>
+        ) : activeTab.type === 'attachment' ? (
+          <div className="absolute inset-0">{renderAttachment?.(activeTab)}</div>
         ) : (
           <div className="absolute inset-0">{renderNote(activeTab)}</div>
         )}

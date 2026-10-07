@@ -5,18 +5,20 @@
  * shared notes store → IndexedDB → sync engine, so they sync like tasks do.
  */
 import { useMemo, useSyncExternalStore } from 'react';
-import type { Note } from '../../types';
+import type { Note, Attachment } from '../../types';
 import { STORES } from '../../services/db';
 import { getStore, useStore } from '../tasks/store';
 import {
   buildIndex, prepareNote, rewriteLinksForRename, uniqueTitle, isValidTitle, findDailyNote, dailyTitle, applyTemplateVars,
   insertTemplate, notePath, normPath, type VaultIndex, type DailyNoteSettings,
 } from '../../shared/notes';
+import { useAttachments, getAttachments, renameAttachment, deleteAttachments } from './attachments';
+import type { AttachmentLocation } from './attachmentUtils';
 
 const newId = () => `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const notes = () => getStore<Note>(STORES.NOTES);
 const current = () => notes().getSnapshot().items.filter((n) => !n.deleted);
-const indexNow = () => buildIndex(current());
+const indexNow = () => buildIndex(current(), getAttachments());
 
 // ------------------------------------------------------------------ settings (per browser)
 
@@ -32,6 +34,9 @@ export interface VaultSettings {
   spellcheck: boolean;
   /** Graph colour groups: search query → colour. */
   graphGroups: { query: string; color: string }[];
+  /** Where pasted/dropped files go: vault root, the note's folder, or `attachmentFolder` (default). */
+  attachmentLocation?: AttachmentLocation;
+  attachmentFolder?: string;
 }
 
 export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
@@ -44,6 +49,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   showFrontmatter: true,
   spellcheck: true,
   graphGroups: [],
+  attachmentLocation: 'folder',
+  attachmentFolder: 'Attachments',
 };
 
 const SETTINGS_KEY = 'cm.vault.settings';
@@ -87,18 +94,21 @@ export interface Vault {
   /** All folders (from notes + explicitly created empty ones), sorted. */
   folders: string[];
   loaded: boolean;
+  /** Live vault attachments (files), also in `index.attachments`. */
+  attachments: Attachment[];
 }
 
 export function useVault(): Vault {
   const snap = useStore<Note>(STORES.NOTES);
   const empty = useSyncExternalStore((l) => { folderListeners.add(l); return () => folderListeners.delete(l); }, getEmptyFolders);
+  const attachments = useAttachments();
   return useMemo(() => {
     const live = snap.items.filter((n) => !n.deleted);
-    const index = buildIndex(live);
+    const index = buildIndex(live, attachments);
     const all = new Set(index.folders);
     for (const f of empty) { const parts = f.split('/'); parts.forEach((_, i) => all.add(parts.slice(0, i + 1).join('/'))); }
-    return { notes: live, index, folders: [...all].sort(), loaded: snap.loaded };
-  }, [snap, empty]);
+    return { notes: live, index, folders: [...all].sort(), loaded: snap.loaded, attachments: index.attachments };
+  }, [snap, empty, attachments]);
 }
 
 // ------------------------------------------------------------------ mutations
@@ -179,6 +189,8 @@ export async function renameFolder(from: string, to: string): Promise<void> {
   if (!dst || dst === src || dst.startsWith(src + '/')) throw new VaultError('Invalid destination');
   const inside = current().filter((n) => n.folder === src || n.folder?.startsWith(src + '/'));
   for (const n of inside) await renameNote(n.id, { folder: dst + (n.folder!.slice(src.length)) });
+  const files = getAttachments().filter((a) => a.folder === src || a.folder?.startsWith(src + '/'));
+  for (const a of files) await renameAttachment(a.id, { folder: dst + a.folder!.slice(src.length) });
   setEmptyFolders(getEmptyFolders().map((f) => (f === src || f.startsWith(src + '/') ? dst + f.slice(src.length) : f)));
 }
 
@@ -188,7 +200,9 @@ export async function deleteFolder(path: string): Promise<() => Promise<void>> {
   const prevFolders = getEmptyFolders();
   setEmptyFolders(prevFolders.filter((f) => f !== path && !f.startsWith(path + '/')));
   const undo = await deleteNotes(inside);
-  return async () => { setEmptyFolders(prevFolders); await undo(); };
+  const files = getAttachments().filter((a) => a.folder === path || a.folder?.startsWith(path + '/')).map((a) => a.id);
+  const undoFiles = files.length ? await deleteAttachments(files) : null;
+  return async () => { setEmptyFolders(prevFolders); await undo(); await undoFiles?.(); };
 }
 
 // ------------------------------------------------------------------ daily notes & templates

@@ -48,7 +48,16 @@ export interface RenderOptions {
   maxChars?: number;
   /** Content already has no frontmatter (embedded sections). */
   bodyOnly?: boolean;
+  /**
+   * Render a link/embed to a vault file (attachment). Return HTML to use it, or
+   * null to fall back to the default (notes, images by URL). Lets clients plug
+   * in their own storage without shared code knowing about it.
+   */
+  renderFile?: FileRenderer;
 }
+
+export interface FileLink { target: string; alias?: string; heading?: string; block?: string }
+export type FileRenderer = (link: FileLink, embed: boolean, ctx: { fromId?: string; block: boolean }) => string | null;
 
 /** Remove trailing ` ^block-id` markers outside code. */
 export function stripBlockIds(md: string): string {
@@ -87,6 +96,8 @@ export function renderMarkdown(content: string, opts: RenderOptions): string {
 
   const renderEmbed = (inner: string, block: boolean): string => {
     const link = parseLinkInner(inner);
+    const file = opts.renderFile?.(link, true, { fromId: opts.fromId, block });
+    if (file != null) return file;
     const r = resolveEmbed(link, opts.resolve, { fromId: opts.fromId, depth, maxDepth: opts.maxDepth, visited });
     const attrs = `data-href="${esc(link.target)}"${link.heading ? ` data-heading="${esc(link.heading)}"` : ''}${link.block ? ` data-block="${esc(link.block)}"` : ''}`;
     if (r.kind === 'image') {
@@ -101,7 +112,7 @@ export function renderMarkdown(content: string, opts: RenderOptions): string {
     if (r.kind === 'cycle' || r.kind === 'depth') {
       return `<${tag} class="md-embed md-embed-stub">${header}<${tag} class="md-embed-body md-embed-note">${r.kind === 'cycle' ? 'Embed cycle — not expanded' : 'Embed too deep — open to view'}</${tag}></${tag}>`;
     }
-    const html = renderMarkdown(r.markdown ?? '', { resolve: opts.resolve, fromId: r.note!.id, depth: depth + 1, maxDepth: opts.maxDepth, visited, bodyOnly: true });
+    const html = renderMarkdown(r.markdown ?? '', { resolve: opts.resolve, fromId: r.note!.id, depth: depth + 1, maxDepth: opts.maxDepth, visited, bodyOnly: true, renderFile: opts.renderFile });
     return `<div class="md-embed">${header}<div class="md-embed-body">${html}</div></div>`;
   };
 
@@ -166,6 +177,8 @@ export function renderMarkdown(content: string, opts: RenderOptions): string {
       renderer(token) {
         if (token.embed) return renderEmbed(token.inner, false);
         const l = parseLinkInner(token.inner);
+        const file = opts.renderFile?.(l, false, { fromId: opts.fromId, block: false });
+        if (file != null) return file;
         const ok = isResolved(l.target);
         const attrs = `data-href="${esc(l.target)}"${l.heading ? ` data-heading="${esc(l.heading)}"` : ''}${l.block ? ` data-block="${esc(l.block)}"` : ''}`;
         return `<a class="internal-link${ok ? '' : ' is-unresolved'}" role="link" tabindex="0" ${attrs} title="${esc(l.target || l.heading || '')}">${esc(linkDisplay(l))}</a>`;

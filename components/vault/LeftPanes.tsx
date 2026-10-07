@@ -1,7 +1,9 @@
 /** Left sidebar panes besides the explorer: Search, Bookmarks, Tags. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, HelpCircle, X, ChevronsDownUp, ChevronsUpDown, ArrowDownUp, Star, Hash, Search as SearchIcon } from 'lucide-react';
-import { searchVault, parseSearch } from '../../shared/notes';
+import { searchVault, parseSearch, attachmentPath, attachmentKind } from '../../shared/notes';
+import { attachmentMatches, formatBytes } from './attachmentUtils';
+import { KIND_ICON } from './AttachmentPane';
 import { toggleBookmark } from './useVault';
 import { useVaultApi, vx, PaneHeader, Highlight, EmptyHint } from './shell';
 
@@ -38,6 +40,11 @@ export function SearchPane({ query, setQuery, focusNonce }: { query: string; set
     const r = debounced.trim() ? searchVault(vault.index, debounced, 500) : [];
     return sort === 'modified' ? [...r].sort((a, b) => (b.note.lastEdited ?? '').localeCompare(a.note.lastEdited ?? '')) : r;
   }, [vault.index, debounced, sort]);
+  const fileHits = useMemo(() => {
+    if (!debounced.trim()) return [];
+    const groups = parseSearch(debounced);
+    return vault.index.attachments.filter((a) => attachmentMatches(attachmentPath(a), groups)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 100);
+  }, [vault.index, debounced]);
   const terms = useMemo(() => parseSearch(debounced).flat().filter((t) => !t.neg && ['any', 'line', 'content', 'task', 'task-todo', 'task-done'].includes(t.field)).map((t) => t.value), [debounced]);
   const isCollapsed = (id: string) => (allCollapsed ? !collapsed.has(id) : collapsed.has(id));
   const flip = (id: string) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -81,10 +88,10 @@ export function SearchPane({ query, setQuery, focusNonce }: { query: string; set
           </div>
         ) : null}
       </div>
-      {debounced.trim() ? <div className={`px-3 pb-1 text-[11px] ${vx.faint}`}>{hits.length} result{hits.length === 1 ? '' : 's'}{hits.length >= 500 ? '+' : ''}</div> : null}
+      {debounced.trim() ? <div className={`px-3 pb-1 text-[11px] ${vx.faint}`}>{hits.length} result{hits.length === 1 ? '' : 's'}{hits.length >= 500 ? '+' : ''}{fileHits.length ? ` · ${fileHits.length} file${fileHits.length === 1 ? '' : 's'}` : ''}</div> : null}
       <div className="flex-1 min-h-0 overflow-y-auto pb-6">
         {!debounced.trim() ? <EmptyHint>Type to search titles, text, tags, tasks and properties. Use <button className={vx.accentText} onClick={() => setHelp(true)}>operators</button> to narrow down.</EmptyHint> : null}
-        {debounced.trim() && !hits.length ? <EmptyHint>No matches found.</EmptyHint> : null}
+        {debounced.trim() && !hits.length && !fileHits.length ? <EmptyHint>No matches found.</EmptyHint> : null}
         {hits.map((h) => {
           const closed = isCollapsed(h.note.id);
           return (
@@ -118,6 +125,30 @@ export function SearchPane({ query, setQuery, focusNonce }: { query: string; set
             </div>
           );
         })}
+        {fileHits.length ? (
+          <div className="px-1 mt-2" role="group" aria-label="Files">
+            <div className={`px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide ${vx.muted}`}>Files</div>
+            {fileHits.map((a) => {
+              const Icon = KIND_ICON[attachmentKind(a)];
+              return (
+                <div
+                  key={a.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => api.openAttachment(a.id, { newTab: e.metaKey || e.ctrlKey })}
+                  onKeyDown={(e) => { if (e.key === 'Enter') api.openAttachment(a.id, { newTab: e.metaKey || e.ctrlKey }); }}
+                  onContextMenu={(e) => { e.preventDefault(); api.showMenu(e, api.attachmentMenu(a)); }}
+                  title={`${attachmentPath(a)} · ${formatBytes(a.size)}`}
+                  className={`flex items-center gap-1.5 px-2 h-7 rounded-md cursor-pointer ${api.activeAttachmentId === a.id ? vx.active : vx.hover}`}
+                >
+                  <Icon size={13} className={`shrink-0 ${vx.faint}`} />
+                  <span className={`truncate text-[13px] ${vx.text}`}><Highlight text={a.name} terms={terms} /></span>
+                  {a.folder ? <span className={`truncate text-[11px] ${vx.faint}`}>{a.folder}</span> : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -4,7 +4,8 @@
  * backlinks, unlinked mentions, the graph, rename-with-link-update, search,
  * templates and daily notes. Pure; UI clients keep the index memoised.
  */
-import type { Note } from '../types';
+import type { Note, Attachment } from '../types';
+import { canvasLinks, canvasText, parseCanvas, serializeCanvas } from './canvas';
 import { extractLinks, extractTags, extractHeadings, parseFrontmatter, setFrontmatter, plainText, tagAncestors, type WikiLink } from './parse';
 
 // ------------------------------------------------------------------ paths
@@ -22,7 +23,33 @@ export function aliasesOf(n: Note): string[] {
 
 // ------------------------------------------------------------------ index
 
-export interface ResolvedLink extends WikiLink { from: string; to: string | null }
+export interface ResolvedLink extends WikiLink {
+  from: string;
+  to: string | null;
+  /** Resolved attachment id when the target is a file in the vault. */
+  toAttachment?: string | null;
+  /** For links coming from a canvas: the card text / file label (offsets are 0). */
+  context?: string;
+}
+
+/** Vault path of an attachment ("folder/name.ext"). */
+export const attachmentPath = (a: Pick<Attachment, 'name' | 'folder'>) => (a.folder ? `${a.folder.replace(/\/+$/, '')}/${a.name}` : a.name);
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const AUDIO_EXT = /\.(mp3|wav|m4a|ogg|flac|webm)$/i;
+const VIDEO_EXT = /\.(mp4|mov|webm|mkv|ogv)$/i;
+export type AttachmentKind = 'image' | 'pdf' | 'audio' | 'video' | 'other';
+export function attachmentKind(a: Pick<Attachment, 'name' | 'mime'>): AttachmentKind {
+  if (a.mime.startsWith('image/') || IMAGE_EXT.test(a.name)) return 'image';
+  if (a.mime === 'application/pdf' || /\.pdf$/i.test(a.name)) return 'pdf';
+  if (a.mime.startsWith('video/') || (VIDEO_EXT.test(a.name) && !a.mime.startsWith('audio/'))) return 'video';
+  if (a.mime.startsWith('audio/') || AUDIO_EXT.test(a.name)) return 'audio';
+  return 'other';
+}
+/** Does a link target look like a non-note file (has an extension other than .md)? */
+export const isFileTarget = (target: string) => /\.[a-z0-9]{1,8}$/i.test(target.trim()) && !/\.md$/i.test(target.trim());
+
+/** Text used for search, tags and previews (canvas JSON → its card text). */
+export const searchableText = (n: Pick<Note, 'content' | 'kind'>) => (n.kind === 'canvas' ? canvasText(n.content) : n.content);
 
 export interface VaultIndex {
   notes: Note[];
@@ -39,12 +66,28 @@ export interface VaultIndex {
   tags: Map<string, Set<string>>;
   tagsOf: Map<string, string[]>;
   folders: string[];
+  /** Vault attachments (files). */
+  attachments: Attachment[];
+  attachmentsById: Map<string, Attachment>;
+  /** Resolve a file target ("pic.png", "Folder/pic.png") to an attachment. */
+  resolveAttachment: (target: string, fromId?: string) => Attachment | null;
+  /** Incoming links per attachment id. */
+  attachmentBacklinks: Map<string, ResolvedLink[]>;
 }
 
 const live = (notes: Note[]) => notes.filter((n) => !n.deleted);
 
-export function buildIndex(all: Note[]): VaultIndex {
+export function buildIndex(all: Note[], allAttachments: Attachment[] = []): VaultIndex {
   const notes = live(all);
+  const attachments = allAttachments.filter((a) => !a.deleted);
+  const attachmentsById = new Map(attachments.map((a) => [a.id, a]));
+  const attByPath = new Map<string, Attachment>();
+  const attByName = new Map<string, Attachment[]>();
+  for (const a of [...attachments].sort((x, y) => x.createdAt.localeCompare(y.createdAt))) {
+    if (!attByPath.has(normPath(attachmentPath(a)))) attByPath.set(normPath(attachmentPath(a)), a);
+    const k = a.name.toLowerCase();
+    attByName.set(k, [...(attByName.get(k) ?? []), a]);
+  }
   const byId = new Map(notes.map((n) => [n.id, n]));
   const byPath = new Map<string, Note>();
   const byTitle = new Map<string, Note[]>();
@@ -76,6 +119,17 @@ export function buildIndex(all: Note[]): VaultIndex {
     }
     return byAlias.get(t.toLowerCase()) ?? null;
   };
+  // normPath strips ".md" only, so file extensions survive here.
+  const resolveAttachment = (target: string, fromId?: string): Attachment | null => {
+    const p = normPath(target);
+    if (!p) return null;
+    const exact = attByPath.get(p);
+    if (exact) return exact;
+    const named = attByName.get(p.split('/').pop()!);
+    if (!named?.length) return null;
+    const from = fromId ? byId.get(fromId) : undefined;
+    return named.find((a) => (a.folder ?? '') === (from?.folder ?? '')) ?? named.find((a) => normPath(attachmentPath(a)).endsWith(p)) ?? named[0];
+  };
 
   const links = new Map<string, ResolvedLink[]>();
   const backlinks = new Map<string, ResolvedLink[]>();
@@ -83,11 +137,22 @@ export function buildIndex(all: Note[]): VaultIndex {
   const tags = new Map<string, Set<string>>();
   const tagsOf = new Map<string, string[]>();
   const folders = new Set<string>();
+  const attachmentBacklinks = new Map<string, ResolvedLink[]>();
   for (const n of notes) {
-    const out = extractLinks(n.content).map((l) => ({ ...l, from: n.id, to: resolve(l.target, n.id)?.id ?? null }));
+    const raw: WikiLink[] = n.kind === 'canvas'
+      ? canvasLinks(n.content).map((l) => ({ ...l, start: 0, end: 0, line: 0 }))
+      : extractLinks(n.content);
+    const out: ResolvedLink[] = raw.map((l) => {
+      // A file-looking target prefers an attachment; otherwise notes first (a note may be titled "v1.2").
+      const att = isFileTarget(l.target) ? resolveAttachment(l.target, n.id) : null;
+      const to = att ? null : resolve(l.target, n.id)?.id ?? null;
+      const toAttachment = att?.id ?? (to ? null : resolveAttachment(l.target, n.id)?.id ?? null);
+      return { ...l, from: n.id, to, toAttachment, ...(n.kind === 'canvas' ? { context: l.alias ?? l.target } : {}) };
+    });
     links.set(n.id, out);
     for (const l of out) {
-      if (l.to) { if (l.to !== n.id || l.target) backlinks.set(l.to, [...(backlinks.get(l.to) ?? []), l]); }
+      if (l.toAttachment) attachmentBacklinks.set(l.toAttachment, [...(attachmentBacklinks.get(l.toAttachment) ?? []), l]);
+      else if (l.to) { if (l.to !== n.id || l.target) backlinks.set(l.to, [...(backlinks.get(l.to) ?? []), l]); }
       else if (l.target) {
         const k = normPath(l.target);
         const u = unresolved.get(k) ?? { target: l.target, from: new Set<string>() };
@@ -95,12 +160,13 @@ export function buildIndex(all: Note[]): VaultIndex {
         unresolved.set(k, u);
       }
     }
-    const ts = extractTags(n.content);
+    const ts = extractTags(searchableText(n));
     tagsOf.set(n.id, ts);
     for (const t of ts) for (const a of tagAncestors(t)) tags.set(a, (tags.get(a) ?? new Set()).add(n.id));
     if (n.folder) { const parts = n.folder.split('/'); parts.forEach((_, i) => folders.add(parts.slice(0, i + 1).join('/'))); }
   }
-  return { notes, byId, resolve, links, backlinks, unresolved, tags, tagsOf, folders: [...folders].sort() };
+  for (const a of attachments) if (a.folder) { const parts = a.folder.split('/'); parts.forEach((_, i) => folders.add(parts.slice(0, i + 1).join('/'))); }
+  return { notes, byId, resolve, links, backlinks, unresolved, tags, tagsOf, folders: [...folders].sort(), attachments, attachmentsById, resolveAttachment, attachmentBacklinks };
 }
 
 // ------------------------------------------------------------------ backlinks & mentions
@@ -119,7 +185,7 @@ export function linkedMentions(index: VaultIndex, noteId: string): { note: Note;
   for (const l of index.backlinks.get(noteId) ?? []) {
     if (l.from === noteId) continue;
     const src = index.byId.get(l.from)!;
-    const { line, text } = lineOf(src.content, l.start);
+    const { line, text } = src.kind === 'canvas' ? { line: 0, text: `Canvas card: ${l.context ?? l.target}` } : lineOf(src.content, l.start);
     groups.set(l.from, [...(groups.get(l.from) ?? []), { noteId: l.from, line, text, start: l.start, end: l.end }]);
   }
   return [...groups].map(([id, mentions]) => ({ note: index.byId.get(id)!, mentions })).sort((a, b) => a.note.title.localeCompare(b.note.title));
@@ -136,7 +202,7 @@ export function unlinkedMentions(index: VaultIndex, noteId: string): { note: Not
   const re = new RegExp(`(?<![\\p{L}\\p{N}])(${names.map(escapeRe).join('|')})(?![\\p{L}\\p{N}])`, 'giu');
   const out: { note: Note; mentions: Mention[] }[] = [];
   for (const n of index.notes) {
-    if (n.id === noteId) continue;
+    if (n.id === noteId || n.kind === 'canvas') continue;
     const linkSpans = extractLinks(n.content).map((l) => [l.start, l.end] as const);
     const fm = parseFrontmatter(n.content).bodyStart;
     const mentions: Mention[] = [];
@@ -178,7 +244,16 @@ export function rewriteLinksForRename(index: VaultIndex, noteId: string, next: {
   for (const [from, ls] of index.links) {
     const mine = ls.filter((l) => l.to === noteId && l.target);
     if (!mine.length) continue;
-    const src = changes.get(from) ?? index.byId.get(from)!.content;
+    const srcNote = index.byId.get(from)!;
+    if (srcNote.kind === 'canvas') {
+      const out = rewriteCanvasLinks(srcNote.content, (target, fromText) => {
+        if (index.resolve(target, from)?.id !== noteId) return null;
+        return fromText ? newTarget : `${notePath({ title: next.title, folder: next.folder ?? null })}.md`;
+      });
+      if (out !== srcNote.content) changes.set(from, out);
+      continue;
+    }
+    const src = changes.get(from) ?? srcNote.content;
     let out = src;
     for (const l of [...mine].sort((a, b) => b.start - a.start)) {
       const raw = src.slice(l.start, l.end);
@@ -192,6 +267,63 @@ export function rewriteLinksForRename(index: VaultIndex, noteId: string, next: {
       out = out.slice(0, l.start) + rep + out.slice(l.end);
     }
     if (out !== index.byId.get(from)!.content) changes.set(from, out);
+  }
+  return changes;
+}
+
+/**
+ * Rewrite link targets inside a canvas: file nodes (`fromText=false`) and
+ * [[wikilinks]] in text cards (`fromText=true`). `map` returns the new target or null to keep.
+ */
+export function rewriteCanvasLinks(content: string, map: (target: string, fromText: boolean) => string | null): string {
+  const c = parseCanvas(content);
+  let changed = false;
+  for (const n of c.nodes) {
+    if (n.type === 'file') {
+      const t = map(n.file.replace(/\.md$/i, ''), false);
+      if (t !== null && t !== n.file) { n.file = t; changed = true; }
+    } else if (n.type === 'text') {
+      const ls = extractLinks(n.text);
+      let text = n.text;
+      for (const l of [...ls].sort((a, b) => b.start - a.start)) {
+        const t = map(l.target, true);
+        if (t === null) continue;
+        const raw = text.slice(l.start, l.end);
+        if (!raw.includes('[[')) continue;
+        const frag = l.heading ? `#${l.heading}` : l.block ? `#^${l.block}` : '';
+        text = text.slice(0, l.start) + `${l.embed ? '!' : ''}[[${t}${frag}${l.alias ? `|${l.alias}` : ''}]]` + text.slice(l.end);
+      }
+      if (text !== n.text) { n.text = text; changed = true; }
+    }
+  }
+  return changed ? serializeCanvas(c) : content;
+}
+
+/** Rewrite links to an attachment after rename/move (notes + canvases). */
+export function rewriteLinksForAttachmentRename(index: VaultIndex, attachmentId: string, next: { name: string; folder?: string | null }): Map<string, string> {
+  const a = index.attachmentsById.get(attachmentId);
+  const changes = new Map<string, string>();
+  if (!a) return changes;
+  const dupes = index.attachments.filter((x) => x.id !== a.id && x.name.toLowerCase() === next.name.toLowerCase()).length > 0;
+  const newTarget = dupes ? attachmentPath({ name: next.name, folder: next.folder ?? null }) : next.name;
+  for (const [from, ls] of index.links) {
+    const mine = ls.filter((l) => l.toAttachment === attachmentId);
+    if (!mine.length) continue;
+    const srcNote = index.byId.get(from)!;
+    if (srcNote.kind === 'canvas') {
+      const out = rewriteCanvasLinks(srcNote.content, (target) => (index.resolveAttachment(target, from)?.id === attachmentId ? (dupes ? attachmentPath({ name: next.name, folder: next.folder ?? null }) : newTarget) : null));
+      if (out !== srcNote.content) changes.set(from, out);
+      continue;
+    }
+    let out = srcNote.content;
+    for (const l of [...mine].sort((x, y) => y.start - x.start)) {
+      const raw = out.slice(l.start, l.end);
+      const rep = raw.includes('[[')
+        ? `${l.embed ? '!' : ''}[[${newTarget}${l.alias ? `|${l.alias}` : ''}]]`
+        : raw.replace(/\]\(([^)\s]+)\)/, `](${encodeURI(attachmentPath({ name: next.name, folder: next.folder ?? null }))})`);
+      out = out.slice(0, l.start) + rep + out.slice(l.end);
+    }
+    if (out !== srcNote.content) changes.set(from, out);
   }
   return changes;
 }
@@ -212,11 +344,15 @@ export interface GraphOptions {
   /** Include daily notes / templates. */
   showDaily?: boolean;
   showTemplates?: boolean;
+  /** Show attachments (files) linked from notes as nodes. */
+  showAttachments?: boolean;
+  /** Include canvases as nodes. Default true. */
+  showCanvases?: boolean;
 }
 
 export function buildGraph(index: VaultIndex, opts: GraphOptions = {}): Graph {
-  const { showTags = false, showUnresolved = false, showOrphans = true, query, showDaily = true, showTemplates = false } = opts;
-  let keep = index.notes.filter((n) => (showDaily || n.kind !== 'daily') && (showTemplates || n.kind !== 'template'));
+  const { showTags = false, showUnresolved = false, showOrphans = true, query, showDaily = true, showTemplates = false, showAttachments = false, showCanvases = true } = opts;
+  let keep = index.notes.filter((n) => (showDaily || n.kind !== 'daily') && (showTemplates || n.kind !== 'template') && (showCanvases || n.kind !== 'canvas'));
   if (query?.trim()) { const hits = new Set(searchVault(index, query).map((r) => r.note.id)); keep = keep.filter((n) => hits.has(n.id)); }
   const ids = new Set(keep.map((n) => n.id));
   const nodes = new Map<string, GraphNode>();
@@ -233,7 +369,13 @@ export function buildGraph(index: VaultIndex, opts: GraphOptions = {}): Graph {
   for (const n of keep) {
     for (const l of index.links.get(n.id) ?? []) {
       if (l.to && ids.has(l.to)) addLink(n.id, l.to, l.embed ? 'embed' : 'link');
-      else if (!l.to && l.target && showUnresolved) {
+      else if (l.toAttachment) {
+        if (!showAttachments) continue;
+        const a = index.attachmentsById.get(l.toAttachment)!;
+        const aid = `attachment:${a.id}`;
+        if (!nodes.has(aid)) nodes.set(aid, { id: aid, label: a.name, type: 'attachment', degree: 0, folder: a.folder ?? null });
+        addLink(n.id, aid, 'embed');
+      } else if (!l.to && l.target && showUnresolved) {
         const uid = `unresolved:${normPath(l.target)}`;
         if (!nodes.has(uid)) nodes.set(uid, { id: uid, label: l.target, type: 'unresolved', degree: 0 });
         addLink(n.id, uid, 'link');
@@ -301,8 +443,9 @@ export function searchVault(index: VaultIndex, q: string, limit = 200): SearchHi
   if (!groups.length) return [];
   const hits: SearchHit[] = [];
   for (const n of index.notes) {
-    const lc = n.content.toLowerCase();
-    const lines = n.content.split('\n');
+    const body = searchableText(n);
+    const lc = body.toLowerCase();
+    const lines = body.split('\n');
     const title = n.title.toLowerCase();
     const path = normPath(notePath(n));
     const tags = index.tagsOf.get(n.id) ?? [];
@@ -449,7 +592,7 @@ export function uniqueTitle(index: VaultIndex, base = 'Untitled', folder?: strin
 }
 
 export const outline = (n: Note) => extractHeadings(n.content);
-export const excerpt = (n: Note, len = 160) => plainText(n.content).slice(0, len);
+export const excerpt = (n: Note, len = 160) => plainText(searchableText(n)).slice(0, len);
 
 /** Notes with no links in or out (Obsidian "orphans"). */
 export const orphans = (index: VaultIndex) => index.notes.filter((n) => !(index.links.get(n.id) ?? []).some((l) => l.to && l.to !== n.id) && !(index.backlinks.get(n.id) ?? []).some((l) => l.from !== n.id));

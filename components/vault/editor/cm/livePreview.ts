@@ -12,6 +12,9 @@ import { scanInline, lineInfo, linkDisplay, isImageTarget, isExternalUrl, parseC
 import { icon } from '../../../../shared/notes/markdownRender';
 import { renderSafe, resolverFor, handleRenderedClick, highlightCodeBlocks } from '../render';
 import { editorCtx, activeLines } from './context';
+import { attachmentFor, buildAttachmentEmbed, fileRendererFor, hydrateAttachments } from '../attachmentEmbeds';
+import { parseEmbedSize } from '../../attachmentUtils';
+import type { Attachment } from '../../../../types';
 
 // ------------------------------------------------------------------ widgets
 
@@ -98,6 +101,25 @@ class ImageWidget extends WidgetType {
   get estimatedHeight() { return 200; }
 }
 
+/** `![[file.ext]]` for a vault attachment: image / PDF / audio / video / file chip. */
+class AttachmentWidget extends WidgetType {
+  constructor(readonly a: Attachment, readonly target: string, readonly width?: number, readonly height?: number) { super(); }
+  eq(o: AttachmentWidget) { return o.a.id === this.a.id && o.a.updatedAt === this.a.updatedAt && o.target === this.target && o.width === this.width && o.height === this.height; }
+  toDOM(view: EditorView) {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-lp-att';
+    wrap.appendChild(buildAttachmentEmbed(this.a, { target: this.target, width: this.width, height: this.height }));
+    wrap.addEventListener('mousedown', (e) => { if ((e.target as HTMLElement).closest('.internal-link, button')) e.preventDefault(); });
+    wrap.addEventListener('click', (e) => {
+      const ctx = view.state.facet(editorCtx);
+      if (handleRenderedClick(e, { onOpenLink: ctx.openLink, onTagClick: ctx.tagClick, root: wrap })) e.stopPropagation();
+    });
+    return wrap;
+  }
+  get estimatedHeight() { return this.a.mime === 'application/pdf' ? 540 : this.a.height && this.a.width ? Math.min(600, this.a.height) : 120; }
+  ignoreEvent(e: Event) { return !(e.type === 'mousedown' && !(e.target as HTMLElement).closest('.md-att-bar, audio, video, iframe')); }
+}
+
 class EmbedWidget extends WidgetType {
   constructor(readonly inner: string, readonly key: string, readonly html: string) { super(); }
   eq(o: EmbedWidget) { return o.key === this.key; }
@@ -109,6 +131,7 @@ class EmbedWidget extends WidgetType {
     body.innerHTML = this.html;
     wrap.appendChild(body);
     highlightCodeBlocks(body);
+    hydrateAttachments(body, view.state.facet(editorCtx).index);
     wrap.addEventListener('mousedown', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('.internal-link, a.tag, .md-copy, input')) e.preventDefault();
@@ -155,7 +178,7 @@ function build(view: EditorView): DecorationSet {
   const sel = state.selection.ranges;
   const touches = (from: number, to: number) => view.hasFocus && sel.some((r) => r.from <= to && r.to >= from);
   const index = ctx.index;
-  const resolved = (target: string) => !index || !!index.resolve(target, ctx.noteId);
+  const resolved = (target: string) => !index || !!index.resolve(target, ctx.noteId) || !!attachmentFor(index, target, ctx.noteId);
   const out: Range<Decoration>[] = [];
   const tree = syntaxTree(state);
 
@@ -246,7 +269,11 @@ function build(view: EditorView): DecorationSet {
           case 'embed': {
             if (!hideHere) { out.push(mark('cm-lp-wikilink-raw', { 'data-wl-target': s.target ?? '', ...(s.heading ? { 'data-wl-heading': s.heading } : {}), ...(s.block ? { 'data-wl-block': s.block } : {}) }).range(f, t)); break; }
             const target = s.target ?? '';
-            if (isImageTarget(target)) {
+            const att = attachmentFor(index, target, ctx.noteId);
+            if (att) {
+              const size = parseEmbedSize(s.alias);
+              out.push(Decoration.replace({ widget: new AttachmentWidget(att, target, size.width, size.height) }).range(f, t));
+            } else if (isImageTarget(target)) {
               const w = /^(\d+)/.exec(s.alias ?? '');
               out.push(Decoration.replace({ widget: new ImageWidget(target, target, w ? Number(w[1]) : undefined) }).range(f, t));
             } else if (index) {
@@ -255,7 +282,7 @@ function build(view: EditorView): DecorationSet {
               const key = `${inner}\u0000${note?.id ?? ''}\u0000${note?.content ?? ''}`;
               let html = embedCache.get(key);
               if (html === undefined) {
-                html = renderSafe(inner, { resolve: resolverFor(index), fromId: ctx.noteId, depth: 0, bodyOnly: true });
+                html = renderSafe(inner, { resolve: resolverFor(index), fromId: ctx.noteId, depth: 0, bodyOnly: true, renderFile: fileRendererFor(index) });
                 if (embedCache.size > 64) embedCache.delete(embedCache.keys().next().value!);
                 embedCache.set(key, html);
               }

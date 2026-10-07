@@ -1,8 +1,9 @@
 /** Vault modals: quick switcher, command palette, template & folder pickers, settings, confirm. */
 import React, { useMemo } from 'react';
-import { FilePlus2, CornerDownLeft, Folder, FolderPlus, LayoutTemplate } from 'lucide-react';
-import type { Note } from '../../types';
-import { quickSwitch, formatDate, notePath } from '../../shared/notes';
+import { FilePlus2, CornerDownLeft, Folder, FolderPlus, LayoutTemplate, LayoutDashboard } from 'lucide-react';
+import type { Note, Attachment } from '../../types';
+import { quickSwitch, formatDate, notePath, attachmentKind, attachmentPath } from '../../shared/notes';
+import { KIND_ICON } from './AttachmentPane';
 import { Modal } from '../tasks/ui';
 import { setVaultSettings, templates, type VaultSettings } from './useVault';
 import { fuzzyScore, readPref, writePref } from './workspace';
@@ -12,7 +13,7 @@ const Hints = ({ items }: { items: [string, string][] }) => <>{items.map(([k, l]
 
 // ------------------------------------------------------------------ quick switcher
 
-type QSItem = { kind: 'note'; note: Note; via?: string } | { kind: 'create'; title: string };
+type QSItem = { kind: 'note'; note: Note; via?: string } | { kind: 'create'; title: string } | { kind: 'file'; file: Attachment };
 
 export function QuickSwitcher({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (title: string, newTab: boolean) => void }) {
   const api = useVaultApi();
@@ -20,7 +21,12 @@ export function QuickSwitcher({ open, onClose, onCreate }: { open: boolean; onCl
   const items = (q: string): QSItem[] => {
     const res: QSItem[] = quickSwitch(index, q, 50).map((r) => ({ kind: 'note' as const, note: r.note, via: r.via }));
     const t = q.trim();
-    if (t && !index.resolve(t)) res.push({ kind: 'create', title: t });
+    // Files: by fuzzy name/path when searching; the most recent few otherwise.
+    const files = t
+      ? index.attachments.map((file) => ({ file, s: Math.max(fuzzyScore(file.name, t), fuzzyScore(attachmentPath(file), t) - 5) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 20).map((x) => x.file)
+      : [...index.attachments].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5);
+    res.push(...files.map((file) => ({ kind: 'file' as const, file })));
+    if (t && !index.resolve(t) && !index.resolveAttachment(t)) res.push({ kind: 'create', title: t });
     return res;
   };
   return (
@@ -29,8 +35,10 @@ export function QuickSwitcher({ open, onClose, onCreate }: { open: boolean; onCl
       onClose={onClose}
       placeholder="Find or create a note…"
       items={items}
-      itemKey={(it) => (it.kind === 'note' ? it.note.id : `create:${it.title}`)}
-      render={(it, q) => it.kind === 'create' ? (
+      itemKey={(it) => (it.kind === 'note' ? it.note.id : it.kind === 'file' ? `file:${it.file.id}` : `create:${it.title}`)}
+      render={(it, q) => it.kind === 'file' ? (
+        <FileRow file={it.file} q={q} />
+      ) : it.kind === 'create' ? (
         <div className={`flex items-center gap-2 text-sm ${vx.text}`}>
           <FilePlus2 size={14} className={vx.accentText} />
           <span className="truncate">Create <b>{it.title}</b></span>
@@ -38,19 +46,34 @@ export function QuickSwitcher({ open, onClose, onCreate }: { open: boolean; onCl
         </div>
       ) : (
         <div className="min-w-0">
-          <div className={`text-sm truncate ${vx.text}`}><FuzzyText text={it.note.title} q={q} /></div>
+          <div className={`text-sm truncate ${vx.text}`}>{it.note.kind === 'canvas' ? <LayoutDashboard size={13} className={`inline -mt-0.5 mr-1.5 ${vx.muted}`} aria-label="Canvas" /> : null}<FuzzyText text={it.note.title} q={q} /></div>
           {it.via ? <div className={`text-[11px] truncate ${vx.muted}`}>↳ alias: <FuzzyText text={it.via} q={q} /></div> : null}
           {it.note.folder ? <div className={`text-[11px] truncate ${vx.faint}`}>{it.note.folder}/</div> : null}
         </div>
       )}
       onChoose={(it, how) => {
         if (it.kind === 'create') onCreate(it.title, how.mod);
+        else if (it.kind === 'file') api.openAttachment(it.file.id, { newTab: how.mod });
         else api.openNote(it.note.id, { newTab: how.mod });
       }}
       onShiftEnter={(q, how) => { if (q.trim()) onCreate(q.trim(), how.mod); }}
       empty={(q) => (q.trim() ? 'No notes found' : 'Your vault is empty')}
       footer={<Hints items={[['↑↓', 'navigate'], ['↵', 'open'], ['Mod+↵', 'open in new tab'], ['Shift+↵', 'create'], ['Esc', 'dismiss']]} />}
     />
+  );
+}
+
+function FileRow({ file, q }: { file: Attachment; q: string }) {
+  const Icon = KIND_ICON[attachmentKind(file)];
+  return (
+    <div className="min-w-0 flex items-center gap-2">
+      <Icon size={14} className={`shrink-0 ${vx.muted}`} aria-label="File" />
+      <div className="min-w-0 flex-1">
+        <div className={`text-sm truncate ${vx.text}`}><FuzzyText text={file.name} q={q} /></div>
+        {file.folder ? <div className={`text-[11px] truncate ${vx.faint}`}>{file.folder}/</div> : null}
+      </div>
+      <span className={`shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${vx.faint} bg-gray-100 dark:bg-white/5`}>{file.name.split('.').pop()}</span>
+    </div>
   );
 }
 
@@ -201,6 +224,18 @@ export function VaultSettingsModal({ open, onClose, settings }: { open: boolean;
         {settings.newNoteLocation === 'folder' ? (
           <Row label="Folder to create new notes in">
             <input className={vx.input} list="vault-folders" value={settings.newNoteFolder} onChange={(e) => setVaultSettings({ newNoteFolder: e.target.value })} placeholder="e.g. Inbox" aria-label="New note folder" />
+          </Row>
+        ) : null}
+        <Row label="Default location for new attachments" desc="Where pasted and dropped files are saved.">
+          <select className={vx.input} value={settings.attachmentLocation ?? 'folder'} onChange={(e) => setVaultSettings({ attachmentLocation: e.target.value as NonNullable<VaultSettings['attachmentLocation']> })} aria-label="New attachment location">
+            <option value="root">Vault folder</option>
+            <option value="current">Same folder as current file</option>
+            <option value="folder">In the folder specified below</option>
+          </select>
+        </Row>
+        {(settings.attachmentLocation ?? 'folder') === 'folder' ? (
+          <Row label="Attachment folder path">
+            <input className={vx.input} list="vault-folders" value={settings.attachmentFolder ?? 'Attachments'} onChange={(e) => setVaultSettings({ attachmentFolder: e.target.value })} placeholder="Attachments" aria-label="Attachment folder" />
           </Row>
         ) : null}
         <H>Daily notes</H>

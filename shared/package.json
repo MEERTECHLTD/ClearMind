@@ -25,6 +25,8 @@
     "./notes": "./notes/index.ts",
     "./notes/markdown": "./notes/markdown.ts",
     "./notes/graphStyle": "./notes/graphStyle.ts",
+    "./notes/canvas": "./notes/canvas.ts",
+    "./data/attachments": "./data/attachments.ts",
     "./data/agentTokens": "./data/agentTokens.ts"
   },
   "dependencies": {
