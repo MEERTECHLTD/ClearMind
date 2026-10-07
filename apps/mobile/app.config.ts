@@ -7,7 +7,7 @@ const ACCENT = '#3B82F6';
 
 // EAS (Expo Application Services) project — builds, signing and Play submission
 // are managed on expo.dev (see eas.json and DECISIONS.md D12).
-const EAS_OWNER = 'ameer911';
+const EAS_OWNER = 'meertech'; // Expo account (renamed from ameer911)
 const EAS_PROJECT_ID = 'ae776c4c-c63c-425f-aa1d-bdf4e58d6e38';
 
 // All iconography is generated from the real web logo by

@@ -31,7 +31,7 @@ See DECISIONS.md D11 for the data-model notes.
 
 ## Publishing with Expo (EAS)
 
-Everything is managed on expo.dev (project `@ameer911/clearmind`):
+Everything is managed on expo.dev (project `@meertech/clearmind`):
 
 ```bash
 cd apps/mobile
