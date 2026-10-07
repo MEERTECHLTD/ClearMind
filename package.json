@@ -14,7 +14,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "deploy:web": "vite build && cd apps/mobile && eas deploy --export-dir ../../dist --prod",
-    "deploy:web:preview": "vite build && cd apps/mobile && eas deploy --export-dir ../../dist"
+    "deploy:web:preview": "vite build && cd apps/mobile && eas deploy --export-dir ../../dist",
+    "build:agent": "node scripts/build-agent.mjs",
+    "test:e2e:agent": "node scripts/e2e-agent.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",

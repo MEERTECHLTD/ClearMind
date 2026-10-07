@@ -18,7 +18,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'clearmind',
   owner: EAS_OWNER,
   scheme: 'clearmind',
-  version: '0.1.0', // versionName — bump per release (see README Play checklist)
+  version: '0.2.0', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
   userInterfaceStyle: 'dark', // the UI is dark-only; keeps native pickers/dialogs consistent
   newArchEnabled: true,
@@ -94,6 +94,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-background-task',
     ['expo-image-picker', { photosPermission: 'ClearMind lets you pick a profile photo from your library.', cameraPermission: 'ClearMind uses the camera only when you choose to take a new profile photo.', microphonePermission: false }],
     ['expo-audio', { microphonePermission: false }],
+    // iOS: Google Sign-In's AppCheckCore (Swift, static) needs module maps for these.
+    ['expo-build-properties', { ios: { extraPods: [{ name: 'GoogleUtilities', modular_headers: true }, { name: 'RecaptchaInterop', modular_headers: true }] } }],
     // Android home-screen widgets (see widgets/ and services/widgetData.ts).
     ['react-native-android-widget', {
       widgets: [
