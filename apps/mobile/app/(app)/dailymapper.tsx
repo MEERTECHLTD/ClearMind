@@ -49,6 +49,7 @@ import {
   confirmDialog,
   useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 // ---------- pure helpers (local-date based — never use toISOString for day keys) ----------
 type Completed = 'yes' | 'no' | 'partial';
@@ -403,7 +404,7 @@ export default function DailyMapperScreen() {
               hitSlop={8}
               className="p-2 active:opacity-60"
             >
-              <ArrowUpDown size={20} color="#9ca3af" />
+              <ArrowUpDown size={20} color={T.muted} />
             </Pressable>
             <Pressable
               onPress={() => {
@@ -416,7 +417,7 @@ export default function DailyMapperScreen() {
               hitSlop={8}
               className="p-2 active:opacity-60"
             >
-              <Copy size={20} color="#9ca3af" />
+              <Copy size={20} color={T.muted} />
             </Pressable>
             <Pressable onPress={() => setTemplatesOpen(true)} hitSlop={8} className="p-2 active:opacity-60">
               <Star size={20} color="#f59e0b" />
@@ -435,7 +436,7 @@ export default function DailyMapperScreen() {
             {/* Date navigation */}
             <Card className="flex-row items-center justify-between mb-3">
               <Pressable onPress={() => navigateDay(-1)} hitSlop={8} className="p-1 active:opacity-60">
-                <ChevronLeft size={22} color="#9ca3af" />
+                <ChevronLeft size={22} color={T.muted} />
               </Pressable>
               <View className="items-center flex-1 px-2">
                 <Text className="text-ink text-base font-bold text-center" numberOfLines={1}>
@@ -459,7 +460,7 @@ export default function DailyMapperScreen() {
                 ) : null}
               </View>
               <Pressable onPress={() => navigateDay(1)} hitSlop={8} className="p-1 active:opacity-60">
-                <ChevronRight size={22} color="#9ca3af" />
+                <ChevronRight size={22} color={T.muted} />
               </Pressable>
             </Card>
 
@@ -583,13 +584,13 @@ function EntryCard({
             </View>
             <View className="flex-row items-center">
               <Pressable onPress={onMove} hitSlop={6} className="p-1.5 active:opacity-60">
-                <ArrowRight size={18} color="#9ca3af" />
+                <ArrowRight size={18} color={T.muted} />
               </Pressable>
               <Pressable onPress={onEdit} hitSlop={6} className="p-1.5 active:opacity-60">
-                <Pencil size={18} color="#9ca3af" />
+                <Pencil size={18} color={T.muted} />
               </Pressable>
               <Pressable onPress={onDelete} hitSlop={6} className="p-1.5 active:opacity-60">
-                <Trash2 size={18} color="#9ca3af" />
+                <Trash2 size={18} color={T.muted} />
               </Pressable>
             </View>
           </View>
@@ -906,7 +907,7 @@ function TemplatesModal({
               <Text className="text-ink text-lg font-bold ml-2">Permanent todos</Text>
             </View>
             <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
           <Text className="text-ink-muted text-xs px-5 mb-3">
@@ -916,7 +917,7 @@ function TemplatesModal({
           <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 28 }}>
             {templates.length === 0 ? (
               <View className="items-center py-10">
-                <Star size={32} color="#6b7280" />
+                <Star size={32} color={T.faint} />
                 <Text className="text-ink-muted text-sm mt-3 text-center">No permanent todos yet</Text>
                 <Text className="text-ink-muted text-xs mt-1 text-center">
                   Add one by enabling “Make permanent” on a time block.
@@ -950,7 +951,7 @@ function TemplatesModal({
                           </Text>
                         </View>
                         <Pressable onPress={() => onDelete(t.id)} hitSlop={8} className="p-1.5 active:opacity-60">
-                          <Trash2 size={16} color="#9ca3af" />
+                          <Trash2 size={16} color={T.muted} />
                         </Pressable>
                       </View>
                     ))}

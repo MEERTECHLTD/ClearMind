@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { Label, Project, Task } from '../../types';
+import type { Comment, Label, Project, Task } from '../../types';
 import { formatDueDate } from '../../shared/tasks';
 import { STORES } from '../../services/db';
 import { useStore } from './store';
@@ -16,6 +16,8 @@ interface TaskData {
   projectMap: Map<string, Project>;
   labelMap: Map<string, Label>;
   subtaskCounts: Map<string, { done: number; total: number }>;
+  /** taskId → number of (non-deleted) comments. */
+  commentCounts: Map<string, number>;
   loading: boolean;
 }
 
@@ -44,6 +46,13 @@ function DataProvider({ children }: { children: React.ReactNode }) {
   const t = useStore<Task>(STORES.TASKS);
   const p = useStore<Project>(STORES.PROJECTS);
   const l = useStore<Label>(STORES.LABELS);
+  const cm = useStore<Comment>(STORES.COMMENTS);
+  // Separate memo so a new comment doesn't rebuild the task/project/label maps.
+  const commentCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of cm.items) if (c.taskId && !c.deleted) m.set(c.taskId, (m.get(c.taskId) ?? 0) + 1);
+    return m;
+  }, [cm.items]);
   const value = useMemo<TaskData>(() => {
     const subtaskCounts = new Map<string, { done: number; total: number }>();
     for (const x of t.items) {
@@ -59,9 +68,10 @@ function DataProvider({ children }: { children: React.ReactNode }) {
       projectMap: new Map(p.items.map((x) => [x.id, x])),
       labelMap: new Map(l.items.map((x) => [x.id, x])),
       subtaskCounts,
+      commentCounts,
       loading: !t.loaded || !p.loaded || !l.loaded,
     };
-  }, [t, p, l]);
+  }, [t, p, l, commentCounts]);
   return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>;
 }
 
@@ -82,6 +92,20 @@ function UIProvider({ children }: { children: React.ReactNode }) {
     const undo = deleteTask(t);
     toast('Task deleted', { label: 'Undo', onClick: undo });
   }, [toast]);
+
+  // Deep link: #<view>?task=<id> opens that task (notifications, shared links).
+  useEffect(() => {
+    const open = () => {
+      const [route, query] = window.location.hash.split('?');
+      const id = new URLSearchParams(query ?? '').get('task');
+      if (!id) return;
+      setDetailId(id);
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}${route}`);
+    };
+    open();
+    window.addEventListener('hashchange', open);
+    return () => window.removeEventListener('hashchange', open);
+  }, []);
 
   // Global shortcut: Q opens Quick Add (ignored while typing).
   useEffect(() => {

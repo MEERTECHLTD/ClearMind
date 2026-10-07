@@ -11,6 +11,7 @@ import {
   Screen, AppHeader, Card, Input, TextArea, Select, StatCard, Fab,
   EmptyState, Spinner, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 const COLORS = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
@@ -252,11 +253,11 @@ function HabitRow({
               <View
                 key={idx}
                 className="w-3.5 h-3.5 rounded-sm mr-1.5"
-                style={{ backgroundColor: done ? color : '#374151' }}
+                style={{ backgroundColor: done ? color : T.line }}
               />
             ))}
             <View className="flex-row items-center ml-1">
-              <Flame size={15} color={habit.streak > 0 ? '#f97316' : '#6b7280'} />
+              <Flame size={15} color={habit.streak > 0 ? '#f97316' : T.faint} />
               <Text className={`ml-1 text-sm font-bold ${habit.streak > 0 ? 'text-orange-500' : 'text-ink-muted'}`}>
                 {habit.streak}
               </Text>
@@ -266,13 +267,13 @@ function HabitRow({
 
         <View className="flex-row items-center ml-2">
           <Pressable onPress={onMonthly} hitSlop={6} className="p-1.5 active:opacity-60">
-            <Calendar size={17} color="#9ca3af" />
+            <Calendar size={17} color={T.muted} />
           </Pressable>
           <Pressable onPress={onEdit} hitSlop={6} className="p-1.5 active:opacity-60">
-            <Pencil size={17} color="#9ca3af" />
+            <Pencil size={17} color={T.muted} />
           </Pressable>
           <Pressable onPress={onDelete} hitSlop={6} className="p-1.5 active:opacity-60">
-            <Trash2 size={17} color="#9ca3af" />
+            <Trash2 size={17} color={T.muted} />
           </Pressable>
         </View>
       </View>
@@ -369,7 +370,7 @@ function MonthlyModal({
           subtitle="Tap a day to toggle completion"
           right={
             <Pressable onPress={onClose} hitSlop={8} className="p-2 active:opacity-60">
-              <X size={22} color="#e2e8f0" />
+              <X size={22} color={T.ink} />
             </Pressable>
           }
         />
@@ -386,13 +387,13 @@ function MonthlyModal({
 
           <View className="flex-row items-center justify-between mb-4">
             <Pressable onPress={() => onNavigate(-1)} hitSlop={8} className="p-2 rounded-xl bg-midnight-light active:opacity-70">
-              <ChevronLeft size={20} color="#9ca3af" />
+              <ChevronLeft size={20} color={T.muted} />
             </Pressable>
             <Text className="text-ink text-base font-semibold">
               {MONTH_NAMES[monthlyViewDate.getMonth()]} {monthlyViewDate.getFullYear()}
             </Text>
             <Pressable onPress={() => onNavigate(1)} hitSlop={8} className="p-2 rounded-xl bg-midnight-light active:opacity-70">
-              <ChevronRight size={20} color="#9ca3af" />
+              <ChevronRight size={20} color={T.muted} />
             </Pressable>
           </View>
 
@@ -424,7 +425,7 @@ function MonthlyModal({
                             ? color
                             : isPast
                               ? 'rgba(239,68,68,0.18)'
-                              : '#1f2937',
+                              : T.line,
                           borderWidth: today ? 2 : 0,
                           borderColor: '#3B82F6',
                         }}

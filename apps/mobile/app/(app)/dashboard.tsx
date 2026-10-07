@@ -9,6 +9,7 @@ import { STORES } from '../../services/db';
 import { useCollection } from '../../hooks/useCollection';
 import { useAuth } from '../../hooks/useAuth';
 import { Screen, AppHeader, Card, StatCard, ProgressBar } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -79,7 +80,7 @@ export default function DashboardScreen() {
             <StatCard label="Goals" value={goals.length} icon={<Target size={18} color="#34d399" />} onPress={() => router.push('/(app)/goals')} />
           </View>
           <View className="w-1/2 px-1.5 mb-3">
-            <StatCard label="Notes" value={notes.length} icon={<NotebookPen size={18} color="#9ca3af" />} onPress={() => router.push('/(app)/notes')} />
+            <StatCard label="Notes" value={notes.length} icon={<NotebookPen size={18} color={T.muted} />} onPress={() => router.push('/(app)/notes')} />
           </View>
         </View>
 
@@ -105,7 +106,7 @@ export default function DashboardScreen() {
                         {a.organization ? <Text className="text-ink-muted text-xs" numberOfLines={1}>{a.organization}</Text> : null}
                       </View>
                       <View className="flex-row items-center">
-                        <CalendarClock size={13} color={soon ? '#f97316' : '#9ca3af'} />
+                        <CalendarClock size={13} color={soon ? '#f97316' : T.muted} />
                         <Text className={`text-xs ml-1 ${soon ? 'text-orange-400 font-semibold' : 'text-ink-muted'}`}>{relativeDeadline(d)}</Text>
                       </View>
                     </View>
@@ -147,7 +148,7 @@ export default function DashboardScreen() {
                 <Card className="mb-2.5">
                   <View className="flex-row items-center justify-between">
                     <Text className="text-ink flex-1" numberOfLines={1}>{t.title}</Text>
-                    <ChevronRight size={18} color="#9ca3af" />
+                    <ChevronRight size={18} color={T.muted} />
                   </View>
                 </Card>
               </Pressable>

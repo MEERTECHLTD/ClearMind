@@ -1,14 +1,16 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { CalendarDays, Flag, Tag, Hash, Inbox, Repeat, X } from 'lucide-react';
+import { CalendarDays, Flag, Tag, Hash, Inbox, Repeat, X, Bell, Timer } from 'lucide-react';
 import type { TaskPriority } from '../../types';
 import { parseQuickAdd, formatDueDate, formatTime, describeRecurrence } from '../../shared/tasks';
-import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker, type Schedule } from './pickers';
+import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker, relativeReminderLabel, describeDuration, type Schedule } from './pickers';
 import { cx, PRIORITY_COLOR, PRIORITY_SHORT, dueColor } from './ui';
 import { createTask, resolveNames, createProject, createLabel, projectColor } from './actions';
 import { useTaskData } from './TaskContext';
 
 export interface AddDefaults {
   projectId?: string | null;
+  /** Section within `projectId` (dropped if the user picks another project). */
+  sectionId?: string | null;
   dueDate?: string | null;
   parentId?: string | null;
   labelIds?: string[];
@@ -68,6 +70,13 @@ export function TaskEditor({
   const effLabels = labelIds ?? [...new Set([...(defaults.labelIds ?? []), ...parsed.labels.filter((l) => l.id).map((l) => l.id!)])];
   const newLabels = labelIds ? [] : parsed.labels.filter((l) => !l.id).map((l) => l.name);
   const canSubmit = parsed.title.length > 0;
+  // "!30m" / "!9am" reminders: relative ones fire before the due time, absolute ones on the due date.
+  const reminders = eff.dueDate && parsed.reminders.length
+    ? parsed.reminders.map((r, i) => (r.minutesBefore != null
+      ? { id: `q${i}`, type: 'relative' as const, minutesBefore: r.minutesBefore }
+      : { id: `q${i}`, type: 'absolute' as const, at: `${eff.dueDate}T${r.time}` }))
+    : undefined;
+  const reminderText = parsed.reminders.map((r) => (r.minutesBefore != null ? relativeReminderLabel(r.minutesBefore) : `At ${formatTime(r.time)}`)).join(', ');
 
   const unparse = (...types: string[]) => {
     const words = parsed.tokens.filter((t) => types.includes(t.type)).map((t) => t.text.toLowerCase());
@@ -83,7 +92,10 @@ export function TaskEditor({
     const resolved = resolveNames(newProject, eff.projectId, [...effLabels.map((id) => ({ id, name: '' })), ...newLabels.map((name) => ({ name }))]);
     createTask({
       title: parsed.title, description: desc, dueDate: eff.dueDate, dueTime: eff.dueTime, recurrence: eff.recurrence,
-      priority: eff.priority, projectId: resolved.projectId, parentId: defaults.parentId ?? null, labelIds: resolved.labelIds,
+      priority: eff.priority, projectId: resolved.projectId,
+      sectionId: resolved.projectId && resolved.projectId === defaults.projectId ? defaults.sectionId ?? null : null,
+      parentId: defaults.parentId ?? null, labelIds: resolved.labelIds,
+      duration: parsed.duration ?? null, reminders,
     });
     reset();
     input.current?.focus();
@@ -138,6 +150,16 @@ export function TaskEditor({
               ? [...effLabels.map((id) => labelMap.get(id)?.name ?? ''), ...newLabels.map((n) => `${n} (new)`)].filter(Boolean).join(', ')
               : 'Labels'}
           </Chip>
+          {parsed.duration ? (
+            <Chip label={`Duration: ${describeDuration(parsed.duration)}`} onClick={() => {}} active onClear={() => unparse('duration')}>
+              <Timer size={13} />{describeDuration(parsed.duration)}
+            </Chip>
+          ) : null}
+          {parsed.reminders.length ? (
+            <Chip label={`Reminders: ${reminderText}`} onClick={() => {}} active={!!eff.dueDate} onClear={() => unparse('reminder')}>
+              <Bell size={13} />{reminderText}{eff.dueDate ? '' : ' (needs a date)'}
+            </Chip>
+          ) : null}
         </div>
       </div>
       <div className={`flex items-center gap-2 px-3 py-2 border-t ${cx.border}`}>

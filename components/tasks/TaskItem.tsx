@@ -1,5 +1,5 @@
 import React, { memo, useRef, useState } from 'react';
-import { CalendarDays, Repeat, Tag, Hash, Inbox, ListTree, MoreHorizontal, Pencil, Flag, Copy, Trash2, FolderInput, AlignLeft } from 'lucide-react';
+import { CalendarDays, Repeat, Tag, Hash, Inbox, ListTree, MoreHorizontal, Pencil, Flag, Copy, Trash2, FolderInput, AlignLeft, Bell, MessageSquare } from 'lucide-react';
 import type { Task } from '../../types';
 import { formatDueDate, formatTime, priorityOf } from '../../shared/tasks';
 import { TaskCheck, Popover, MenuItem, cx, PRIORITY_COLOR, PRIORITY_LABEL, dueColor } from './ui';
@@ -10,7 +10,7 @@ import { useTaskData, useTaskUI } from './TaskContext';
 type Open = null | 'menu' | 'date' | 'priority' | 'project';
 
 function TaskItemImpl({ task, showProject, hideDate, showParent }: { task: Task; showProject?: boolean; hideDate?: boolean; showParent?: boolean }) {
-  const { projects, projectMap, labelMap, taskMap, subtaskCounts } = useTaskData();
+  const { projects, projectMap, labelMap, taskMap, subtaskCounts, commentCounts } = useTaskData();
   const ui = useTaskUI();
   const [open, setOpen] = useState<Open>(null);
   const [ticking, setTicking] = useState(false);
@@ -29,6 +29,8 @@ function TaskItemImpl({ task, showProject, hideDate, showParent }: { task: Task;
   const parent = showParent && task.parentId ? taskMap.get(task.parentId) : null;
   const labels = (task.labelIds ?? []).map((id) => labelMap.get(id)).filter(Boolean) as NonNullable<ReturnType<typeof labelMap.get>>[];
   const subs = subtaskCounts.get(task.id);
+  const nComments = commentCounts.get(task.id) ?? 0;
+  const nReminders = task.reminders?.length ?? 0;
   const showDate = !!task.dueDate && !hideDate;
   const due = showDate ? `${formatDueDate(task.dueDate)}${task.dueTime ? ` ${formatTime(task.dueTime)}` : ''}` : hideDate && task.dueTime ? formatTime(task.dueTime) : '';
   const p = priorityOf(task);
@@ -47,7 +49,7 @@ function TaskItemImpl({ task, showProject, hideDate, showParent }: { task: Task;
         {parent ? <p className={`text-[11px] ${cx.faint} truncate`}>↳ {parent.title}</p> : null}
         <p className={`text-sm leading-5 ${checked ? 'line-through text-gray-400' : cx.text}`}>{task.title}</p>
         {task.description ? <p className={`text-xs mt-0.5 truncate ${cx.muted}`}>{task.description}</p> : null}
-        {(due || task.recurrence || subs || labels.length || showProject) ? (
+        {(due || task.recurrence || subs || labels.length || showProject || nComments || nReminders) ? (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-xs">
             {due ? (
               <span className="inline-flex items-center gap-1" style={{ color: dueColor(task) }}>
@@ -55,6 +57,8 @@ function TaskItemImpl({ task, showProject, hideDate, showParent }: { task: Task;
               </span>
             ) : task.recurrence ? <span className={`inline-flex items-center gap-1 ${cx.muted}`}><Repeat size={12} />Repeats</span> : null}
             {subs ? <span className={`inline-flex items-center gap-1 ${cx.muted}`}><ListTree size={12} />{subs.done}/{subs.total}</span> : null}
+            {nComments ? <span className={`inline-flex items-center gap-1 ${cx.muted}`} title={`${nComments} comment${nComments === 1 ? '' : 's'}`} aria-label={`${nComments} comment${nComments === 1 ? '' : 's'}`}><MessageSquare size={12} />{nComments}</span> : null}
+            {nReminders ? <span className={`inline-flex items-center ${cx.muted}`} title={`${nReminders} reminder${nReminders === 1 ? '' : 's'}`} aria-label={`${nReminders} reminder${nReminders === 1 ? '' : 's'}`}><Bell size={12} /></span> : null}
             {task.description && !due ? <AlignLeft size={12} className={cx.faint} /> : null}
             {labels.map((l) => <span key={l.id} className="inline-flex items-center gap-1" style={{ color: l.color }}><Tag size={11} />{l.name}</span>)}
             {showProject ? (

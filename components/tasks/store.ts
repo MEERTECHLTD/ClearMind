@@ -54,6 +54,13 @@ class CollectionStore<T extends { id: string }> {
     this.set({ items: next });
   }
 
+  /** Merge records written by the sync engine (own writes or inbound) — instant UI update. */
+  applyExternal(records: T[]) {
+    const live = records.filter((r: any) => !r.deleted);
+    const gone = records.filter((r: any) => r.deleted).map((r) => r.id);
+    this.apply(live, gone);
+  }
+
   /** Optimistic write; a failed local write reloads (rolls back) and rethrows. */
   async putMany(items: T[]) {
     if (!items.length) return;
@@ -85,6 +92,11 @@ export function getStore<T extends { id: string }>(name: string): CollectionStor
   let s = stores.get(name);
   if (!s) { s = new CollectionStore<T>(name); stores.set(name, s); }
   return s as CollectionStore<T>;
+}
+
+/** Called by the sync engine for every local change. */
+export function applyToStores(coll: string, records: { id: string }[]) {
+  stores.get(coll)?.applyExternal(records as any);
 }
 
 export function useStore<T extends { id: string }>(name: string): Snapshot<T> {

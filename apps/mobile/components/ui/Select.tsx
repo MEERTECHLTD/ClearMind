@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, Modal } from 'react-native';
 import { ChevronDown, Check } from 'lucide-react-native';
+import { T } from '../../lib/theme';
 
 export interface Option<T extends string = string> {
   label: string;
@@ -31,7 +32,7 @@ export function Select<T extends string = string>({
         className="flex-row items-center justify-between bg-midnight-light rounded-2xl px-4 py-3.5 border border-hairline active:opacity-80"
       >
         <Text className="text-ink text-base">{current?.label ?? 'Select…'}</Text>
-        <ChevronDown size={18} color="#9ca3af" />
+        <ChevronDown size={18} color={T.muted} />
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>

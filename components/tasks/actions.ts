@@ -1,36 +1,50 @@
 /**
- * Task / project / label commands for the web task layer. Same rules as the
- * mobile app (shared/tasks): completing cascades to sub-tasks, recurring tasks
- * roll forward, delete removes sub-tasks, and every destructive change returns
- * an undo. Writes are optimistic; the cloud push is never awaited by the UI.
- * Browser reminders come from services/notificationService (it watches
- * dueDate/dueTime + `notified`), so a reschedule resets `notified`.
+ * Web task commands — thin wrappers over the shared domain operations
+ * (shared/domain): the exact same logic mobile, MCP, API and CLI use, so
+ * completions, recurrence, activity history and idempotency are identical
+ * everywhere. Edits are applied optimistically through the SyncEngine
+ * (IndexedDB + outbox + Firestore); the UI never waits for the network.
  */
-import type { Label, Project, Task, TaskPriority, TaskRecurrence } from '../../types';
-import { completeTask, uncompleteTask, deletionSet, LIST_COLORS, colorFor } from '../../shared/tasks';
+import type { Label, Project, Task, TaskPriority, TaskRecurrence, Preferences, Section, Comment, Completion } from '../../types';
+import * as D from '../../shared/domain';
+import { colorFor } from '../../shared/tasks';
 import { STORES } from '../../services/db';
-import { getStore } from './store';
+import { applyEdits } from '../../services/syncEngine';
+import { getStore, applyToStores } from './store';
 
-const tasks = () => getStore<Task>(STORES.TASKS);
-const projects = () => getStore<Project>(STORES.PROJECTS);
-const labels = () => getStore<Label>(STORES.LABELS);
+export const state = (): D.DomainState => ({
+  tasks: getStore<Task>(STORES.TASKS).getSnapshot().items,
+  projects: getStore<Project>(STORES.PROJECTS).getSnapshot().items,
+  labels: getStore<Label>(STORES.LABELS).getSnapshot().items,
+  sections: getStore<Section>(STORES.SECTIONS).getSnapshot().items,
+  comments: getStore<Comment>(STORES.COMMENTS).getSnapshot().items,
+  completions: getStore<Completion>(STORES.COMPLETIONS).getSnapshot().items,
+  filters: getStore<import('../../types').SavedFilter>(STORES.FILTERS).getSnapshot().items,
+  preferences: (getStore<Preferences>(STORES.PREFERENCES).getSnapshot().items[0] as Preferences | undefined) ?? null,
+});
 
-const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-const nowISO = () => new Date().toISOString();
+export const ctx = (): D.Ctx => ({ source: 'web', timezone: state().preferences?.timezone ?? null });
 
-function persist(p: Promise<void>, what: string) {
-  p.catch((e) => console.warn(`${what} failed:`, e));
+/** Reflect edits in the in-memory stores immediately (the engine persists them right after). */
+function optimistic(s: D.DomainState, edits: D.Edit[]) {
+  const next = D.applyEdits(s, edits);
+  const byColl = new Map<string, Set<string>>();
+  for (const e of edits) byColl.set(e.coll, (byColl.get(e.coll) ?? new Set()).add(e.id));
+  for (const [coll, ids] of byColl) {
+    if (coll === 'activity') continue;
+    const list: { id: string }[] = coll === 'preferences' ? (next.preferences ? [next.preferences] : []) : ((next as any)[coll] ?? []);
+    applyToStores(coll, list.filter((x) => ids.has(x.id)));
+  }
 }
 
-const scheduleKey = (t: Task) => `${t.dueDate ?? ''}|${t.dueTime ?? ''}`;
-
-function save(list: Task[], what: string, before?: Map<string, Task>) {
-  const out = list.map((t) => {
-    const prev = before?.get(t.id);
-    // A new date/time should notify again.
-    return prev && scheduleKey(prev) !== scheduleKey(t) ? { ...t, notified: false } : t;
-  });
-  persist(tasks().putMany(out), what);
+/** Run a domain operation: persist its edits and return its result + an undo. */
+export function run<R>(op: (s: D.DomainState, c: D.Ctx) => D.OpResult<R>): { result: R; undo: () => void } {
+  const s = state();
+  const r = op(s, ctx());
+  const inverse = D.invertEdits(s, r.edits);
+  optimistic(s, r.edits);
+  if (r.edits.length) void applyEdits(r.edits).catch((e) => console.warn('write failed', e));
+  return { result: r.result, undo: () => { if (inverse.length) void applyEdits(inverse); } };
 }
 
 // ------------------------------------------------------------------ tasks
@@ -42,155 +56,130 @@ export interface NewTaskInput {
   dueTime?: string | null;
   priority?: TaskPriority;
   projectId?: string | null;
+  sectionId?: string | null;
   parentId?: string | null;
   labelIds?: string[];
   recurrence?: TaskRecurrence | null;
+  duration?: number | null;
+  reminders?: Task['reminders'];
 }
 
-export function createTask(input: NewTaskInput): Task {
-  const all = tasks().getSnapshot().items;
-  const t: Task = {
-    id: newId(),
-    title: input.title.trim(),
-    description: input.description?.trim() || undefined,
-    completed: false,
-    priority: input.priority ?? 'None',
-    dueDate: input.dueDate || undefined,
-    dueTime: (input.dueDate && input.dueTime) || undefined,
-    projectId: input.projectId ?? null,
-    parentId: input.parentId ?? null,
-    labelIds: input.labelIds ?? [],
-    recurrence: input.recurrence ?? null,
-    taskNumber: all.reduce((m, x) => Math.max(m, x.taskNumber || 0), 0) + 1,
-    order: Date.now(),
-    createdAt: nowISO(),
-    completedAt: null,
-    notified: false,
-  };
-  save([t], 'create task');
-  return t;
-}
+export const createTask = (input: NewTaskInput): Task => run((s, c) => D.createTask(s, input, c)).result;
 
 export function updateTask(t: Task, patch: Partial<Task>) {
-  const next: Task = { ...t, ...patch };
-  if (!next.dueDate) { next.dueTime = undefined; next.recurrence = null; }
-  save([next], 'update task', new Map([[t.id, t]]));
+  const { id: _id, completed: _c, ...rest } = patch as any;
+  run((s, c) => D.updateTask(s, t.id, rest, c));
 }
 
 export function toggleTask(t: Task): { completed: boolean; nextDueDate?: string; undo: () => void } {
-  const all = tasks().getSnapshot().items;
-  const before = new Map(all.map((x) => [x.id, x]));
-  const changed = t.completed ? uncompleteTask(t, all) : completeTask(t, all).changed;
-  const nextDueDate = t.completed ? undefined : completeTask(t, all).nextDueDate;
-  save(changed, t.completed ? 'restore task' : 'complete task', before);
-  const prior = changed.map((c) => before.get(c.id)!).filter(Boolean);
-  return {
-    completed: !t.completed && !nextDueDate,
-    nextDueDate,
-    undo: () => save(prior, 'undo', new Map(changed.map((c) => [c.id, c]))),
-  };
+  if (t.completed) {
+    const r = run((s, c) => D.reopenTask(s, t.id, c));
+    return { completed: false, undo: r.undo };
+  }
+  const r = run((s, c) => D.completeTask(s, t.id, c));
+  return { completed: !r.result.nextDueDate, nextDueDate: r.result.nextDueDate ?? undefined, undo: r.undo };
 }
 
-export function deleteTask(t: Task): () => void {
-  const all = tasks().getSnapshot().items;
-  const ids = new Set(deletionSet(t, all));
-  const removed = all.filter((x) => ids.has(x.id));
-  persist(tasks().removeMany([...ids]), 'delete task');
-  // The cloud doc is overwritten whole, so clear the tombstone explicitly.
-  return () => save(removed.map((x) => ({ ...x, deleted: false, deletedAt: null } as Task)), 'undo delete');
-}
+export const deleteTask = (t: Task): (() => void) => run((s, c) => D.deleteTask(s, t.id, c)).undo;
 
-export function duplicateTask(t: Task): Task {
-  return createTask({
-    title: t.title, description: t.description, dueDate: t.dueDate, dueTime: t.dueTime, priority: t.priority,
-    projectId: t.projectId, parentId: t.parentId, labelIds: t.labelIds ?? [], recurrence: t.recurrence,
-  });
-}
+export const duplicateTask = (t: Task): Task => createTask({
+  title: t.title, description: t.description, dueDate: t.dueDate, dueTime: t.dueTime, priority: t.priority,
+  projectId: t.projectId, sectionId: t.sectionId, parentId: t.parentId, labelIds: t.labelIds ?? [], recurrence: t.recurrence,
+  duration: t.duration, reminders: t.reminders,
+});
 
-// ------------------------------------------------------------------ projects
+export const moveTasks = (ids: string[], to: { projectId?: string | null; sectionId?: string | null }) => run((s, c) => D.moveTasks(s, ids, to, c));
 
-export function createProject(input: { title: string; color?: string; parentId?: string | null }): Project {
-  const all = projects().getSnapshot().items;
-  const p: Project = {
-    id: newId(),
-    title: input.title.trim(),
-    description: '',
-    status: 'In Progress',
-    progress: 0,
-    tags: [],
-    color: input.color ?? LIST_COLORS[all.length % LIST_COLORS.length].hex,
-    parentId: input.parentId ?? null,
-    order: all.reduce((m, x) => Math.max(m, x.order ?? 0), 0) + 1,
-    archived: false,
-    createdAt: nowISO(),
-  };
-  persist(projects().putMany([p]), 'create project');
-  return p;
-}
+// ------------------------------------------------------------------ projects & sections
+
+export const createProject = (input: { title: string; color?: string; parentId?: string | null; icon?: string | null; view?: 'list' | 'board' }): Project =>
+  run((s, c) => D.createProject(s, input, c)).result;
 
 export function updateProject(p: Project, patch: Partial<Project>) {
-  persist(projects().putMany([{ ...p, ...patch }]), 'update project');
+  const { id: _id, ...rest } = patch as any;
+  run((s, c) => D.updateProject(s, p.id, rest, c));
 }
 
-export function projectSubtree(all: Project[], id: string): string[] {
-  const out = [id];
-  const seen = new Set(out);
-  for (let k = 0; k < out.length; k++) {
-    for (const p of all) if (p.parentId === out[k] && !seen.has(p.id)) { seen.add(p.id); out.push(p.id); }
-  }
-  return out;
-}
+export const projectSubtree = (all: Project[], id: string) => D.projectSubtree(all, id);
 
 export function moveProject(siblings: Project[], id: string, dir: -1 | 1) {
   const i = siblings.findIndex((p) => p.id === id);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= siblings.length) return;
-  const ordered = siblings.map((p, k) => ({ ...p, order: k + 1 }));
-  [ordered[i].order, ordered[j].order] = [ordered[j].order, ordered[i].order];
-  persist(projects().putMany(ordered), 'reorder projects');
+  const ids = siblings.map((p) => p.id);
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  run((s) => D.reorderProjects(s, ids));
 }
 
-export function deleteProject(id: string) {
-  const ids = new Set(projectSubtree(projects().getSnapshot().items, id));
-  const doomed = tasks().getSnapshot().items.filter((t) => t.projectId && ids.has(t.projectId));
-  persist(tasks().removeMany(doomed.map((t) => t.id)), 'delete project tasks');
-  persist(projects().removeMany([...ids]), 'delete project');
-}
-
+export const deleteProject = (id: string) => run((s, c) => D.deleteProject(s, id, c));
 export const projectColor = (p: Pick<Project, 'id' | 'color'>) => colorFor(p.id, p.color);
 
-// ------------------------------------------------------------------ labels
+export const createSection = (projectId: string, name: string) => run((s, c) => D.createSection(s, { projectId, name }, c)).result;
+export const updateSection = (id: string, patch: Partial<Section>) => run((s) => D.updateSection(s, id, patch as any));
+export const deleteSection = (id: string, deleteTasks = false) => run((s, c) => D.deleteSection(s, id, c, { deleteTasks }));
+export const reorderSections = (projectId: string, ids: string[]) => run((s) => D.reorderSections(s, projectId, ids));
 
-export function createLabel(input: { name: string; color?: string }): Label {
-  const all = labels().getSnapshot().items;
-  const l: Label = {
-    id: newId(),
-    name: input.name.trim().replace(/^[@%]/, '').replace(/\s+/g, '_'),
-    color: input.color ?? LIST_COLORS[(all.length + 5) % LIST_COLORS.length].hex,
-    order: all.length + 1,
-  };
-  persist(labels().putMany([l]), 'create label');
-  return l;
-}
+// ------------------------------------------------------------------ labels, comments, prefs
 
-export function updateLabel(l: Label, patch: Partial<Label>) {
-  persist(labels().putMany([{ ...l, ...patch }]), 'update label');
-}
+export const createLabel = (input: { name: string; color?: string }): Label => run((s, c) => D.createLabel(s, input, c)).result;
+export const updateLabel = (l: Label, patch: Partial<Label>) => run((s) => D.updateLabel(s, l.id, patch as any));
+export const deleteLabel = (id: string) => run((s) => D.deleteLabel(s, id));
 
-export function deleteLabel(id: string) {
-  const affected = tasks().getSnapshot().items.filter((t) => (t.labelIds ?? []).includes(id));
-  persist(tasks().putMany(affected.map((t) => ({ ...t, labelIds: (t.labelIds ?? []).filter((x) => x !== id) }))), 'unlink label');
-  persist(labels().removeMany([id]), 'delete label');
-}
+export const addComment = (input: { taskId?: string | null; projectId?: string | null; text: string; authorName?: string | null }) => run((s, c) => D.addComment(s, input, c)).result;
+export const deleteComment = (id: string) => run((s) => D.deleteComment(s, id));
+
+export const savePreferences = (patch: Partial<Preferences>) => run((s) => D.savePreferences(s, patch));
+export const applyTemplate = (templateId: string, title?: string) => run((s, c) => D.applyTemplate(s, templateId, { title }, c)).result;
+export const saveFilter = (input: { id?: string; name: string; query: string; color?: string | null }) => run((s, c) => D.saveFilter(s, input, c)).result;
+export const deleteFilter = (id: string) => run((s) => D.deleteFilter(s, id));
 
 /** Quick-add names → ids, creating projects/labels that don't exist yet. */
 export function resolveNames(projectName: string | undefined, projectId: string | undefined | null, refs: { id?: string; name: string }[]) {
   let pid = projectId ?? null;
   if (!pid && projectName) {
-    const hit = projects().getSnapshot().items.find((p) => p.title.toLowerCase() === projectName.toLowerCase());
+    const hit = state().projects.find((p) => !p.deleted && p.title.toLowerCase() === projectName.toLowerCase());
     pid = hit ? hit.id : createProject({ title: projectName }).id;
   }
-  const existing = labels().getSnapshot().items;
-  const labelIds = refs.map((r) => r.id ?? existing.find((l) => l.name.toLowerCase() === r.name.toLowerCase())?.id ?? createLabel({ name: r.name }).id);
+  const labelIds = refs.map((r) => r.id ?? createLabel({ name: r.name }).id);
   return { projectId: pid, labelIds: [...new Set(labelIds)] };
 }
+
+// ------------------------------------------------------------------ project workspace (sections / board)
+
+/** Add a section to a project (name trimmed; ignored when blank). */
+export const addSection = (projectId: string, name: string): Section | null =>
+  name.trim() ? createSection(projectId, name.trim()) : null;
+
+export const renameSection = (id: string, name: string) => { if (name.trim()) updateSection(id, { name: name.trim() }); };
+
+export const setSectionCollapsed = (id: string, collapsed: boolean) => updateSection(id, { collapsed });
+
+/** Delete a section; its tasks move to the project's "No section" list. Returns an undo. */
+export const removeSection = (id: string): (() => void) => deleteSection(id).undo;
+
+/** Swap a section with its neighbour. `orderedIds` is the project's current visible section order. */
+export function moveSection(projectId: string, orderedIds: string[], id: string, dir: -1 | 1) {
+  const ids = [...orderedIds];
+  const i = ids.indexOf(id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  reorderSections(projectId, ids);
+}
+
+export const setProjectView = (p: Project, view: 'list' | 'board') => { if ((p.view ?? 'list') !== view) updateProject(p, { view }); };
+
+export const toggleProjectFavorite = (p: Project) => updateProject(p, { favorite: !p.favorite });
+
+/** Move tasks into a section of a project (`sectionId: null` = "No section"). Returns an undo. */
+export const moveToSection = (taskIds: string[], projectId: string, sectionId: string | null): (() => void) =>
+  moveTasks(taskIds, { projectId, sectionId }).undo;
+
+// ------------------------------------------------------------------ saved filters (web UI)
+
+/** Create (no id) or update a saved filter; the query must already be valid. */
+export const saveFilterAction = (input: { id?: string; name: string; query: string; color?: string | null; favorite?: boolean }) =>
+  run((s, c) => D.saveFilter(s, input, c)).result;
+
+/** Tombstone a saved filter. Returns an undo. */
+export const deleteFilterAction = (id: string): (() => void) => deleteFilter(id).undo;

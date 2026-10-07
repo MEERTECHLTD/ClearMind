@@ -19,7 +19,7 @@ import type { TaskPriority, TaskRecurrence } from '../types';
 import { addDays, addMonths, startOfDay, startOfWeek, toISODate } from './dates';
 import { firstOccurrence } from './recurrence';
 
-export type QuickAddTokenType = 'date' | 'time' | 'recurrence' | 'priority' | 'project' | 'label';
+export type QuickAddTokenType = 'date' | 'time' | 'recurrence' | 'priority' | 'project' | 'label' | 'reminder' | 'duration';
 
 export interface QuickAddToken {
   type: QuickAddTokenType;
@@ -39,6 +39,10 @@ export interface QuickAddResult {
   projectName?: string;
   /** Labels: id set when it matched an existing label, otherwise a new name. */
   labels: { id?: string; name: string }[];
+  /** Reminders: minutes before the due time, or an absolute local time 'HH:MM' on the due date. */
+  reminders: { minutesBefore?: number; time?: string }[];
+  /** Duration in minutes ("for 45 min"). */
+  duration?: number;
   tokens: QuickAddToken[];
 }
 
@@ -47,6 +51,12 @@ export interface QuickAddContext {
   projects?: { id: string; title: string }[];
   labels?: { id: string; name: string }[];
   ignore?: Iterable<string>;
+  /** Settings → "Smart date recognition". Off = dates/times/recurrence stay plain text. */
+  smartDates?: boolean;
+  /** Settings → how "next week" is read: the coming Monday (default) or 7 days from today. */
+  nextWeek?: 'monday' | 'plus7';
+  /** Settings → which day "weekend" means. */
+  weekend?: 'saturday' | 'sunday';
 }
 
 const WD = 'mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?';
@@ -72,7 +82,8 @@ export function parseQuickAdd(input: string, ctx: QuickAddContext = {}): QuickAd
   const ignore = new Set([...(ctx.ignore ?? [])].map((s) => s.toLowerCase()));
   const tokens: QuickAddToken[] = [];
   let work = input; // same length as input; consumed ranges are blanked out
-  const result: QuickAddResult = { title: '', labels: [], tokens };
+  const result: QuickAddResult = { title: '', labels: [], reminders: [], tokens };
+  const smart = ctx.smartDates !== false;
 
   const consume = (type: QuickAddTokenType, start: number, end: number) => {
     tokens.push({ type, start, end, text: input.slice(start, end) });
@@ -98,20 +109,65 @@ export function parseQuickAdd(input: string, ctx: QuickAddContext = {}): QuickAd
   };
 
   // ---- Recurrence (before dates: it contains weekday words) ----
+  // "every!" or a trailing "after completion" = repeat from the completion date.
+  const EV = 'every!?';
+  const AC = '(?:\\s+after\\s+(?:completion|completing))?';
+  const ORD = 'first|second|third|fourth|fifth|last|1st|2nd|3rd|4th|5th';
+  const ordNum = (o: string) => (/^last$/i.test(o) ? -1 : ['first', 'second', 'third', 'fourth', 'fifth'].indexOf(o.toLowerCase()) + 1 || Number(o.replace(/\D/g, '')));
+  const anchorOf = (m: RegExpExecArray): TaskRecurrence['anchor'] => (/^every!|after\s+complet/i.test(m[0]) ? 'completion' : 'scheduled');
   const setRec = (rule: TaskRecurrence) => { result.recurrence = rule; return true; };
-  take('recurrence', `every\\s+(other|\\d+)\\s+(day|week|month|year)s?`, (m) =>
-    setRec({ freq: unitFreq(m[2]), interval: m[1].toLowerCase() === 'other' ? 2 : Math.max(1, Number(m[1])) })) ||
-  take('recurrence', `every\\s*day|daily|everyday`, () => setRec({ freq: 'daily', interval: 1 })) ||
-  take('recurrence', `every\\s+(?:weekday|workday)s?`, () => setRec({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] })) ||
-  take('recurrence', `every\\s+weekends?`, () => setRec({ freq: 'weekly', interval: 1, weekdays: [0, 6] })) ||
-  take('recurrence', `every\\s+(other\\s+)?((?:${WD})(?:\\s*(?:,|and|&)?\\s*(?:${WD}))*)`, (m) => {
-    const days = [...new Set(m[2].split(/[\s,&]+|and/i).filter(Boolean).map(wdIndex).filter((d) => d >= 0))];
-    if (!days.length) return false;
-    return setRec({ freq: 'weekly', interval: m[1] ? 2 : 1, weekdays: days.sort((a, b) => a - b) });
-  }) ||
-  take('recurrence', `every\\s+(week|month|year)|weekly|monthly|yearly|annually`, (m) => {
-    const w = (m[1] ?? m[0]).toLowerCase();
-    return setRec({ freq: w.startsWith('week') ? 'weekly' : w.startsWith('month') ? 'monthly' : 'yearly', interval: 1 });
+  const rec = (pattern: string, handler: (m: RegExpExecArray) => TaskRecurrence | null) =>
+    take('recurrence', pattern + AC, (m) => { const r = handler(m); if (!r) return false; return setRec({ ...r, anchor: anchorOf(m) }); });
+  if (smart) {
+    rec(`${EV}\\s+(${ORD})\\s+(${WD})(?:\\s+of\\s+(?:every|each|the)\\s+month)?`, (m) =>
+      ({ freq: 'monthly', interval: 1, nthWeekday: { weekday: wdIndex(m[2]), ordinal: ordNum(m[1]) } })) ||
+    rec(`(${ORD})\\s+(${WD})\\s+of\\s+(?:every|each)\\s+month`, (m) =>
+      ({ freq: 'monthly', interval: 1, nthWeekday: { weekday: wdIndex(m[2]), ordinal: ordNum(m[1]) } })) ||
+    rec(`(?:${EV}\\s+last\\s+day(?:\\s+of\\s+(?:every|the)\\s+month)?|(?:on\\s+the\\s+)?last\\s+day\\s+of\\s+(?:every|each)\\s+month)`, () =>
+      ({ freq: 'monthly', interval: 1, monthDay: -1 })) ||
+    rec(`${EV}\\s+(?:month\\s+on\\s+the\\s+)?(\\d{1,2})(?:st|nd|rd|th)(?:\\s+of\\s+(?:every|each|the)\\s+month)?`, (m) => {
+      const d = Number(m[1]);
+      return d >= 1 && d <= 31 ? { freq: 'monthly', interval: 1, monthDay: d } : null;
+    }) ||
+    rec(`${EV}\\s+month\\s+on\\s+the\\s+last\\s+day`, () => ({ freq: 'monthly', interval: 1, monthDay: -1 })) ||
+    rec(`${EV}\\s+(other|\\d+)\\s+(day|week|month|year)s?`, (m) =>
+      ({ freq: unitFreq(m[2]), interval: m[1].toLowerCase() === 'other' ? 2 : Math.max(1, Number(m[1])) })) ||
+    rec(`${EV}\\s*day|daily|everyday`, () => ({ freq: 'daily', interval: 1 })) ||
+    rec(`${EV}\\s+(?:weekday|workday)s?`, () => ({ freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] })) ||
+    rec(`${EV}\\s+weekends?`, () => ({ freq: 'weekly', interval: 1, weekdays: [0, 6] })) ||
+    rec(`${EV}\\s+(other\\s+)?((?:${WD})(?:\\s*(?:,|and|&)?\\s*(?:${WD}))*)`, (m) => {
+      const days = [...new Set(m[2].split(/[\s,&]+|and/i).filter(Boolean).map(wdIndex).filter((d) => d >= 0))];
+      if (!days.length) return null;
+      return { freq: 'weekly', interval: m[1] ? 2 : 1, weekdays: days.sort((a, b) => a - b) };
+    }) ||
+    rec(`${EV}\\s+(week|month|quarter|year)|weekly|monthly|quarterly|yearly|annually`, (m) => {
+      const w = (m[1] ?? m[0]).toLowerCase().replace(/^every!?\s+/, '');
+      if (w.startsWith('quarter')) return { freq: 'monthly', interval: 3 };
+      return { freq: w.startsWith('week') ? 'weekly' : w.startsWith('month') ? 'monthly' : 'yearly', interval: 1 };
+    });
+  }
+
+  // ---- Reminders: "!30m", "!1h before", "!9am", "!14:30" ----
+  take('reminder', `!(\\d+)\\s*(m|min|mins|minutes?|h|hr|hrs|hours?)(?:\\s+before)?`, (m) => {
+    const n = Number(m[1]);
+    result.reminders.push({ minutesBefore: /^h/i.test(m[2]) ? n * 60 : n });
+    return true;
+  });
+  take('reminder', `!(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?`, (m) => {
+    let h = Number(m[1]);
+    const min = Number(m[2] ?? 0);
+    if (m[3]) { const pm = /p/i.test(m[3]); if (h < 1 || h > 12) return false; h = h === 12 ? (pm ? 12 : 0) : pm ? h + 12 : h; }
+    else if (!m[2]) return false;
+    if (h > 23 || min > 59) return false;
+    result.reminders.push({ time: `${pad(h)}:${pad(min)}` });
+    return true;
+  });
+
+  // ---- Duration: "for 45 min", "for 2h" ----
+  if (smart) take('duration', `for\\s+(\\d+(?:\\.\\d+)?)\\s*(m|min|mins|minutes?|h|hr|hrs|hours?)`, (m) => {
+    const n = Number(m[1]);
+    result.duration = Math.round(/^h/i.test(m[2]) ? n * 60 : n);
+    return result.duration > 0;
   });
 
   // ---- Priority ----
@@ -156,13 +212,14 @@ export function parseQuickAdd(input: string, ctx: QuickAddContext = {}): QuickAd
   }, true);
 
   // ---- Dates ----
+  if (smart) {
   const setDate = (d: Date) => { result.dueDate = toISODate(d); return true; };
   const PRE = '(?:(?:on|by|due)\\s+)?';
   take('date', `${PRE}(?:today|tod|tonight)`, () => setDate(today)) ||
   take('date', `${PRE}(?:tomorrow|tmrw?|tmr)`, () => setDate(addDays(today, 1))) ||
-  take('date', `${PRE}next\\s+week`, () => setDate(addDays(startOfWeek(today), 7))) ||
+  take('date', `${PRE}next\\s+week`, () => setDate(ctx.nextWeek === 'plus7' ? addDays(today, 7) : addDays(startOfWeek(today), 7))) ||
   take('date', `${PRE}next\\s+month`, () => setDate(addMonths(today, 1))) ||
-  take('date', `${PRE}(?:this\\s+)?weekend`, () => setDate(addDays(today, (6 - today.getDay() + 7) % 7))) ||
+  take('date', `${PRE}(?:this\\s+)?weekend`, () => setDate(addDays(today, ((ctx.weekend === 'sunday' ? 0 : 6) - today.getDay() + 7) % 7))) ||
   take('date', `${PRE}next\\s+(${WD})`, (m) => setDate(addDays(addDays(startOfWeek(today), 7), (wdIndex(m[1]) + 6) % 7))) ||
   take('date', `in\\s+(\\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(day|week|month)s?`, (m) => {
     const n = toNum(m[1]);
@@ -176,8 +233,10 @@ export function parseQuickAdd(input: string, ctx: QuickAddContext = {}): QuickAd
   take('date', `${PRE}(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH})(?:,?\\s+(\\d{4}))?`, (m) =>
     monthDay(monthIndex(m[2]), Number(m[1]), m[3], today, setDate)) ||
   take('date', `${PRE}(?:this\\s+)?(${WD})`, (m) => setDate(addDays(today, (wdIndex(m[1]) - today.getDay() + 7) % 7)));
+  }
 
   // ---- Time ----
+  if (smart) {
   const setTime = (h: number, min: number) => {
     if (h < 0 || h > 23 || min < 0 || min > 59) return false;
     result.dueTime = `${pad(h)}:${pad(min)}`;
@@ -198,6 +257,7 @@ export function parseQuickAdd(input: string, ctx: QuickAddContext = {}): QuickAd
     if (h > 23) return false;
     return setTime(h >= 1 && h <= 7 ? h + 12 : h, 0); // "at 5" → 5 PM
   });
+  }
 
   // A repeat rule or a time with no explicit date anchors to the first occurrence / today.
   if (result.recurrence && !result.dueDate) result.dueDate = firstOccurrence(result.recurrence, today);

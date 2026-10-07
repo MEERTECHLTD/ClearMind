@@ -9,6 +9,7 @@ import {
   Screen, AppHeader, Card, Input, TextArea, DateField, Badge, Fab,
   EmptyState, Spinner, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -153,10 +154,10 @@ function MilestoneRow({
 
           <View className="flex-row items-center justify-end mt-3">
             <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-              <Pencil size={18} color="#9ca3af" />
+              <Pencil size={18} color={T.muted} />
             </Pressable>
             <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-              <Trash2 size={18} color="#9ca3af" />
+              <Trash2 size={18} color={T.muted} />
             </Pressable>
           </View>
         </Card>

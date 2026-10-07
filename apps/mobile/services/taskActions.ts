@@ -1,75 +1,69 @@
 /**
- * Task / project / label commands for the Todoist-style task layer.
+ * Mobile task commands — thin wrappers over the shared domain operations
+ * (shared/domain): identical behaviour to web, MCP, API and CLI (completion
+ * events, recurrence, activity attribution, idempotency).
  *
- * All writes go through the shared collection stores (optimistic across every
- * screen, then sqlite + cloud). Callers must NOT await these for UI flow: the
- * cloud push inside dbService.put can wait on the network while offline. The
- * local sqlite write happens first, so data is safe on-device immediately.
- *
- * Ids are generated client-side once per create, so a retried/duplicated write
- * is an idempotent upsert of the same record — never a duplicate task.
+ * Each command updates the in-memory stores synchronously (optimistic UI),
+ * then persists through the SyncEngine (sqlite + outbox + Firestore). The UI
+ * never waits on the network. Reminders are reconciled separately by
+ * services/reminders.ts whenever tasks change — from any device or agent.
  */
-import type { Label, Project, Task, TaskPriority, TaskRecurrence } from '@clearmind/shared';
-import {
-  completeTask, uncompleteTask, deletionSet, LIST_COLORS, colorFor,
-} from '@clearmind/shared/tasks';
+import { Platform } from 'react-native';
+import type { Label, Project, Task, TaskPriority, TaskRecurrence, Section, Comment, Completion, Preferences, SavedFilter } from '@clearmind/shared';
+import * as D from '@clearmind/shared/domain';
+import { colorFor } from '@clearmind/shared/tasks';
 import { getStore } from '../lib/collectionStore';
-import { newId } from '../lib/id';
-import { getFlag } from '../lib/flags';
 import { logWarn } from '../lib/logger';
 import { STORES } from './db';
-import { scheduleReminder, cancelReminder, toDateTime } from './notifications';
+import { applyEdits } from './sync';
 
-/** Tasks carry the device-local notification id so we can cancel/reschedule it. */
+/** Tasks may carry device-local notification ids (never synced). */
 export type MTask = Task & { reminderId?: string | null };
 
-const tasks = () => getStore<MTask>(STORES.TASKS);
-const projects = () => getStore<Project>(STORES.PROJECTS);
-const labels = () => getStore<Label>(STORES.LABELS);
+const snap = <T extends { id: string }>(coll: string) => getStore<T>(coll).getSnapshot().items;
 
-const nowISO = () => new Date().toISOString();
+export const domainState = (): D.DomainState => ({
+  tasks: snap<Task>(STORES.TASKS),
+  projects: snap<Project>(STORES.PROJECTS),
+  labels: snap<Label>(STORES.LABELS),
+  sections: snap<Section>(STORES.SECTIONS),
+  comments: snap<Comment>(STORES.COMMENTS),
+  completions: snap<Completion>(STORES.COMPLETIONS),
+  filters: snap<SavedFilter>(STORES.FILTERS),
+  preferences: (snap<Preferences>(STORES.PREFERENCES)[0] as Preferences | undefined) ?? null,
+});
 
-/** Persist without blocking the UI; local failures are logged (store rolls back). */
-function persist(p: Promise<void>, what: string) {
-  p.catch((e) => logWarn(`${what} failed: ${String(e)}`));
-}
+const source = (): D.Ctx['source'] => (Platform.OS === 'ios' ? 'ios' : 'android');
+export const domainCtx = (over: Partial<D.Ctx> = {}): D.Ctx => ({ source: source(), timezone: domainState().preferences?.timezone ?? null, ...over });
 
-// ---------------------------------------------------------------- reminders
-
-/** Only touch notifications when something that affects them changed. */
-const reminderKey = (t: MTask) => `${t.completed}|${t.dueDate ?? ''}|${t.dueTime ?? ''}|${t.title}`;
-
-/**
- * Reconcile the device notification for a task AFTER it was saved. Runs off the
- * UI path (the first call may show the OS permission prompt). The new id is
- * written local-only: notification ids are meaningless on other devices.
- */
-async function syncReminder(t: MTask) {
-  try {
-    await cancelReminder(t.reminderId);
-    let reminderId: string | null = null;
-    if (getFlag('reminders') && !t.completed && t.dueDate) {
-      const when = toDateTime(t.dueDate, t.dueTime);
-      if (when) reminderId = await scheduleReminder('Task due', t.title, when);
-    }
-    const current = tasks().getSnapshot().items.find((x) => x.id === t.id);
-    if (current && reminderKey(current) === reminderKey(t)) {
-      await tasks().patchLocal(t.id, { reminderId });
-    } else if (reminderId) {
-      await cancelReminder(reminderId); // edited again meanwhile; that save reschedules
-    }
-  } catch (e) {
-    logWarn(`reminder sync failed: ${String(e)}`);
+function optimistic(s: D.DomainState, edits: D.Edit[]) {
+  const next = D.applyEdits(s, edits);
+  const byColl = new Map<string, Set<string>>();
+  for (const e of edits) byColl.set(e.coll, (byColl.get(e.coll) ?? new Set()).add(e.id));
+  for (const [coll, ids] of byColl) {
+    if (coll === 'activity') continue;
+    const list: { id: string }[] = coll === 'preferences' ? (next.preferences ? [next.preferences] : []) : ((next as any)[coll] ?? []);
+    getStore(coll).applyExternal(list.filter((x) => ids.has(x.id)) as any);
   }
 }
 
-/** Optimistic save of every changed task, then reminder reconciliation. */
-async function save(list: MTask[], what: string, previous?: Map<string, MTask>) {
-  persist(tasks().putMany(list), what);
-  for (const t of list) {
-    const prev = previous?.get(t.id);
-    if (!prev || reminderKey(prev) !== reminderKey(t)) void syncReminder(t);
+/** Run a domain operation: optimistic update + persist; returns result and an undo. */
+export function run<R>(op: (s: D.DomainState, c: D.Ctx) => D.OpResult<R>, ctxOver: Partial<D.Ctx> = {}): { result: R; undo: () => void } {
+  const s = domainState();
+  const r = op(s, domainCtx(ctxOver));
+  const inverse = D.invertEdits(s, r.edits);
+  if (r.edits.length) {
+    optimistic(s, r.edits);
+    applyEdits(r.edits).catch((e) => logWarn(`write failed: ${String(e)}`));
   }
+  return {
+    result: r.result,
+    undo: () => {
+      if (!inverse.length) return;
+      optimistic(domainState(), inverse);
+      applyEdits(inverse).catch((e) => logWarn(`undo failed: ${String(e)}`));
+    },
+  };
 }
 
 // ---------------------------------------------------------------- tasks
@@ -81,181 +75,105 @@ export interface NewTaskInput {
   dueTime?: string | null;
   priority?: TaskPriority;
   projectId?: string | null;
+  sectionId?: string | null;
   parentId?: string | null;
   labelIds?: string[];
   recurrence?: TaskRecurrence | null;
+  duration?: number | null;
+  reminders?: Task['reminders'];
+  kind?: 'task' | 'note';
 }
 
 export async function createTask(input: NewTaskInput): Promise<MTask> {
-  const all = tasks().getSnapshot().items;
-  const t: MTask = {
-    id: newId(),
-    title: input.title.trim(),
-    description: input.description?.trim() || undefined,
-    completed: false,
-    priority: input.priority ?? 'None',
-    dueDate: input.dueDate || undefined,
-    dueTime: (input.dueDate && input.dueTime) || undefined,
-    projectId: input.projectId ?? null,
-    parentId: input.parentId ?? null,
-    labelIds: input.labelIds?.length ? input.labelIds : [],
-    recurrence: input.recurrence ?? null,
-    taskNumber: all.reduce((m, x) => Math.max(m, x.taskNumber || 0), 0) + 1,
-    order: Date.now(),
-    createdAt: nowISO(),
-    completedAt: null,
-    notified: false,
-  };
-  await save([t], 'create task');
-  return t;
+  return run((s, c) => D.createTask(s, input, c)).result;
 }
 
 export async function updateTask(t: MTask, patch: Partial<MTask>): Promise<void> {
-  const next: MTask = { ...t, ...patch };
-  if (!next.dueDate) {
-    next.dueTime = undefined;
-  }
-  await save([next], 'update task', new Map([[t.id, t]]));
+  const { id: _i, completed: _c, reminderId: _r, ...rest } = patch as any;
+  run((s, c) => D.updateTask(s, t.id, rest, c));
 }
 
-/** Complete (or roll a recurring task forward). Returns what happened for the toast. */
-export async function toggleTask(t: MTask): Promise<{ completed: boolean; nextDueDate?: string; undo: () => void }> {
-  const all = tasks().getSnapshot().items;
-  const before = new Map(all.map((x) => [x.id, x]));
+/** Complete (or roll a recurring task forward) / reopen. */
+export async function toggleTask(t: MTask, ctxOver: Partial<D.Ctx> = {}): Promise<{ completed: boolean; nextDueDate?: string; undo: () => void }> {
   if (t.completed) {
-    const changed = uncompleteTask(t, all) as MTask[];
-    await save(changed, 'restore task', before);
-    return { completed: false, undo: () => void save(changed.map((c) => before.get(c.id)!).filter(Boolean), 'undo restore', new Map(changed.map((c) => [c.id, c]))) };
+    const r = run((s, c) => D.reopenTask(s, t.id, c), ctxOver);
+    return { completed: false, undo: r.undo };
   }
-  const { changed, nextDueDate } = completeTask(t, all);
-  await save(changed as MTask[], 'complete task', before);
-  const prior = changed.map((c) => before.get(c.id)!).filter(Boolean);
-  return {
-    completed: !nextDueDate,
-    nextDueDate,
-    undo: () => void save(prior, 'undo complete', new Map(changed.map((c) => [c.id, c as MTask]))),
-  };
+  const r = run((s, c) => D.completeTask(s, t.id, c), ctxOver);
+  return { completed: !r.result.nextDueDate, nextDueDate: r.result.nextDueDate ?? undefined, undo: r.undo };
 }
 
-/** Delete a task and its subtasks. Returns an undo that restores them. */
+/** Delete a task and its sub-tasks. Returns an undo. */
 export async function deleteTask(t: MTask): Promise<() => void> {
-  const all = tasks().getSnapshot().items;
-  const ids = new Set(deletionSet(t, all));
-  const removed = all.filter((x) => ids.has(x.id));
-  await Promise.all(removed.map((x) => cancelReminder(x.reminderId)));
-  persist(tasks().removeMany([...ids]), 'delete task');
-  return () => {
-    // Explicitly clear the tombstone fields: the cloud doc is overwritten whole.
-    const restored = removed.map((x) => ({ ...x, deleted: false, deletedAt: null, reminderId: null } as MTask));
-    void save(restored, 'undo delete');
-  };
+  return run((s, c) => D.deleteTask(s, t.id, c)).undo;
 }
 
 export function duplicateTask(t: MTask): Promise<MTask> {
   return createTask({
     title: t.title, description: t.description, dueDate: t.dueDate, dueTime: t.dueTime, priority: t.priority,
-    projectId: t.projectId, parentId: t.parentId, labelIds: t.labelIds ?? [], recurrence: t.recurrence,
+    projectId: t.projectId, sectionId: t.sectionId, parentId: t.parentId, labelIds: t.labelIds ?? [], recurrence: t.recurrence,
+    duration: t.duration, reminders: t.reminders,
   });
 }
 
-// ---------------------------------------------------------------- projects
+export const moveTasks = (ids: string[], to: { projectId?: string | null; sectionId?: string | null }) => run((s, c) => D.moveTasks(s, ids, to, c));
+export const bulkUpdate = (ids: string[], patch: D.TaskPatch) => run((s, c) => D.bulkUpdate(s, ids, patch, c));
 
-export function createProject(input: { title: string; color?: string; parentId?: string | null }): Project {
-  const all = projects().getSnapshot().items;
-  const now = nowISO();
-  const p: Project = {
-    id: newId(),
-    title: input.title.trim(),
-    description: '',
-    status: 'In Progress',
-    progress: 0,
-    tags: [],
-    color: input.color ?? LIST_COLORS[all.length % LIST_COLORS.length].hex,
-    parentId: input.parentId ?? null,
-    order: all.reduce((m, x) => Math.max(m, x.order ?? 0), 0) + 1,
-    archived: false,
-    createdAt: now,
-  };
-  persist(projects().put(p), 'create project');
-  return p;
-}
+// ---------------------------------------------------------------- projects & sections
+
+export const createProject = (input: { title: string; color?: string; parentId?: string | null; icon?: string | null; view?: 'list' | 'board' | 'calendar'; description?: string | null }): Project =>
+  run((s, c) => D.createProject(s, input, c)).result;
 
 export function updateProject(p: Project, patch: Partial<Project>) {
-  persist(projects().put({ ...p, ...patch }), 'update project');
+  const { id: _id, ...rest } = patch as any;
+  run((s, c) => D.updateProject(s, p.id, rest, c));
 }
 
-/** Swap order with the visible sibling above/below. */
+export const projectSubtree = (all: Project[], id: string) => D.projectSubtree(all, id);
+
 export function moveProject(list: Project[], id: string, dir: -1 | 1) {
   const i = list.findIndex((p) => p.id === id);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= list.length) return;
-  // Normalise orders first so equal/missing orders can still swap.
-  const ordered = list.map((p, k) => ({ ...p, order: k + 1 }));
-  const a = ordered[i];
-  const b = ordered[j];
-  [a.order, b.order] = [b.order, a.order];
-  persist(projects().putMany(ordered.filter((p, k) => p.order !== list[k].order || k === i || k === j)), 'reorder projects');
+  const ids = list.map((p) => p.id);
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  run((s) => D.reorderProjects(s, ids));
 }
 
-/** Project ids in the subtree rooted at `id` (inclusive). */
-export function projectSubtree(all: Project[], id: string): string[] {
-  const out = [id];
-  const seen = new Set(out);
-  for (let k = 0; k < out.length; k++) {
-    for (const p of all) if (p.parentId === out[k] && !seen.has(p.id)) { seen.add(p.id); out.push(p.id); }
-  }
-  return out;
-}
-
-/** Delete a project, its sub-projects and every task in them. */
 export async function deleteProject(id: string) {
-  const ids = new Set(projectSubtree(projects().getSnapshot().items, id));
-  const doomed = tasks().getSnapshot().items.filter((t) => t.projectId && ids.has(t.projectId));
-  await Promise.all(doomed.map((t) => cancelReminder(t.reminderId)));
-  persist(tasks().removeMany(doomed.map((t) => t.id)), 'delete project tasks');
-  persist(projects().removeMany([...ids]), 'delete project');
+  run((s, c) => D.deleteProject(s, id, c));
 }
 
-export function projectColor(p: Pick<Project, 'id' | 'color'>) {
-  return colorFor(p.id, p.color);
-}
+export const projectColor = (p: Pick<Project, 'id' | 'color'>) => colorFor(p.id, p.color);
 
-// ---------------------------------------------------------------- labels
+export const createSection = (projectId: string, name: string) => run((s, c) => D.createSection(s, { projectId, name }, c)).result;
+export const updateSection = (id: string, patch: Partial<Section>) => run((s) => D.updateSection(s, id, patch as any));
+export const deleteSection = (id: string, deleteTasks = false) => run((s, c) => D.deleteSection(s, id, c, { deleteTasks }));
+export const reorderSections = (projectId: string, ids: string[]) => run((s) => D.reorderSections(s, projectId, ids));
 
-export function createLabel(input: { name: string; color?: string }): Label {
-  const all = labels().getSnapshot().items;
-  const l: Label = {
-    id: newId(),
-    name: input.name.trim().replace(/^[@%]/, ''),
-    color: input.color ?? LIST_COLORS[(all.length + 5) % LIST_COLORS.length].hex,
-    order: all.length + 1,
-  };
-  persist(labels().put(l), 'create label');
-  return l;
-}
+// ---------------------------------------------------------------- labels, comments, prefs, filters, templates
 
-export function updateLabel(l: Label, patch: Partial<Label>) {
-  persist(labels().put({ ...l, ...patch }), 'update label');
-}
+export const createLabel = (input: { name: string; color?: string }): Label => run((s, c) => D.createLabel(s, input, c)).result;
+export const updateLabel = (l: Label, patch: Partial<Label>) => run((s) => D.updateLabel(s, l.id, patch as any));
+export const deleteLabel = (id: string) => run((s) => D.deleteLabel(s, id));
 
-export function deleteLabel(id: string) {
-  const affected = tasks().getSnapshot().items.filter((t) => (t.labelIds ?? []).includes(id));
-  persist(tasks().putMany(affected.map((t) => ({ ...t, labelIds: (t.labelIds ?? []).filter((x) => x !== id) }))), 'unlink label');
-  persist(labels().remove(id), 'delete label');
-}
+export const addComment = (input: { taskId?: string | null; projectId?: string | null; text: string; authorName?: string | null }) => run((s, c) => D.addComment(s, input, c)).result;
+export const deleteComment = (id: string) => run((s) => D.deleteComment(s, id));
+
+export const savePreferences = (patch: Partial<Preferences>) => run((s) => D.savePreferences(s, patch));
+export const saveFilter = (input: { id?: string; name: string; query: string; color?: string | null }) => run((s, c) => D.saveFilter(s, input, c)).result;
+export const deleteFilter = (id: string) => run((s) => D.deleteFilter(s, id));
+export const applyTemplate = (templateId: string, title?: string) => run((s, c) => D.applyTemplate(s, templateId, { title }, c)).result;
+export const captureInbox = (text: string, opts: { kind?: 'task' | 'note'; parse?: boolean } = {}, ctxOver: Partial<D.Ctx> = {}) =>
+  run((s, c) => D.captureInbox(s, text, c, opts), ctxOver).result;
 
 /** Resolve quick-add names to ids, creating projects/labels that don't exist yet. */
-export function resolveNames(projectName: string | undefined, projectId: string | undefined, labelRefs: { id?: string; name: string }[]) {
+export function resolveNames(projectName: string | undefined, projectId: string | undefined | null, labelRefs: { id?: string; name: string }[]) {
   let pid = projectId ?? null;
   if (!pid && projectName) {
-    const existing = projects().getSnapshot().items.find((p) => p.title.toLowerCase() === projectName.toLowerCase());
+    const existing = snap<Project>(STORES.PROJECTS).find((p) => !p.deleted && p.title.toLowerCase() === projectName.toLowerCase());
     pid = existing ? existing.id : createProject({ title: projectName }).id;
   }
-  const allLabels = labels().getSnapshot().items;
-  const labelIds = labelRefs.map((r) => {
-    if (r.id) return r.id;
-    const existing = allLabels.find((l) => l.name.toLowerCase() === r.name.toLowerCase());
-    return existing ? existing.id : createLabel({ name: r.name }).id;
-  });
-  return { projectId: pid, labelIds: [...new Set(labelIds)] };
+  const labelIds = labelRefs.map((r) => r.id || createLabel({ name: r.name }).id);
+  return { projectId: pid, labelIds: [...new Set(labelIds.filter(Boolean))] };
 }

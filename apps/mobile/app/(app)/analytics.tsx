@@ -17,6 +17,7 @@ import type { LogEntry, Task, Project, Habit, Goal, CalendarEvent, Rant } from '
 import { dbService, STORES } from '../../services/db';
 import { syncBus } from '../../services/events';
 import { Screen, AppHeader, Card, StatCard, ProgressBar, Spinner } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 // ---------------------------------------------------------------------------
 // Derived-shape types (ported 1:1 from the web AnalyticsView).
@@ -116,7 +117,7 @@ function WeeklyBars({ width, data }: { width: number; data: WeeklyTaskData[] }) 
   const barW = Math.max(4, groupW * 0.26);
   return (
     <Svg width={width} height={H}>
-      <Line x1={0} y1={chartBottom} x2={width} y2={chartBottom} stroke="#374151" strokeWidth={1} />
+      <Line x1={0} y1={chartBottom} x2={width} y2={chartBottom} stroke={T.line} strokeWidth={1} />
       {data.map((d, i) => {
         const center = i * groupW + groupW / 2;
         const cH = (d.completed / max) * plotH;
@@ -140,7 +141,7 @@ function WeeklyBars({ width, data }: { width: number; data: WeeklyTaskData[] }) 
               rx={2}
               fill="#10B981"
             />
-            <SvgText x={center} y={H - 6} fill="#6B7280" fontSize={10} textAnchor="middle">
+            <SvgText x={center} y={H - 6} fill={T.faint} fontSize={10} textAnchor="middle">
               {d.day}
             </SvgText>
           </G>
@@ -167,10 +168,10 @@ function HabitBars({ width, data }: { width: number; data: HabitStreakData[] }) 
         const barW = (d.streak / max) * barAreaW;
         return (
           <G key={i}>
-            <SvgText x={gutter - 8} y={y + barH - 3} fill="#9ca3af" fontSize={11} textAnchor="end">
+            <SvgText x={gutter - 8} y={y + barH - 3} fill={T.muted} fontSize={11} textAnchor="end">
               {d.name}
             </SvgText>
-            <Rect x={gutter} y={y} width={barAreaW} height={barH} rx={4} fill="#1f2937" />
+            <Rect x={gutter} y={y} width={barAreaW} height={barH} rx={4} fill={T.line} />
             <Rect x={gutter} y={y} width={Math.max(barW, 0)} height={barH} rx={4} fill={d.color} />
             <SvgText x={gutter + Math.max(barW, 0) + 6} y={y + barH - 3} fill={d.color} fontSize={11}>
               {String(d.streak)}
@@ -296,7 +297,7 @@ export default function AnalyticsScreen() {
     const moodColors: Record<string, string> = {
       Productive: '#10B981',
       'Flow State': '#F59E0B',
-      Neutral: '#6B7280',
+      Neutral: T.faint,
       Frustrated: '#EF4444',
     };
     return Object.keys(moods).map((key) => ({
@@ -356,7 +357,7 @@ export default function AnalyticsScreen() {
       statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
     });
     const statusColors: Record<string, string> = {
-      'Not Started': '#6B7280',
+      'Not Started': T.faint,
       Planning: '#F59E0B',
       'In Progress': '#3B82F6',
       'On Hold': '#EF4444',
@@ -366,7 +367,7 @@ export default function AnalyticsScreen() {
     return Object.keys(statusCounts).map((key) => ({
       name: key,
       value: statusCounts[key],
-      color: statusColors[key] || '#6B7280',
+      color: statusColors[key] || T.faint,
     }));
   }, [projects]);
 
@@ -447,7 +448,7 @@ export default function AnalyticsScreen() {
         </View>
 
         {/* Mood Distribution */}
-        <ChartCard title="Mood Distribution" icon={<PieIcon size={18} color="#e2e8f0" />}>
+        <ChartCard title="Mood Distribution" icon={<PieIcon size={18} color={T.ink} />}>
           {moodData.length > 0 ? (
             <View className="items-center">
               <Measured height={200} render={(w) => <Donut width={w} slices={moodData} />} />
@@ -455,7 +456,7 @@ export default function AnalyticsScreen() {
             </View>
           ) : (
             <ChartEmpty
-              icon={<Activity size={32} color="#6b7280" />}
+              icon={<Activity size={32} color={T.faint} />}
               line1="No log data available yet."
               line2="Start logging to see mood patterns."
             />
@@ -463,7 +464,7 @@ export default function AnalyticsScreen() {
         </ChartCard>
 
         {/* Weekly Task Activity */}
-        <ChartCard title="Weekly Task Activity" icon={<TrendingUp size={18} color="#e2e8f0" />}>
+        <ChartCard title="Weekly Task Activity" icon={<TrendingUp size={18} color={T.ink} />}>
           {hasWeekly ? (
             <View>
               <Measured height={170} render={(w) => <WeeklyBars width={w} data={weeklyTaskData} />} />
@@ -480,7 +481,7 @@ export default function AnalyticsScreen() {
             </View>
           ) : (
             <ChartEmpty
-              icon={<BarChart2 size={32} color="#6b7280" />}
+              icon={<BarChart2 size={32} color={T.faint} />}
               line1="No task activity this week."
               line2="Complete tasks to see trends."
             />
@@ -488,12 +489,12 @@ export default function AnalyticsScreen() {
         </ChartCard>
 
         {/* Top Habit Streaks */}
-        <ChartCard title="Top Habit Streaks" icon={<Flame size={18} color="#e2e8f0" />}>
+        <ChartCard title="Top Habit Streaks" icon={<Flame size={18} color={T.ink} />}>
           {habitStreaks.length > 0 ? (
             <Measured height={64} render={(w) => <HabitBars width={w} data={habitStreaks} />} />
           ) : (
             <ChartEmpty
-              icon={<Flame size={32} color="#6b7280" />}
+              icon={<Flame size={32} color={T.faint} />}
               line1="No habits tracked yet."
               line2="Create habits to build streaks."
             />
@@ -501,7 +502,7 @@ export default function AnalyticsScreen() {
         </ChartCard>
 
         {/* Project Status */}
-        <ChartCard title="Project Status" icon={<BarChart2 size={18} color="#e2e8f0" />}>
+        <ChartCard title="Project Status" icon={<BarChart2 size={18} color={T.ink} />}>
           {projectStatusData.length > 0 ? (
             <View className="items-center">
               <Measured height={200} render={(w) => <Donut width={w} slices={projectStatusData} />} />
@@ -509,7 +510,7 @@ export default function AnalyticsScreen() {
             </View>
           ) : (
             <ChartEmpty
-              icon={<BarChart2 size={32} color="#6b7280" />}
+              icon={<BarChart2 size={32} color={T.faint} />}
               line1="No projects created yet."
               line2="Start a project to track progress."
             />
@@ -518,7 +519,7 @@ export default function AnalyticsScreen() {
 
         {/* Goal Progress */}
         {goalProgress.length > 0 ? (
-          <ChartCard title="Goal Progress" icon={<Target size={18} color="#e2e8f0" />}>
+          <ChartCard title="Goal Progress" icon={<Target size={18} color={T.ink} />}>
             <View className="gap-3">
               {goalProgress.map((goal, index) => (
                 <View key={index}>

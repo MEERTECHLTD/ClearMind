@@ -19,8 +19,8 @@ export function completeTask(task: Task, all: Task[], now: Date = new Date()): C
   const byId = new Map(all.map((t) => [t.id, t]));
   const subs = descendantIds(all, task.id).map((id) => byId.get(id)!).filter(Boolean);
 
-  if (rule) {
-    const nextDueDate = nextOccurrence(rule, task.dueDate ?? todayISO(now), now);
+  const nextDueDate = rule ? nextOccurrence(rule, task.dueDate ?? todayISO(now), now) : null;
+  if (rule && nextDueDate) {
     // Roll forward and reset the checklist for the next occurrence.
     return {
       nextDueDate,

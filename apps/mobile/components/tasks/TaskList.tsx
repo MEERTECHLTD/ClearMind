@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, Pressable, RefreshControl } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { Plus } from 'lucide-react-native';
+import { Plus, ChevronDown, ChevronRight, Ellipsis } from 'lucide-react-native';
 import { isOverdue } from '@clearmind/shared/tasks';
 import type { MTask } from '../../services/taskActions';
 import { TaskRow } from './TaskRow';
@@ -10,7 +10,7 @@ import type { QuickAddDefaults } from './QuickAddSheet';
 import { C } from './theme';
 
 export type ListItem =
-  | { type: 'header'; key: string; title: string; subtitle?: string; color?: string; action?: { label: string; onPress: () => void } }
+  | { type: 'header'; key: string; title: string; subtitle?: string; color?: string; action?: { label: string; onPress: () => void }; collapsed?: boolean; onToggle?: () => void; onMenu?: () => void }
   | { type: 'task'; key: string; task: MTask }
   | { type: 'add'; key: string; defaults: QuickAddDefaults; label?: string }
   | { type: 'note'; key: string; text: string };
@@ -47,17 +47,30 @@ export function TaskList({
     switch (item.type) {
       case 'header':
         return (
-          <View className="flex-row items-end px-4 pt-5 pb-2 border-b border-line bg-midnight">
-            <Text className="text-ink font-bold text-[15px] flex-1" style={item.color ? { color: item.color } : undefined} accessibilityRole="header">
+          <Pressable
+            onPress={item.onToggle}
+            onLongPress={item.onMenu}
+            disabled={!item.onToggle && !item.onMenu}
+            className="flex-row items-end px-4 pt-5 pb-2 border-b border-line bg-midnight"
+            accessibilityRole="header"
+            accessibilityState={item.onToggle ? { expanded: !item.collapsed } : undefined}
+          >
+            {item.onToggle ? <View className="mr-1.5 mb-0.5">{item.collapsed ? <ChevronRight size={15} color={C.muted} /> : <ChevronDown size={15} color={C.muted} />}</View> : null}
+            <Text className="text-ink font-bold text-[15px] flex-1" style={item.color ? { color: item.color } : undefined}>
               {item.title}
               {item.subtitle ? <Text className="text-ink-muted font-normal text-[13px]">{`  ${item.subtitle}`}</Text> : null}
             </Text>
+            {item.onMenu ? (
+              <Pressable onPress={item.onMenu} hitSlop={10} className="ml-2" accessibilityLabel={`${item.title} options`}>
+                <Ellipsis size={16} color={C.muted} />
+              </Pressable>
+            ) : null}
             {item.action ? (
               <Pressable onPress={item.action.onPress} hitSlop={10} accessibilityRole="button">
                 <Text className="text-accent text-[13px] font-semibold">{item.action.label}</Text>
               </Pressable>
             ) : null}
-          </View>
+          </Pressable>
         );
       case 'add':
         return (
@@ -90,6 +103,11 @@ export function TaskList({
             onOpen={onOpen}
             onSchedule={ui.schedule}
             onLongPress={ui.menu}
+            swipeRight={ui.prefs.swipeRight}
+            swipeLeft={ui.prefs.swipeLeft}
+            onSwipe={ui.swipe}
+            compact={ui.prefs.density === 'compact'}
+            commentCount={ui.commentCounts.get(t.id)}
           />
         );
       }

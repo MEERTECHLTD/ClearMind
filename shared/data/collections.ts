@@ -27,6 +27,12 @@ export const STORES = {
   LEARNING_RESOURCES: 'learningresources',
   LEARNING_FOLDERS: 'learningfolders',
   LABELS: 'labels',
+  SECTIONS: 'sections',
+  COMMENTS: 'comments',
+  COMPLETIONS: 'completions',
+  ACTIVITY: 'activity',
+  PREFERENCES: 'preferences',
+  FILTERS: 'filters',
 } as const;
 
 // Canonical mapping: local store name -> Firestore collection name.
@@ -51,6 +57,12 @@ export const STORE_TO_FIRESTORE: Record<string, string> = {
   [STORES.LEARNING_RESOURCES]: 'learningResources',
   [STORES.LEARNING_FOLDERS]: 'learningFolders',
   [STORES.LABELS]: 'labels',
+  [STORES.SECTIONS]: 'sections',
+  [STORES.COMMENTS]: 'comments',
+  [STORES.COMPLETIONS]: 'completions',
+  [STORES.ACTIVITY]: 'activity',
+  [STORES.PREFERENCES]: 'preferences',
+  [STORES.FILTERS]: 'filters',
 };
 
 // Reverse mapping: Firestore collection name -> local store name.

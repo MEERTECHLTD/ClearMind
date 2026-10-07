@@ -4,14 +4,18 @@ import {
   LayoutDashboard, Folder, FileText, Repeat, Target, Flag, Sparkles, MessageSquare, Book, BarChart2, Settings,
   ChevronLeft, ChevronDown, ChevronRight, MoreHorizontal, Network, Calendar, ClipboardList, Briefcase, ScanSearch, BookOpen,
   Plus, Search, Inbox, CalendarCheck, CalendarRange, LayoutGrid, CircleCheck, Hash, Pencil, FolderPlus, ArrowUp, ArrowDown,
-  Archive, Trash2,
+  Archive, Trash2, Flame, History, LayoutTemplate, Star, Filter as FilterIcon, StarOff,
 } from 'lucide-react';
-import { ViewState, UserProfile, Project } from '../types';
+import { ViewState, UserProfile, Project, Completion, Preferences } from '../types';
+import { daySummary, dailyStreak } from '../shared/domain';
+import { STORES } from '../services/db';
+import { useStore } from './tasks/store';
 import { orderedProjects, openCounts, todayView } from '../shared/tasks';
 import { useTaskData, useTaskUI } from './tasks/TaskContext';
 import { Popover, MenuItem, useTaskToast } from './tasks/ui';
-import { ProjectForm, go } from './tasks/TaskViews';
+import { ProjectForm, go, useSavedFilters } from './tasks/TaskViews';
 import { projectColor, updateProject, moveProject, deleteProject, projectSubtree } from './tasks/actions';
+import { saveFilterAction } from './tasks/actions';
 
 interface SidebarProps {
   currentView: ViewState;
@@ -64,6 +68,17 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
   const counts = useMemo(() => openCounts(tasks, projectMap), [tasks, projectMap]);
   const todayCount = useMemo(() => { const v = todayView(tasks); return v.overdue.length + v.today.length; }, [tasks]);
   const toolActive = TOOLS.some((t) => t.id === currentView);
+  const saved = useSavedFilters();
+  const [showFavs, setShowFavs] = useState(() => readBool('cm.sb.favs', true));
+  const favProjects = useMemo(() => tree.filter(({ project }) => project.favorite).map(({ project }) => project), [tree]);
+  const favFilters = useMemo(() => saved.filters.filter((f) => f.favorite), [saved.filters]);
+  // Productivity mini-progress: today's completions vs the daily goal + current streak.
+  const completions = useStore<Completion>(STORES.COMPLETIONS).items;
+  const prefRec = useStore<Preferences>(STORES.PREFERENCES).items[0] ?? null;
+  const prod = useMemo(() => {
+    const d = daySummary({ completions, tasks: [], preferences: prefRec });
+    return { done: d.completed, goal: d.goal, met: d.met, streak: dailyStreak(completions, prefRec).current };
+  }, [completions, prefRec]);
 
   const navBtn = (active: boolean) =>
     `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${active
@@ -88,11 +103,18 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
       {/* Header */}
       <div className="px-3 flex items-center justify-between h-14 shrink-0">
         {expanded ? (
-          <div className="flex items-center gap-2 min-w-0">
+          <button onClick={() => go('settings?s=account')} className="flex items-center gap-2 min-w-0 rounded-lg px-1 py-1 -ml-1 hover:bg-gray-100 dark:hover:bg-white/5" title="Account settings">
             <Avatar nickname={user.nickname} photoURL={user.photoURL} githubUsername={user.githubUsername} email={user.email} />
-            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{user.nickname}</span>
-          </div>
-        ) : <img src="/clearmindlogo.png" alt="ClearMind" className="w-8 h-8 object-contain mx-auto" />}
+            <span className="min-w-0 text-left">
+              <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{user.nickname}</span>
+              {user.email ? <span className="block text-[11px] text-gray-500 dark:text-gray-400 truncate">{user.email}</span> : null}
+            </span>
+          </button>
+        ) : (
+          <button onClick={() => go('settings?s=account')} className="mx-auto rounded-full" title={user.nickname} aria-label="Account settings">
+            <Avatar nickname={user.nickname} photoURL={user.photoURL} githubUsername={user.githubUsername} email={user.email} size={30} />
+          </button>
+        )}
         <button onClick={toggleCollapse} className="hidden md:block text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-800" aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
           <ChevronLeft size={18} className={`transform transition-transform ${isCollapsed ? 'rotate-180' : ''}`} />
         </button>
@@ -111,8 +133,66 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
           <Item id="today" label="Today" icon={<CalendarCheck size={18} className="text-green-600" />} count={todayCount} />
           <Item id="upcoming" label="Upcoming" icon={<CalendarRange size={18} className="text-violet-500" />} />
           <Item id="filters" label="Filters & Labels" icon={<LayoutGrid size={18} className="text-orange-500" />} />
+          {expanded ? saved.filters.filter((f) => !f.favorite).slice(0, 8).map((f) => (
+            <li key={f.id}>
+              <button onClick={() => go(`filter/saved:${f.id}`)} className={navBtn(currentView === 'filter' && currentParam === `saved:${f.id}`)} style={{ paddingLeft: 28 }}>
+                <FilterIcon size={15} color={f.color ?? '#9CA3AF'} className="shrink-0" /><span className="flex-1 text-left truncate">{f.name}</span>
+              </button>
+            </li>
+          )) : null}
           <Item id="completed" label="Completed" icon={<CircleCheck size={18} className="text-emerald-500" />} />
+          <li>
+            <button onClick={() => onChangeView('productivity')} className={navBtn(currentView === 'productivity')} title={!expanded ? `Productivity · ${prod.done}/${prod.goal} today` : ''} aria-current={currentView === 'productivity' ? 'page' : undefined}>
+              <span className="shrink-0"><Flame size={18} className="text-orange-500" /></span>
+              {expanded ? (
+                <>
+                  <span className="flex-1 text-left truncate">Productivity</span>
+                  {prod.streak ? <span className="text-[11px] text-orange-500 tabular-nums" title={`${prod.streak}-day streak`}>{prod.streak}🔥</span> : null}
+                  <span className="flex items-center gap-1.5" title={`${prod.done} of ${prod.goal} done today`}>
+                    <span className="w-10 h-1.5 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden">
+                      <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.round((prod.done / Math.max(1, prod.goal)) * 100))}%`, background: prod.met ? '#16A34A' : '#3B82F6' }} />
+                    </span>
+                    <span className="text-xs text-gray-400 tabular-nums">{prod.done}/{prod.goal}</span>
+                  </span>
+                </>
+              ) : null}
+            </button>
+          </li>
+          <Item id="activity" label="Activity" icon={<History size={18} className="text-sky-500" />} />
+          <Item id="templates" label="Templates" icon={<LayoutTemplate size={18} className="text-teal-500" />} />
         </ul>
+
+        {/* Favorites */}
+        {expanded && (favProjects.length || favFilters.length) ? (
+          <div className="mt-5">
+            <button onClick={() => { setShowFavs(!showFavs); writeBool('cm.sb.favs', !showFavs); }} className="w-full flex items-center gap-1 px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" aria-expanded={showFavs}>
+              Favorites {showFavs ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+            {showFavs ? (
+              <ul className="space-y-0.5">
+                {favProjects.map((p) => (
+                  <li key={p.id} className="group relative">
+                    <button onClick={() => go(`project/${p.id}`)} className={navBtn(currentView === 'project' && currentParam === p.id)}>
+                      <Hash size={16} color={projectColor(p)} className="shrink-0" />
+                      <span className="flex-1 text-left truncate">{p.title}</span>
+                      <span className="text-xs text-gray-400 group-hover:invisible">{counts.get(p.id) || ''}</span>
+                    </button>
+                    <button onClick={() => updateProject(p, { favorite: false })} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10" aria-label={`Remove ${p.title} from favorites`} title="Remove from favorites"><StarOff size={14} /></button>
+                  </li>
+                ))}
+                {favFilters.map((f) => (
+                  <li key={f.id} className="group relative">
+                    <button onClick={() => go(`filter/saved:${f.id}`)} className={navBtn(currentView === 'filter' && currentParam === `saved:${f.id}`)}>
+                      <FilterIcon size={16} color={f.color ?? '#9CA3AF'} className="shrink-0" />
+                      <span className="flex-1 text-left truncate">{f.name}</span>
+                    </button>
+                    <button onClick={() => saveFilterAction({ id: f.id, name: f.name, query: f.query, color: f.color ?? null, favorite: false })} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10" aria-label={`Remove ${f.name} from favorites`} title="Remove from favorites"><StarOff size={14} /></button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Projects */}
         {expanded ? (
@@ -184,6 +264,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
             <>
               <MenuItem icon={<Pencil size={15} />} label="Edit" onClick={() => { close(); setForm({ initial: p }); }} />
               <MenuItem icon={<FolderPlus size={15} />} label="Add sub-project" onClick={() => { close(); setForm({ parentId: p.id }); }} />
+              <MenuItem icon={p.favorite ? <StarOff size={15} /> : <Star size={15} />} label={p.favorite ? 'Remove from favorites' : 'Add to favorites'} onClick={() => { close(); updateProject(p, { favorite: !p.favorite }); }} />
               <MenuItem icon={<ArrowUp size={15} />} label="Move up" onClick={() => { close(); moveProject(siblings(p), p.id, -1); }} />
               <MenuItem icon={<ArrowDown size={15} />} label="Move down" onClick={() => { close(); moveProject(siblings(p), p.id, 1); }} />
               <MenuItem icon={<Archive size={15} />} label="Archive" onClick={() => { close(); updateProject(p, { archived: true }); toast('Project archived'); }} />

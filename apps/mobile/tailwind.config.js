@@ -13,20 +13,19 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Dark theme surfaces (web --bg-main / --bg-card / --bg-card-hover).
-        midnight: '#05050A',
-        'midnight-light': '#0F1219',
-        'midnight-lighter': '#1A1F2E',
-        // Brand accent (web `accent` / `accent-hover`).
-        accent: '#3B82F6',
-        'accent-hover': '#2563EB',
-        // Text + border tokens (web dark palette).
-        'ink': '#e2e8f0',
-        'ink-muted': '#9ca3af',
-        'hairline': '#1f2937',
-        // Use `line` for border colours: NativeWind's preset also defines `hairline`
-        // as a border WIDTH, so `border-hairline` draws a full box, not a coloured edge.
-        'line': '#1f2937',
+        // Theme tokens are CSS variables (lib/theme.ts sets them per scheme via
+        // NativeWind vars()), so every screen follows Light / Dark / System.
+        midnight: 'rgb(var(--c-bg) / <alpha-value>)',
+        'midnight-light': 'rgb(var(--c-card) / <alpha-value>)',
+        'midnight-lighter': 'rgb(var(--c-card2) / <alpha-value>)',
+        accent: 'rgb(var(--c-accent) / <alpha-value>)',
+        'accent-hover': 'rgb(var(--c-accent-hover) / <alpha-value>)',
+        ink: 'rgb(var(--c-ink) / <alpha-value>)',
+        'ink-muted': 'rgb(var(--c-muted) / <alpha-value>)',
+        // NativeWind's preset also defines `hairline` as a border WIDTH, so use
+        // `line` for border colours (`border-hairline` draws a full box).
+        hairline: 'rgb(var(--c-line) / <alpha-value>)',
+        line: 'rgb(var(--c-line) / <alpha-value>)',
       },
     },
   },

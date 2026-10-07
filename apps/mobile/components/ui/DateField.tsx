@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Pressable, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar, Clock } from 'lucide-react-native';
+import { T } from '../../lib/theme';
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 const toISODate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -24,7 +25,7 @@ export function DateField({
           {clearable && value ? (
             <Pressable onPress={() => onChange(undefined)} hitSlop={8} className="mr-3"><Text className="text-ink-muted text-xs">Clear</Text></Pressable>
           ) : null}
-          <Calendar size={18} color="#9ca3af" />
+          <Calendar size={18} color={T.muted} />
         </View>
       </Pressable>
       {show ? (
@@ -63,7 +64,7 @@ export function TimeField({
           {clearable && value ? (
             <Pressable onPress={() => onChange(undefined)} hitSlop={8} className="mr-3"><Text className="text-ink-muted text-xs">Clear</Text></Pressable>
           ) : null}
-          <Clock size={18} color="#9ca3af" />
+          <Clock size={18} color={T.muted} />
         </View>
       </Pressable>
       {show ? (

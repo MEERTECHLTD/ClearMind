@@ -12,6 +12,7 @@ import {
 import { Sheet } from '../ui/Sheet';
 import { C, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL } from './theme';
 import { projectColor } from '../../services/taskActions';
+import { T } from '../../lib/theme';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -97,7 +98,7 @@ export function SchedulePicker({
           value={text}
           onChangeText={setText}
           placeholder="Type a date: next fri 5pm, every mon…"
-          placeholderTextColor="#6b7280"
+          placeholderTextColor={T.faint}
           className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line"
           returnKeyType="done"
           autoCorrect={false}
@@ -223,7 +224,7 @@ export function ProjectPicker({
         value={q}
         onChangeText={setQ}
         placeholder="Search or create a project"
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line mb-1"
         accessibilityLabel="Search projects"
       />
@@ -272,7 +273,7 @@ export function LabelPicker({
         value={q}
         onChangeText={setQ}
         placeholder="Search or create a label"
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line mb-1"
         accessibilityLabel="Search labels"
         autoCapitalize="none"
@@ -290,3 +291,79 @@ export function LabelPicker({
   );
 }
 
+
+// ---------------------------------------------------------------- section / reminders / duration
+
+export function SectionPicker({
+  visible, value, sections, onClose, onChange,
+}: { visible: boolean; value: string | null | undefined; sections: { id: string; name: string }[]; onClose: () => void; onChange: (id: string | null) => void }) {
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Section">
+      <ScrollView style={{ maxHeight: 420 }}>
+        <Row icon={<X size={18} color={C.muted} />} label="No section" selected={!value} onPress={() => { onChange(null); onClose(); }} />
+        {sections.map((s) => (
+          <Row key={s.id} icon={<Hash size={18} color={C.muted} />} label={s.name} selected={value === s.id} onPress={() => { onChange(s.id); onClose(); }} />
+        ))}
+      </ScrollView>
+    </Sheet>
+  );
+}
+
+import type { TaskReminder } from '@clearmind/shared';
+const REL = [0, 10, 30, 60, 120, 1440];
+const relLabel = (m: number) => (m === 0 ? 'At due time' : m < 60 ? `${m} min before` : m < 1440 ? `${m / 60} h before` : `${m / 1440} day before`);
+
+export function describeReminder(r: TaskReminder) {
+  return r.type === 'relative' ? relLabel(r.minutesBefore ?? 0) : `At ${r.at?.replace('T', ' ')}`;
+}
+
+export function RemindersPicker({
+  visible, value, hasTime, dueDate, onClose, onChange,
+}: { visible: boolean; value: TaskReminder[]; hasTime: boolean; dueDate?: string | null; onClose: () => void; onChange: (r: TaskReminder[]) => void }) {
+  const [picker, setPicker] = useState(false);
+  const add = (r: TaskReminder) => onChange([...value.filter((x) => describeReminder(x) !== describeReminder(r)), r]);
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Reminders" right={<Pressable onPress={onClose} hitSlop={10}><Text className="text-accent font-semibold">Done</Text></Pressable>}>
+      <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
+        {value.length ? value.map((r) => (
+          <Row key={r.id} icon={<Clock size={18} color={C.accent} />} label={describeReminder(r)} hint="Remove" onPress={() => onChange(value.filter((x) => x.id !== r.id))} />
+        )) : <Text className="text-ink-muted text-sm py-2">No reminders yet.</Text>}
+        {!dueDate ? <Text className="text-ink-muted text-xs mt-2">Set a date first to add reminders.</Text> : (
+          <>
+            <Text className="text-ink-muted text-xs font-semibold mt-3 mb-1">ADD</Text>
+            {hasTime ? REL.map((m) => <Row key={m} icon={<Plus size={18} color={C.muted} />} label={relLabel(m)} onPress={() => add({ id: `r${Date.now().toString(36)}`, type: 'relative', minutesBefore: m })} />) : null}
+            <Row icon={<Plus size={18} color={C.muted} />} label="At a specific time…" onPress={() => setPicker(true)} />
+            {!hasTime ? <Text className="text-ink-muted text-xs mt-1">Add a due time to use “before” reminders.</Text> : null}
+          </>
+        )}
+      </ScrollView>
+      {picker && dueDate ? (
+        <DateTimePicker
+          value={new Date()}
+          mode="time"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          themeVariant={T.bg === '#FFFFFF' ? 'light' : 'dark'}
+          onChange={(e, d) => {
+            if (Platform.OS !== 'ios') setPicker(false);
+            if (e.type !== 'set' || !d) return;
+            add({ id: `r${Date.now().toString(36)}`, type: 'absolute', at: `${dueDate}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` });
+          }}
+        />
+      ) : null}
+      {picker && Platform.OS === 'ios' ? <Pressable onPress={() => setPicker(false)} className="items-center py-3"><Text className="text-accent font-semibold">Done</Text></Pressable> : null}
+    </Sheet>
+  );
+}
+
+const DURATIONS = [null, 15, 30, 45, 60, 90, 120, 180, 240];
+export function DurationPicker({ visible, value, onClose, onChange }: { visible: boolean; value?: number | null; onClose: () => void; onChange: (m: number | null) => void }) {
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Duration">
+      <ScrollView style={{ maxHeight: 420 }}>
+        {DURATIONS.map((m) => (
+          <Row key={String(m)} icon={<Clock size={18} color={C.muted} />} label={m == null ? 'No duration' : m < 60 ? `${m} min` : `${m / 60} h`} selected={(value ?? null) === m} onPress={() => { onChange(m); onClose(); }} />
+        ))}
+      </ScrollView>
+    </Sheet>
+  );
+}

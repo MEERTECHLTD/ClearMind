@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Cloud, LogOut, Moon, Save, Info, RefreshCw, Check, AlertCircle, Loader2, Link, BellRing, BellOff, Smartphone } from 'lucide-react';
 import { UserProfile } from '../../types';
+import { Avatar } from '../Avatar';
 import { dbService, STORES } from '../../services/db';
 import { isFirebaseConfigured } from '../../services/firebase';
-import { syncAllStores, dispatchAllSyncEvents } from '../../services/syncService';
+import { dispatchAllSyncEvents } from '../../services/syncService';
+import { syncNow } from '../../services/syncEngine';
 import { 
   isNotificationSupported, 
   isNotificationPermitted, 
@@ -86,7 +88,8 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
 
     try {
       // Use centralized sync service for all stores
-      const result = await syncAllStores();
+      const r = await syncNow();
+      const result = { success: r.failed.length === 0, totalItemsSynced: r.pulled + r.pushed, failedStores: r.failed };
 
       // Dispatch sync events for all stores to update views
       dispatchAllSyncEvents();
@@ -125,17 +128,7 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
         {/* Profile Section */}
         <section className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none transition-colors">
           <div className="flex items-start gap-6">
-            {user?.photoURL ? (
-              <img 
-                src={user.photoURL} 
-                alt={user.nickname}
-                className="w-20 h-20 rounded-full object-cover shrink-0"
-              />
-            ) : (
-              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-2xl font-bold text-white uppercase shrink-0">
-                {editName.substring(0, 2)}
-              </div>
-            )}
+            <Avatar nickname={editName || user?.nickname} photoURL={user?.photoURL} githubUsername={user?.githubUsername} email={user?.email} size={80} className="shrink-0" />
             
             <div className="flex-1 space-y-4">
               {!isEditing ? (

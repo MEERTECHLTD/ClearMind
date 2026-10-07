@@ -1,4 +1,5 @@
 import type { TaskPriority } from '@clearmind/shared';
+import { T } from '../../lib/theme';
 import { isOverdue, parseISODate, diffDays } from '@clearmind/shared/tasks';
 import type { Task } from '@clearmind/shared';
 
@@ -7,7 +8,7 @@ export const PRIORITY_COLOR: Record<TaskPriority, string> = {
   High: '#F43F5E',
   Medium: '#F59E0B',
   Low: '#3B82F6',
-  None: '#6B7280',
+  None: '#9CA3AF',
 };
 
 export const PRIORITY_LABEL: Record<TaskPriority, string> = {
@@ -21,17 +22,18 @@ export const PRIORITY_SHORT: Record<TaskPriority, string> = { High: 'P1', Medium
 
 export const PRIORITIES: TaskPriority[] = ['High', 'Medium', 'Low', 'None'];
 
+/** Theme-aware colours (read at render time; follow Light / Dark / System). */
 export const C = {
-  ink: '#e2e8f0',
-  muted: '#9ca3af',
-  faint: '#6b7280',
-  accent: '#3B82F6',
-  hairline: '#1f2937',
-  surface: '#0F1219',
-  surface2: '#1A1F2E',
-  bg: '#05050A',
-  danger: '#F87171',
-  success: '#10B981',
+  get ink() { return T.ink; },
+  get muted() { return T.muted; },
+  get faint() { return T.faint; },
+  get accent() { return T.accent; },
+  get hairline() { return T.line; },
+  get surface() { return T.card; },
+  get surface2() { return T.card2; },
+  get bg() { return T.bg; },
+  get danger() { return T.danger; },
+  get success() { return T.success; },
   today: '#22C55E',
   tomorrow: '#F59E0B',
   week: '#A78BFA',

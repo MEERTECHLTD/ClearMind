@@ -298,8 +298,8 @@ export const checkCalendarReminders = async (): Promise<void> => {
 };
 
 // Run all notification checks
+// Task reminders are planned by services/webReminders.ts (shared planner).
 export const runNotificationChecks = async (): Promise<void> => {
-  await checkTaskDeadlines();
   await checkApplicationDeadlines();
   await checkCalendarReminders();
 };

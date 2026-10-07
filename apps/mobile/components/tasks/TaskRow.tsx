@@ -2,7 +2,8 @@ import React, { memo, useRef, useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import * as Haptics from 'expo-haptics';
-import { Check, CalendarDays, Repeat, Tag, ListTree, Hash, Inbox } from 'lucide-react-native';
+import { Check, CalendarDays, Repeat, Tag, ListTree, Hash, Inbox, Trash2, Flag, FolderInput, Bell, MessageSquare } from 'lucide-react-native';
+import type { SwipeAction } from '@clearmind/shared';
 import type { Label, Project } from '@clearmind/shared';
 import { formatDueDate, formatTime, priorityOf } from '@clearmind/shared/tasks';
 import type { MTask } from '../../services/taskActions';
@@ -23,7 +24,23 @@ export interface TaskRowProps {
   onOpen: (t: MTask) => void;
   onSchedule: (t: MTask) => void;
   onLongPress: (t: MTask) => void;
+  /** Settings → swipe actions. */
+  swipeRight?: SwipeAction;
+  swipeLeft?: SwipeAction;
+  onSwipe?: (action: SwipeAction, t: MTask) => void;
+  compact?: boolean;
+  commentCount?: number;
 }
+
+const SWIPE_STYLE: Record<SwipeAction, { bg: string; Icon: typeof Check } | null> = {
+  complete: { bg: '#10B981', Icon: Check },
+  schedule: { bg: '#7C3AED', Icon: CalendarDays },
+  delete: { bg: '#EF4444', Icon: Trash2 },
+  priority: { bg: '#F59E0B', Icon: Flag },
+  move: { bg: '#3B82F6', Icon: FolderInput },
+  select: { bg: '#64748B', Icon: Check },
+  none: null,
+};
 
 /** Round checkbox: priority-coloured ring, tinted fill, check on completion. */
 export function TaskCheckbox({ task, checked, onPress, size = 22 }: { task: MTask; checked: boolean; onPress: () => void; size?: number }) {
@@ -55,7 +72,9 @@ function Meta({ icon, text, color = C.muted }: { icon?: React.ReactNode; text: s
 }
 
 function TaskRowImpl(props: TaskRowProps) {
-  const { task, project, labels, subtaskCount, showProject, hideDate, parentTitle } = props;
+  const { task, project, labels, subtaskCount, showProject, hideDate, parentTitle, compact, commentCount } = props;
+  const right = props.swipeRight ?? 'complete';
+  const left = props.swipeLeft ?? 'schedule';
   const swipe = useRef<SwipeableMethods>(null);
   // Show the tick briefly before the row leaves the list.
   const [ticking, setTicking] = useState(false);
@@ -82,20 +101,21 @@ function TaskRowImpl(props: TaskRowProps) {
       leftThreshold={72}
       rightThreshold={72}
       overshootFriction={8}
-      renderLeftActions={() => (
-        <View className="flex-1 justify-center pl-6" style={{ backgroundColor: C.success }}>
-          <Check size={24} color="#fff" />
-        </View>
-      )}
-      renderRightActions={() => (
-        <View className="flex-1 items-end justify-center pr-6" style={{ backgroundColor: '#7C3AED' }}>
-          <CalendarDays size={24} color="#fff" />
-        </View>
-      )}
+      renderLeftActions={SWIPE_STYLE[right] ? () => {
+        const st = SWIPE_STYLE[right]!;
+        return <View className="flex-1 justify-center pl-6" style={{ backgroundColor: st.bg }}><st.Icon size={24} color="#fff" /></View>;
+      } : undefined}
+      renderRightActions={SWIPE_STYLE[left] ? () => {
+        const st = SWIPE_STYLE[left]!;
+        return <View className="flex-1 items-end justify-center pr-6" style={{ backgroundColor: st.bg }}><st.Icon size={24} color="#fff" /></View>;
+      } : undefined}
       onSwipeableWillOpen={(dir) => {
         swipe.current?.close();
-        if (dir === 'right') toggle();
-        else props.onSchedule(task);
+        const action = dir === 'right' ? right : left;
+        Haptics.selectionAsync().catch(() => {});
+        if (action === 'complete') toggle();
+        else if (action === 'schedule') props.onSchedule(task);
+        else props.onSwipe?.(action, task);
       }}
     >
       <Pressable
@@ -105,11 +125,11 @@ function TaskRowImpl(props: TaskRowProps) {
           props.onLongPress(task);
         }}
         delayLongPress={350}
-        className="flex-row px-4 py-3 bg-midnight active:bg-midnight-light border-b border-line"
-        style={{ minHeight: 56 }}
+        className={`flex-row px-4 ${compact ? 'py-2' : 'py-3'} bg-midnight active:bg-midnight-light border-b border-line`}
+        style={{ minHeight: compact ? 46 : 56 }}
         accessibilityRole="button"
         accessibilityLabel={`${task.title}${dueText ? `, due ${dueText}` : ''}, ${PRIORITY_LABEL[priorityOf(task)]}`}
-        accessibilityHint="Opens task details. Swipe right to complete, left to reschedule."
+        accessibilityHint={`Opens task details. Swipe right to ${right}, left to ${left}.`}
       >
         <View className="pt-0.5 mr-3">
           <TaskCheckbox task={task} checked={checked} onPress={toggle} />
@@ -124,10 +144,10 @@ function TaskRowImpl(props: TaskRowProps) {
           >
             {task.title}
           </Text>
-          {task.description ? (
+          {task.description && !compact ? (
             <Text className="text-ink-muted text-[13px] mt-0.5" numberOfLines={1}>{task.description}</Text>
           ) : null}
-          {(dueText || task.recurrence || subtaskCount?.total || labels?.length || (showProject)) ? (
+          {(dueText || task.recurrence || subtaskCount?.total || labels?.length || showProject || task.reminders?.length || commentCount) ? (
             <View className="flex-row flex-wrap items-center">
               {dueText ? (
                 <Meta
@@ -136,6 +156,8 @@ function TaskRowImpl(props: TaskRowProps) {
                   color={dueColor(task)}
                 />
               ) : task.recurrence ? <Meta icon={<Repeat size={12} color={C.muted} />} text="Repeats" /> : null}
+              {task.reminders?.length ? <Meta icon={<Bell size={11} color={C.muted} />} text={String(task.reminders.length)} /> : null}
+              {commentCount ? <Meta icon={<MessageSquare size={11} color={C.muted} />} text={String(commentCount)} /> : null}
               {subtaskCount?.total ? (
                 <Meta icon={<ListTree size={12} color={C.muted} />} text={`${subtaskCount.done}/${subtaskCount.total}`} />
               ) : null}

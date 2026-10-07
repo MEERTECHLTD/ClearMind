@@ -1,8 +1,7 @@
 import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, MindMap, CalendarEvent, DailyMapperEntry, DailyMapperTemplate, Application, IrisConversation, LearningResource, LearningFolder } from '../types';
-import { firebaseService, isFirebaseConfigured } from './firebase';
 
 const DB_NAME = 'ClearMindDB';
-const DB_VERSION = 10; // v10: labels store (task labels)
+const DB_VERSION = 11; // v11: sections, comments, completions, activity, preferences, filters + sync outbox/meta
 
 // Store names + the canonical store->collection mapping are the single source of
 // truth in @clearmind/shared, imported by both web and mobile. They are
@@ -20,6 +19,18 @@ import {
   STORES,
   getFirestoreCollectionName,
 } from '@clearmind/shared/data/collections';
+
+export const SYNC_OUTBOX = '_outbox';
+export const SYNC_META = '_meta';
+
+/**
+ * Writes go through the SyncEngine once it is registered (field clocks, outbox,
+ * delta sync — see services/syncEngine.ts). Until then (e.g. before sign-in),
+ * writes are local only and get reconciled when sync starts.
+ */
+type Writer = { put: (store: string, item: any) => Promise<void>; remove: (store: string, id: string) => Promise<void> };
+let writer: Writer | null = null;
+export const setSyncWriter = (w: Writer | null) => { writer = w; };
 
 class DatabaseService {
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -62,6 +73,15 @@ class DatabaseService {
               createStore(STORES.LEARNING_RESOURCES);
               createStore(STORES.LEARNING_FOLDERS);
               createStore(STORES.LABELS);
+              createStore(STORES.SECTIONS);
+              createStore(STORES.COMMENTS);
+              createStore(STORES.COMPLETIONS);
+              createStore(STORES.ACTIVITY);
+              createStore(STORES.PREFERENCES);
+              createStore(STORES.FILTERS);
+              // Local-only sync bookkeeping (never synced).
+              createStore(SYNC_OUTBOX, 'key');
+              createStore(SYNC_META, 'key');
 
               // No seed data - Clean slate for real users
           };
@@ -151,99 +171,59 @@ class DatabaseService {
       });
   }
 
+  /** Create/update a record. Routed through the SyncEngine (field-level sync). */
   async put<T extends { id: string }>(storeName: string, item: T): Promise<void> {
-      const db = await this.getDB();
-      
-      // Add timestamp for sync
-      const itemWithTimestamp = {
-        ...item,
-        updatedAt: new Date().toISOString()
-      };
-      
-      return new Promise((resolve, reject) => {
-          const transaction = db.transaction(storeName, 'readwrite');
-          const store = transaction.objectStore(storeName);
-          const request = store.put(itemWithTimestamp);
-          request.onsuccess = async () => {
-            // Auto-sync to cloud if Firebase is configured and user is authenticated
-            if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
-              try {
-                const firestoreStore = this.getFirestoreStoreName(storeName);
-                await firebaseService.pushItemToCloud(firestoreStore, itemWithTimestamp);
-              } catch (e) {
-                // Silently fail cloud sync - local is still saved
-                console.warn('Cloud sync failed:', e);
-              }
-            }
-            resolve();
-          };
-          request.onerror = () => reject(request.error);
-      });
+      if (writer && storeName !== STORES.PROFILE) return writer.put(storeName, item);
+      return this.putLocalOnly(storeName, { ...item, updatedAt: new Date().toISOString() });
   }
 
+  /** Soft delete (tombstone) so every client — including stale offline ones — sees the delete. */
   async delete(storeName: string, id: string): Promise<void> {
+      if (writer && storeName !== STORES.PROFILE) return writer.remove(storeName, id);
+      const existing = await this.get<any>(storeName, id);
+      const now = new Date().toISOString();
+      return this.putLocalOnly(storeName, { ...(existing ?? { id }), id, deleted: true, deletedAt: now, updatedAt: now });
+  }
+
+  // ---- sync bookkeeping (outbox + cursors) ----
+  async allRaw<T>(storeName: string): Promise<T[]> {
       const db = await this.getDB();
-      
-      // Use soft-delete: mark as deleted instead of removing
-      // This prevents sync from restoring deleted items
-      const deletedItem = {
-        id,
-        deleted: true,
-        deletedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
       return new Promise((resolve, reject) => {
-          const transaction = db.transaction(storeName, 'readwrite');
-          const store = transaction.objectStore(storeName);
-          // First get the existing item to preserve some data for sync
-          const getRequest = store.get(id);
-          getRequest.onsuccess = async () => {
-            const existingItem = getRequest.result;
-            const softDeletedItem = existingItem 
-              ? { ...existingItem, ...deletedItem }
-              : deletedItem;
-            
-            const putRequest = store.put(softDeletedItem);
-            putRequest.onsuccess = async () => {
-              // Also sync soft-delete to cloud if Firebase is configured
-              if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
-                try {
-                  const firestoreStore = this.getFirestoreStoreName(storeName);
-                  await firebaseService.pushItemToCloud(firestoreStore, softDeletedItem);
-                } catch (e) {
-                  console.warn('Cloud soft-delete sync failed:', e);
-                }
-              }
-              resolve();
-            };
-            putRequest.onerror = () => reject(putRequest.error);
-          };
-          getRequest.onerror = () => reject(getRequest.error);
+          const req = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+          req.onsuccess = () => resolve(req.result as T[]);
+          req.onerror = () => reject(req.error);
+      });
+  }
+  async deleteKeys(storeName: string, keys: string[]): Promise<void> {
+      if (!keys.length) return;
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(storeName, 'readwrite');
+          const st = tx.objectStore(storeName);
+          for (const k of keys) st.delete(k);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+      });
+  }
+  /** Remove every row from every store (account switch). */
+  async wipeAll(): Promise<void> {
+      const db = await this.getDB();
+      const names = Array.from(db.objectStoreNames);
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(names, 'readwrite');
+          for (const n of names) tx.objectStore(n).clear();
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
       });
   }
 
   // Hard delete - completely removes the item (use for cleanup)
+  /**
+   * Local-only removal of an old tombstone. Cloud tombstones are kept so a
+   * long-offline device can never resurrect a deleted record.
+   */
   async hardDelete(storeName: string, id: string): Promise<void> {
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
-          const transaction = db.transaction(storeName, 'readwrite');
-          const store = transaction.objectStore(storeName);
-          const request = store.delete(id);
-          request.onsuccess = async () => {
-            // Also delete from cloud if Firebase is configured
-            if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
-              try {
-                const firestoreStore = this.getFirestoreStoreName(storeName);
-                await firebaseService.deleteItemFromCloud(firestoreStore, id);
-              } catch (e) {
-                console.warn('Cloud delete failed:', e);
-              }
-            }
-            resolve();
-          };
-          request.onerror = () => reject(request.error);
-      });
+      return this.deleteKeys(storeName, [id]);
   }
 
   // Get all items including soft-deleted ones (for sync purposes)

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import Slider from '@react-native-community/slider';
+import { T } from '../../lib/theme';
 
 export function SliderField({
   label, value, onChange, min = 0, max = 100, step = 1, suffix = '%',
@@ -20,7 +21,7 @@ export function SliderField({
         value={value}
         onValueChange={onChange}
         minimumTrackTintColor="#3B82F6"
-        maximumTrackTintColor="#1f2937"
+        maximumTrackTintColor={T.line}
         thumbTintColor="#3B82F6"
       />
     </View>

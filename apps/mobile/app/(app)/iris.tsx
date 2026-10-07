@@ -20,6 +20,7 @@ import {
 import {
   Screen, AppHeader, EmptyState, Spinner, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 const CURRENT_CONVERSATION_ID = 'current-iris-conversation';
 
@@ -682,11 +683,11 @@ export default function IrisScreen() {
         right={
           <View className="flex-row items-center">
             <View className="flex-row items-center mr-3">
-              <MessageSquare size={12} color="#9ca3af" />
+              <MessageSquare size={12} color={T.muted} />
               <Text className="text-ink-muted text-xs ml-1">{Math.max(messages.length - 1, 0)}</Text>
             </View>
             <Pressable onPress={clearConversation} hitSlop={8} className="p-1.5 active:opacity-60">
-              <Trash2 size={18} color="#9ca3af" />
+              <Trash2 size={18} color={T.muted} />
             </Pressable>
           </View>
         }
@@ -733,7 +734,7 @@ export default function IrisScreen() {
             value={input}
             onChangeText={setInput}
             placeholder="Ask Iris for guidance or document a thought…"
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={T.faint}
             multiline
             onSubmitEditing={handleSend}
             returnKeyType="send"
@@ -791,7 +792,7 @@ function TypingIndicator() {
         <Bot size={16} color="#c084fc" />
       </View>
       <View className="bg-midnight-light border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 flex-row items-center">
-        <ActivityIndicator color="#9ca3af" size="small" />
+        <ActivityIndicator color={T.muted} size="small" />
         <Text className="text-ink-muted text-sm ml-2">Iris is thinking…</Text>
       </View>
     </View>

@@ -323,4 +323,85 @@ same `shared/tasks` engine (quick-add parser, recurrence, selectors, mutations):
 - `components/tasks/store.ts` mirrors the mobile shared store (one live store per
   IndexedDB collection, optimistic writes, reload on `clearmind-sync`).
 - Browser reminders keep working via `notificationService` (rescheduling resets
-  `notified`).
+  `notified`). *Superseded by D16: web task reminders now use the shared planner
+  and never write to tasks.*
+
+---
+
+## D14 — Field-level sync engine shared by every client
+
+**Decision:** One `SyncEngine` (`shared/sync/engine.ts`) runs on web (IndexedDB) and
+mobile (sqlite). It has:
+- per-field clocks (`_fc`);
+- tombstones;
+- a persistent outbox with backoff;
+- idempotent merge-writes;
+- per-collection delta listeners on `_serverAt`;
+- a daily full reconcile.
+
+All mutations are pure domain operations (`shared/domain/ops.ts`) that return `Edit[]`.
+
+- **Why not last-write-wins on whole records:** that loses concurrent edits. Completing a
+  task on the phone while editing its description on the web must keep both changes.
+- **Why an unclocked field counts as EPOCH:** in a record that has clocks, falling back
+  to the record's timestamp let stale offline devices resurrect old values.
+- **Agents** write through the same field-clock merge inside a Firestore transaction,
+  so they are just another client.
+- **Android widgets** run in a separate JS context. They write sqlite and the outbox and
+  flag `clearmind:externalWrites`; the app calls `engine.reloadOutbox()` on resume.
+- **Covered by** multi-client tests in `shared/sync/engine.test.ts`.
+
+## D15 — Agents: one tool catalog, local and hosted
+
+**Decision:** `shared/agents/tools.ts` (38 tools) is served three ways:
+- local stdio MCP (`dist-agent/clearmind-mcp.mjs`);
+- hosted Streamable-HTTP MCP and REST on Vercel (`api/mcp.js`, `api/v1.js`);
+- a CLI.
+
+All three use firebase-admin against the same Firestore data. The user asked for both
+local and cloud.
+
+- **Tokens:** `cm_<uid>_<secret>`. Only the sha256 is stored (`users/{uid}/agentTokens`).
+  Tokens carry scopes and a per-token rate limit (60/min) and are revocable from
+  Settings.
+- **Audit:** every call is logged to `users/{uid}/agentAudit`.
+- **Two-step confirm** (`confirm_token` bound to the item set) is required for:
+  - bulk deletes;
+  - project deletes;
+  - bulk changes over 25 items.
+
+  The bulk cap is 200.
+- The admin service account `clearmind-agent@` has only `roles/datastore.user`. Its key
+  lives in Vercel env `FIREBASE_SERVICE_ACCOUNT` and in `~/.config/clearmind` (local),
+  never in the repo.
+- See docs/AGENTS.md.
+
+## D16 — Deterministic notification planning
+
+**Decision:** `planNotifications` (shared) turns tasks and Preferences into a
+keyed plan. That plan covers:
+- explicit and default reminders;
+- the daily plan;
+- the weekly summary;
+- quiet hours;
+- a cap.
+
+- **Mobile** reconciles the OS schedule against the plan (`diffSchedule`). Notification
+  actions (Complete / Snooze / Tomorrow) run domain ops with `source: notification`.
+- **Web** arms in-tab timers from the same plan and remembers fired keys per browser.
+  The old checkers that wrote `notified: true` onto synced tasks (which caused
+  cross-device churn) were removed.
+
+## D17 — iOS build setup
+
+- iOS builds on EAS with the team App Store Connect API key, passed as env vars at
+  build time and never stored in the repo or on EAS.
+- The distribution certificate is shared with the team's other apps. The App Store
+  profile is EAS-managed.
+- The Push capability was enabled through the ASC API, because eas-cli's capability
+  patch is rejected by Apple. Builds therefore set `EXPO_NO_CAPABILITY_SYNC=1`.
+- `expo-build-properties` adds modular headers for `GoogleUtilities` and
+  `RecaptchaInterop`, which Google Sign-In's Swift `AppCheckCore` requires.
+- Creating the App Store Connect app record is a human step. Apple's API can't do it.
+- See docs/RELEASE.md.
+

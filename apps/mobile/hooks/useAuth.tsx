@@ -12,9 +12,11 @@ import { firebaseService, isFirebaseConfigured } from '../services/firebaseServi
 import { configureGoogleSignin } from '../services/firebaseService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dbService, STORES } from '../services/db';
-import { syncAllStores } from '../services/syncService';
+import { flushPending } from '../services/syncService';
 import { resetAllStores } from '../lib/collectionStore';
 import { logWarn } from '../lib/logger';
+import { subscribeProfile } from '@clearmind/shared/data/account';
+import { db } from '../lib/firebase';
 
 const PROFILE_ID = 'current-user';
 const OWNER_KEY = 'clearmind:localOwnerUid';
@@ -99,11 +101,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, [configured, cacheProfile]);
 
+  // Realtime profile (name/photo edits on any device appear here immediately).
+  useEffect(() => {
+    if (!user || !configured) return;
+    const unsub = subscribeProfile(db, user.uid, (p) => {
+      if (!p) return;
+      const local: UserProfile = { id: PROFILE_ID, ...(p as any) };
+      setProfile(local);
+      dbService.putLocalOnly(STORES.PROFILE, local).catch(() => {});
+    });
+    return unsub;
+  }, [user, configured]);
+
   const signOut = useCallback(async () => {
-    // Best-effort: push any changes not yet in the cloud (bounded so an offline
-    // sign-out never hangs). Local rows stay until a different account signs in.
+    // Best-effort: push queued changes (bounded so an offline sign-out never
+    // hangs). The outbox persists, so anything unsent goes out next sign-in.
     try {
-      await Promise.race([syncAllStores(), new Promise((r) => setTimeout(r, 8000))]);
+      await Promise.race([flushPending(), new Promise((r) => setTimeout(r, 8000))]);
     } catch {
       /* offline — data stays on this device for this account */
     }

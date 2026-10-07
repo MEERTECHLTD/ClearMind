@@ -8,6 +8,7 @@ import { useLogs, clearLogs, uptimeMs, appStartMs } from '../../lib/logger';
 import { sendTestNotification, getPermissionStatus } from '../../services/notifications';
 import { syncAllStores } from '../../services/syncService';
 import { dbService, STORES } from '../../services/db';
+import { T } from '../../lib/theme';
 
 /**
  * On-device validation harness: crash log, startup trace, storage stats, feature
@@ -85,8 +86,8 @@ export default function DiagnosticsScreen() {
               <Switch
                 value={flags[k]}
                 onValueChange={(v) => setFlag(k, v)}
-                trackColor={{ true: '#3B82F6', false: '#1f2937' }}
-                thumbColor="#e2e8f0"
+                trackColor={{ true: '#3B82F6', false: T.line }}
+                thumbColor={T.ink}
               />
             </View>
           ))}
@@ -106,7 +107,7 @@ export default function DiagnosticsScreen() {
         <View className="flex-row items-center justify-between mt-6 mb-2">
           <Text className="text-ink-muted text-xs font-semibold ml-1">EVENT &amp; CRASH LOG</Text>
           <Pressable onPress={() => { clearLogs(); toast.show('Log cleared', 'info'); }} className="flex-row items-center active:opacity-60">
-            <Trash2 size={14} color="#9ca3af" />
+            <Trash2 size={14} color={T.muted} />
             <Text className="text-ink-muted text-xs ml-1">Clear</Text>
           </Pressable>
         </View>

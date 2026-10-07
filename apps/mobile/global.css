@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Default (dark) theme variables; lib/theme.ts overrides them per scheme. */
+:root {
+  --c-bg: 5 5 10;
+  --c-card: 15 18 25;
+  --c-card2: 26 31 46;
+  --c-ink: 226 232 240;
+  --c-muted: 156 163 175;
+  --c-line: 31 41 55;
+  --c-accent: 59 130 246;
+  --c-accent-hover: 37 99 235;
+}

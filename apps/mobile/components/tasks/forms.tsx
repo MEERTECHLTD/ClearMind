@@ -7,6 +7,7 @@ import { Sheet } from '../ui/Sheet';
 import { Button } from '../ui/Button';
 import { C } from './theme';
 import { createProject, updateProject, createLabel, updateLabel, projectColor, projectSubtree } from '../../services/taskActions';
+import { T } from '../../lib/theme';
 
 function ColorRow({ value, onChange }: { value: string; onChange: (c: string) => void }) {
   return (
@@ -73,7 +74,7 @@ export function ProjectFormSheet({
         value={name}
         onChangeText={setName}
         placeholder="Project name"
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         autoFocus={!initial}
         className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line"
         returnKeyType="done"
@@ -137,7 +138,7 @@ export function LabelFormSheet({
         value={name}
         onChangeText={setName}
         placeholder="Label name"
-        placeholderTextColor="#6b7280"
+        placeholderTextColor={T.faint}
         autoFocus={!initial}
         autoCapitalize="none"
         className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line"

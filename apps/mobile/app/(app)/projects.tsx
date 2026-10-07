@@ -28,6 +28,7 @@ import {
   Screen, AppHeader, Card, Input, TextArea, Select, DateField, SliderField, ProgressBar,
   Badge, Fab, EmptyState, Spinner, StatCard, confirmDialog, useToast,
 } from '../../components/ui';
+import { T } from '../../lib/theme';
 
 type Status = Project['status'];
 type Priority = NonNullable<Project['priority']>;
@@ -47,7 +48,7 @@ const CATEGORY_META: { value: ProjectCategory; label: string; Icon: typeof Zap; 
   { value: 'IT', label: 'IT', Icon: Monitor, color: '#3b82f6' },
   { value: 'Education', label: 'Education', Icon: GraduationCap, color: '#a855f7' },
   { value: 'Construction', label: 'Construction', Icon: Building, color: '#f97316' },
-  { value: 'Manufacturing', label: 'Manufacturing', Icon: Factory, color: '#6b7280' },
+  { value: 'Manufacturing', label: 'Manufacturing', Icon: Factory, color: T.faint },
   { value: 'Retail', label: 'Retail', Icon: ShoppingBag, color: '#ec4899' },
   { value: 'Marketing', label: 'Marketing', Icon: Megaphone, color: '#6366f1' },
   { value: 'Research', label: 'Research', Icon: FlaskConical, color: '#06b6d4' },
@@ -55,7 +56,7 @@ const CATEGORY_META: { value: ProjectCategory; label: string; Icon: typeof Zap; 
   { value: 'Non-Profit', label: 'Non-Profit', Icon: HandHeart, color: '#f43f5e' },
   { value: 'Startup', label: 'Startup', Icon: Rocket, color: '#8b5cf6' },
   { value: 'Personal', label: 'Personal', Icon: User, color: '#14b8a6' },
-  { value: 'Other', label: 'Other', Icon: FolderOpen, color: '#9ca3af' },
+  { value: 'Other', label: 'Other', Icon: FolderOpen, color: T.muted },
 ];
 const getCategoryMeta = (c?: ProjectCategory) =>
   CATEGORY_META.find((m) => m.value === c) || CATEGORY_META[CATEGORY_META.length - 1];
@@ -495,7 +496,7 @@ export default function ProjectsScreen() {
       <View className="flex-row gap-3 mb-4">
         <ActionButton icon={<Upload size={16} color="#a78bfa" />} label="Import" onPress={importProjects} disabled={busy} />
         <ActionButton icon={<Download size={16} color="#34d399" />} label="Export" onPress={exportProjects} disabled={busy} />
-        <ActionButton icon={<FileText size={16} color="#9ca3af" />} label="Template" onPress={exportTemplate} disabled={busy} />
+        <ActionButton icon={<FileText size={16} color={T.muted} />} label="Template" onPress={exportTemplate} disabled={busy} />
       </View>
 
       <View className="flex-row gap-3 mb-4">
@@ -661,10 +662,10 @@ function ProjectCard({ project, onPress, onEdit, onDelete }: { project: Project;
         </View>
         <View className="flex-row items-center ml-2">
           <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Pencil size={17} color="#9ca3af" />
+            <Pencil size={17} color={T.muted} />
           </Pressable>
           <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Trash2 size={17} color="#9ca3af" />
+            <Trash2 size={17} color={T.muted} />
           </Pressable>
         </View>
       </View>
@@ -681,7 +682,7 @@ function ProjectCard({ project, onPress, onEdit, onDelete }: { project: Project;
 
       {project.deadline ? (
         <View className="flex-row items-center mt-3">
-          <Calendar size={13} color="#9ca3af" />
+          <Calendar size={13} color={T.muted} />
           <Text className="text-ink-muted text-xs ml-1.5">Deadline: {formatDate(project.deadline)}</Text>
         </View>
       ) : null}
@@ -689,10 +690,10 @@ function ProjectCard({ project, onPress, onEdit, onDelete }: { project: Project;
       {(project.team?.length || lastCheckIn || phaseCount || openRisks) ? (
         <View className="flex-row flex-wrap gap-x-4 gap-y-1 mt-2">
           {project.team && project.team.length > 0 ? (
-            <MetaRow icon={<Users size={12} color="#9ca3af" />} text={`${project.team.length} member${project.team.length > 1 ? 's' : ''}`} />
+            <MetaRow icon={<Users size={12} color={T.muted} />} text={`${project.team.length} member${project.team.length > 1 ? 's' : ''}`} />
           ) : null}
           {lastCheckIn ? (
-            <MetaRow icon={<MessageSquare size={12} color="#9ca3af" />} text={`Check-in ${formatDate(lastCheckIn.date)}`} />
+            <MetaRow icon={<MessageSquare size={12} color={T.muted} />} text={`Check-in ${formatDate(lastCheckIn.date)}`} />
           ) : null}
           {phaseCount ? (
             <MetaRow icon={<Layers size={12} color="#818cf8" />} text={`${donePhases}/${phaseCount} phases`} />
@@ -770,7 +771,7 @@ function ProjectFormModal({
           <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
             <Text className="text-ink text-lg font-bold">{initial ? 'Edit project' : 'New project'}</Text>
             <Pressable onPress={onCancel} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -847,7 +848,7 @@ function ProjectDetailModal({ project, onClose, onEdit }: { project: Project | n
             </View>
             <Text className="text-ink text-lg font-bold flex-1" numberOfLines={2}>{project.title}</Text>
             <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color="#9ca3af" />
+              <X size={22} color={T.muted} />
             </Pressable>
           </View>
 
@@ -869,14 +870,14 @@ function ProjectDetailModal({ project, onClose, onEdit }: { project: Project | n
               <ProgressBar value={project.progress ?? 0} tone={(project.progress ?? 0) >= 100 ? 'green' : 'accent'} />
             </View>
 
-            <DetailRow icon={<Calendar size={14} color="#9ca3af" />} label="Start" value={formatDate(project.startDate)} />
-            <DetailRow icon={<Calendar size={14} color="#9ca3af" />} label="Deadline" value={formatDate(project.deadline)} />
-            <DetailRow icon={<User size={14} color="#9ca3af" />} label="Manager" value={project.projectManager} />
-            <DetailRow icon={<Users size={14} color="#9ca3af" />} label="Team" value={listToCsv(project.team) || null} />
-            <DetailRow icon={<Compass size={14} color="#9ca3af" />} label="Stakeholders" value={listToCsv(project.stakeholders) || null} />
-            <DetailRow icon={<FileText size={14} color="#9ca3af" />} label="Reporting" value={project.reportingStructure} />
+            <DetailRow icon={<Calendar size={14} color={T.muted} />} label="Start" value={formatDate(project.startDate)} />
+            <DetailRow icon={<Calendar size={14} color={T.muted} />} label="Deadline" value={formatDate(project.deadline)} />
+            <DetailRow icon={<User size={14} color={T.muted} />} label="Manager" value={project.projectManager} />
+            <DetailRow icon={<Users size={14} color={T.muted} />} label="Team" value={listToCsv(project.team) || null} />
+            <DetailRow icon={<Compass size={14} color={T.muted} />} label="Stakeholders" value={listToCsv(project.stakeholders) || null} />
+            <DetailRow icon={<FileText size={14} color={T.muted} />} label="Reporting" value={project.reportingStructure} />
             {budgetPct !== null ? (
-              <DetailRow icon={<Wallet size={14} color="#9ca3af" />} label="Budget used" value={`${budgetPct}%`} />
+              <DetailRow icon={<Wallet size={14} color={T.muted} />} label="Budget used" value={`${budgetPct}%`} />
             ) : null}
 
             {project.tags && project.tags.length > 0 ? (
@@ -908,7 +909,7 @@ function ProjectDetailModal({ project, onClose, onEdit }: { project: Project | n
                   {project.risks?.length ? <MetaRow icon={<TriangleAlert size={12} color="#fb923c" />} text={`${project.risks.length} risks`} /> : null}
                   {project.resources?.length ? <MetaRow icon={<Wallet size={12} color="#34d399" />} text={`${project.resources.length} resources`} /> : null}
                   {project.performanceMetrics?.length ? <MetaRow icon={<ChartColumn size={12} color="#22d3ee" />} text={`${project.performanceMetrics.length} metrics`} /> : null}
-                  {project.teamCheckIns?.length ? <MetaRow icon={<MessageSquare size={12} color="#9ca3af" />} text={`${project.teamCheckIns.length} check-ins`} /> : null}
+                  {project.teamCheckIns?.length ? <MetaRow icon={<MessageSquare size={12} color={T.muted} />} text={`${project.teamCheckIns.length} check-ins`} /> : null}
                   {project.alignments?.length ? <MetaRow icon={<Compass size={12} color="#c084fc" />} text={`${project.alignments.length} alignments`} /> : null}
                 </View>
               </View>

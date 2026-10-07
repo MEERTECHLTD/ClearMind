@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
+import { T } from '../../lib/theme';
 
 /**
  * Per-screen header (tabs run headerShown:false). Title + back + right slot.
@@ -28,7 +29,7 @@ export function AppHeader({
     <View className="flex-row items-center px-4 pt-2 pb-3 border-b border-line bg-midnight">
       {back ? (
         <Pressable onPress={back} hitSlop={12} className="mr-2 -ml-1 p-1 active:opacity-60" accessibilityLabel="Back" accessibilityRole="button">
-          <ChevronLeft size={26} color="#e2e8f0" />
+          <ChevronLeft size={26} color={T.ink} />
         </Pressable>
       ) : null}
       <View className="flex-1">
