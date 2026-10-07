@@ -17,27 +17,21 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
-import { adminApp } from '../server/firestoreRepo';
+import { adminApp, adminProjectId } from '../server/firestoreRepo';
+import { verifyFirebaseIdToken } from './idToken';
 import { makeToken, secretFromBytes, tokenPrefix, parseToken, DEFAULT_RATE_LIMIT } from '../shared/agents/tokens';
 import {
   validateRegistration, verifyPkce, redirectMatches, parseScopes, protectedResourceMetadata, authorizationServerMetadata,
   redirectWith, OAUTH_CODE_TTL_MS,
 } from '../shared/agents/oauth';
 import type { AgentScope } from '../shared/types';
-import { readJson, sendJson } from './http';
+import { readJson, sendJson, originOf } from './http';
 
 let db: Firestore | null = null;
 const fdb = () => (db ??= getFirestore(adminApp()));
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const shaBytes = async (s: string) => new Uint8Array(createHash('sha256').update(s).digest());
 const rand = (n: number) => secretFromBytes(randomBytes(n), n);
-
-export function originOf(req: IncomingMessage): string {
-  const host = (req.headers['x-forwarded-host'] as string) ?? req.headers.host ?? 'clearmind.meertech.tech';
-  const proto = (req.headers['x-forwarded-proto'] as string) ?? (host.startsWith('localhost') ? 'http' : 'https');
-  return `${proto.split(',')[0]}://${host.split(',')[0]}`;
-}
 
 function cors(res: ServerResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -112,7 +106,7 @@ export default async function handler(req: IncomingMessage & { body?: unknown },
       if (b.deny) return sendJson(res, 200, { redirect: redirectWith(b.redirect_uri, { error: 'access_denied', state: b.state }) });
       if (b.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(String(b.code_challenge ?? ''))) return oauthError(res, 400, 'invalid_request', 'PKCE S256 code_challenge is required');
       let uid: string;
-      try { uid = (await getAuth(adminApp()).verifyIdToken(String(b.id_token ?? ''))).uid; }
+      try { uid = (await verifyFirebaseIdToken(String(b.id_token ?? ''), adminProjectId())).uid; }
       catch { return oauthError(res, 401, 'login_required', 'Sign in to ClearMind again'); }
       const scopes = parseScopes(Array.isArray(b.scopes) ? b.scopes.join(' ') : b.scope);
       const code = `cma_${rand(40)}`;

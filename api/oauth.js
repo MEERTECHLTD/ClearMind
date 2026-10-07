@@ -4,7 +4,6 @@ import { createRequire as __cr } from "module"; const require = __cr(import.meta
 // api-src/oauth.ts
 import { createHash, randomBytes } from "node:crypto";
 import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
 
 // server/firestoreRepo.ts
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
@@ -76,12 +75,52 @@ function adminApp() {
   if (getApps().length) return getApps()[0];
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (raw) {
-    const json = raw.trim().startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8");
-    return initializeApp({ credential: cert(JSON.parse(json)) });
+    const json = JSON.parse(raw.trim().startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8"));
+    return initializeApp({ credential: cert(json), projectId: json.project_id });
   }
   const path = process.env.CLEARMIND_SERVICE_ACCOUNT || (existsSync(DEFAULT_KEY_PATH) ? DEFAULT_KEY_PATH : null);
-  if (path) return initializeApp({ credential: cert(JSON.parse(readFileSync(path, "utf8"))) });
+  if (path) {
+    const json = JSON.parse(readFileSync(path, "utf8"));
+    return initializeApp({ credential: cert(json), projectId: json.project_id });
+  }
   return initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
+}
+function adminProjectId() {
+  const app = adminApp();
+  return app.options.projectId ?? app.options.credential?.projectId ?? process.env.FIREBASE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
+}
+
+// api-src/idToken.ts
+import { createPublicKey, createVerify } from "node:crypto";
+var CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com";
+var cache = null;
+async function certs() {
+  if (cache && cache.until > Date.now()) return cache.certs;
+  const r = await fetch(CERTS_URL);
+  if (!r.ok) throw new Error(`cert fetch ${r.status}`);
+  const maxAge = Number(/max-age=(\d+)/.exec(r.headers.get("cache-control") ?? "")?.[1] ?? 3600);
+  cache = { certs: await r.json(), until: Date.now() + maxAge * 1e3 };
+  return cache.certs;
+}
+var b64json = (s) => JSON.parse(Buffer.from(s, "base64url").toString("utf8"));
+async function verifyFirebaseIdToken(token, projectId, now = Date.now()) {
+  const parts = String(token ?? "").split(".");
+  if (parts.length !== 3) throw new Error("malformed token");
+  const [h, p, sig] = parts;
+  const header = b64json(h);
+  const claims = b64json(p);
+  if (header.alg !== "RS256" || !header.kid) throw new Error("bad header");
+  const pem = (await certs())[header.kid];
+  if (!pem) throw new Error("unknown key id");
+  const ok = createVerify("RSA-SHA256").update(`${h}.${p}`).verify(createPublicKey(pem), Buffer.from(sig, "base64url"));
+  if (!ok) throw new Error("bad signature");
+  const t = Math.floor(now / 1e3);
+  if (claims.aud !== projectId || claims.iss !== `https://securetoken.google.com/${projectId}`) throw new Error("wrong project");
+  if (typeof claims.exp !== "number" || claims.exp <= t) throw new Error("expired");
+  if (typeof claims.iat !== "number" || claims.iat > t + 300) throw new Error("issued in the future");
+  if (typeof claims.auth_time === "number" && claims.auth_time > t + 300) throw new Error("bad auth_time");
+  if (!claims.sub || typeof claims.sub !== "string" || claims.sub.length > 128) throw new Error("bad subject");
+  return { uid: claims.sub, email: claims.email };
 }
 
 // shared/agents/tokens.ts
@@ -244,6 +283,11 @@ function sendJson(res, status, body) {
   res.setHeader("Cache-Control", "no-store");
   res.end(JSON.stringify(body));
 }
+function originOf(req) {
+  const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "clearmind.meertech.tech";
+  const proto = req.headers["x-forwarded-proto"] ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto.split(",")[0]}://${host.split(",")[0]}`;
+}
 
 // api-src/oauth.ts
 var db = null;
@@ -251,11 +295,6 @@ var fdb = () => db ??= getFirestore2(adminApp());
 var sha = (s) => createHash("sha256").update(s).digest("hex");
 var shaBytes = async (s) => new Uint8Array(createHash("sha256").update(s).digest());
 var rand = (n) => secretFromBytes(randomBytes(n), n);
-function originOf(req) {
-  const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "clearmind.meertech.tech";
-  const proto = req.headers["x-forwarded-proto"] ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto.split(",")[0]}://${host.split(",")[0]}`;
-}
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -344,7 +383,7 @@ async function handler(req, res) {
       if (b.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(String(b.code_challenge ?? ""))) return oauthError(res, 400, "invalid_request", "PKCE S256 code_challenge is required");
       let uid;
       try {
-        uid = (await getAuth(adminApp()).verifyIdToken(String(b.id_token ?? ""))).uid;
+        uid = (await verifyFirebaseIdToken(String(b.id_token ?? ""), adminProjectId())).uid;
       } catch {
         return oauthError(res, 401, "login_required", "Sign in to ClearMind again");
       }
@@ -423,6 +462,5 @@ async function handler(req, res) {
   }
 }
 export {
-  handler as default,
-  originOf
+  handler as default
 };

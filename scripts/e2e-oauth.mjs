@@ -50,6 +50,7 @@ try {
   const bad = await fetch(`${BASE}/api/oauth/client?client_id=${clientId}&redirect_uri=${encodeURIComponent('https://evil.example/cb')}`);
   check(bad.status === 400, 'unregistered redirect_uri rejected');
   const ap = await fetch(`${BASE}/api/oauth/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256', state: 'xyz', scope: '', id_token: sign.idToken }) }).then((r) => r.json());
+  if (!ap.redirect) throw new Error(`approve failed: ${JSON.stringify(ap)}`);
   const code = new URL(ap.redirect).searchParams.get('code');
   check(ap.redirect?.startsWith(redirect) && new URL(ap.redirect).searchParams.get('state') === 'xyz' && code, 'approve → redirect with code + state');
   const wrong = await fetch(`${BASE}/api/oauth/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, code_verifier: randomBytes(32).toString('base64url') }) });

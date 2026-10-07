@@ -2301,24 +2301,6 @@ function parseToken(token) {
   if (!/^[A-Za-z0-9]{20,128}$/.test(uid) || !/^[A-Za-z0-9]{32,}$/.test(secret)) return null;
   return { uid, secret };
 }
-var SCOPES = [
-  { scope: "tasks:read", label: "Read tasks", detail: "Inbox, Today, Upcoming, search, comments" },
-  { scope: "tasks:write", label: "Create & edit tasks", detail: "Capture, update, complete, move, comment" },
-  { scope: "tasks:delete", label: "Delete tasks", detail: "Single deletes (bulk needs \u201CBulk\u201D)", risky: true },
-  { scope: "projects:read", label: "Read projects", detail: "Projects, sections, labels, progress" },
-  { scope: "projects:write", label: "Manage projects", detail: "Create/rename/archive projects & sections" },
-  { scope: "projects:delete", label: "Delete projects", detail: "Removes a project and its tasks", risky: true },
-  { scope: "productivity:read", label: "Read productivity", detail: "Momentum, goals, streaks, history" },
-  { scope: "notes:read", label: "Read notes", detail: "Notes vault: list, read, search, backlinks" },
-  { scope: "notes:write", label: "Write notes", detail: "Create, edit, rename/move, import notes" },
-  { scope: "notes:delete", label: "Delete notes", detail: "Remove notes (multiple needs confirmation)", risky: true },
-  { scope: "bulk", label: "Bulk operations", detail: "Change or delete many items at once (with confirmation)", risky: true }
-];
-var SCOPE_PRESETS = [
-  { id: "read", label: "Read only", scopes: ["tasks:read", "projects:read", "productivity:read", "notes:read"] },
-  { id: "standard", label: "Standard (no deletes)", scopes: ["tasks:read", "tasks:write", "projects:read", "projects:write", "productivity:read", "notes:read", "notes:write"] },
-  { id: "full", label: "Full access", scopes: ["tasks:read", "tasks:write", "tasks:delete", "projects:read", "projects:write", "projects:delete", "productivity:read", "notes:read", "notes:write", "notes:delete", "bulk"] }
-];
 var DEFAULT_RATE_LIMIT = 60;
 
 // shared/agents/tools.ts
@@ -3483,11 +3465,14 @@ function adminApp() {
   if (getApps().length) return getApps()[0];
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (raw) {
-    const json = raw.trim().startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8");
-    return initializeApp({ credential: cert(JSON.parse(json)) });
+    const json = JSON.parse(raw.trim().startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8"));
+    return initializeApp({ credential: cert(json), projectId: json.project_id });
   }
   const path = process.env.CLEARMIND_SERVICE_ACCOUNT || (existsSync(DEFAULT_KEY_PATH) ? DEFAULT_KEY_PATH : null);
-  if (path) return initializeApp({ credential: cert(JSON.parse(readFileSync(path, "utf8"))) });
+  if (path) {
+    const json = JSON.parse(readFileSync(path, "utf8"));
+    return initializeApp({ credential: cert(json), projectId: json.project_id });
+  }
   return initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
 }
 var COLLS = ["tasks", "projects", "labels", "sections", "comments", "completions", "filters", "preferences", "notes"];
@@ -3632,17 +3617,6 @@ function sendJson(res, status, body) {
   res.setHeader("Cache-Control", "no-store");
   res.end(JSON.stringify(body));
 }
-
-// api-src/oauth.ts
-import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
-
-// shared/agents/oauth.ts
-var OAUTH_CODE_TTL_MS = 5 * 60 * 1e3;
-var ALL_SCOPES = SCOPES.map((s) => s.scope);
-var DEFAULT_CONNECTOR_SCOPES = SCOPE_PRESETS.find((p) => p.id === "standard").scopes;
-
-// api-src/oauth.ts
 function originOf(req) {
   const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "clearmind.meertech.tech";
   const proto = req.headers["x-forwarded-proto"] ?? (host.startsWith("localhost") ? "http" : "https");

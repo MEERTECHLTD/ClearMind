@@ -10,8 +10,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { authenticate, AgentError } from '../shared/agents/tools';
 import { FirestoreAgentRepo } from '../server/firestoreRepo';
 import { createMcpServer, sha256 } from '../server/mcp';
-import { bearer, readJson, sendJson } from './http';
-import { originOf } from './oauth';
+import { bearer, readJson, sendJson, originOf } from './http';
 
 let repo: FirestoreAgentRepo | null = null;
 
