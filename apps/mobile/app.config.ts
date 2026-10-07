@@ -5,12 +5,18 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
 const MIDNIGHT = '#05050A';
 const ACCENT = '#3B82F6';
 
+// EAS (Expo Application Services) project — builds, signing and Play submission
+// are managed on expo.dev (see eas.json and DECISIONS.md D12).
+const EAS_OWNER = 'ameer911';
+const EAS_PROJECT_ID = 'ae776c4c-c63c-425f-aa1d-bdf4e58d6e38';
+
 // All iconography is generated from the real web logo by
 // scripts/generate-icons.mjs into ./assets/branding/ (see DECISIONS.md D9).
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'ClearMind',
   slug: 'clearmind',
+  owner: EAS_OWNER,
   scheme: 'clearmind',
   version: '0.1.0', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
@@ -29,10 +35,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'tech.meertech.clearmind',
-    // Firebase Android config (apiKey/oauth clients) — decoded from a CI secret to
-    // ./google-services.json before prebuild; present locally (gitignored).
-    googleServicesFile: './google-services.json',
-    // Play requires versionCode to rise per build; CI sets it from the run number.
+    // Firebase Android config (gitignored). On EAS it comes from the
+    // GOOGLE_SERVICES_JSON file environment variable; locally / in the Gradle
+    // workflow it's decoded to ./google-services.json before prebuild.
+    googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
+    // Play requires versionCode to rise per build. EAS manages it remotely
+    // (eas.json appVersionSource: remote + autoIncrement); the Gradle workflow
+    // still sets it from the run number.
     versionCode: Number(process.env.ANDROID_VERSION_CODE ?? 1),
     // Strip Play-sensitive permissions the app does NOT use (prebuild/RN add these
     // by default): the dev-only overlay SYSTEM_ALERT_WINDOW, and legacy storage —
@@ -80,7 +89,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // Gemini config deterministic — unlike bare process.env.EXPO_PUBLIC_* which was
   // NOT inlined into the release bundle (the v0.0.11 launch crash).
   extra: {
-    eas: { projectId: process.env.EAS_PROJECT_ID },
+    eas: { projectId: EAS_PROJECT_ID },
     firebase: {
       apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
       authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',

@@ -41,3 +41,6 @@ yarn-error.*
 
 # Firebase (provided via CI secret, decoded at build time)
 google-services.json
+
+# EAS deploy dry-run output
+deploy.tar.gz
