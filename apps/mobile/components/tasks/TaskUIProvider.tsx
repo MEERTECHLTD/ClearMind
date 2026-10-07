@@ -9,7 +9,7 @@ import { CalendarDays, Flag, Hash, Copy, Trash2, Pencil, CircleCheck, Undo2 } fr
 import type { Label, Project } from '@clearmind/shared';
 import { formatDueDate, priorityOf } from '@clearmind/shared/tasks';
 import { STORES } from '../../services/db';
-import { syncStore } from '../../services/syncService';
+import { syncNow } from '../../services/sync';
 import { isFirebaseConfigured } from '../../services/firebaseService';
 import { getStore } from '../../lib/collectionStore';
 import { useCollection } from '../../hooks/useCollection';
@@ -102,9 +102,8 @@ export function TaskUIProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (isFirebaseConfigured()) {
-      const results = await Promise.all([STORES.TASKS, STORES.PROJECTS, STORES.LABELS].map((s) => syncStore(s)));
-      const failed = results.filter((r) => !r.success);
-      if (failed.length) toast.show('Couldn’t reach the cloud — showing what’s on this device', 'error');
+      const r = await syncNow();
+      if (r.failed.length) toast.show('Couldn’t reach the cloud — showing what’s on this device', 'error');
     }
     await Promise.all([STORES.TASKS, STORES.PROJECTS, STORES.LABELS].map((s) => getStore(s).load()));
   }, [toast]);

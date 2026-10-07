@@ -19,9 +19,15 @@ import {
   STORES,
   getFirestoreCollectionName,
 } from '@clearmind/shared/data/collections';
-import { firebaseService, isFirebaseConfigured } from './firebaseService';
-
 const DB_FILE = 'clearmind.db';
+
+/**
+ * Writes go through the SyncEngine once registered (services/sync.ts): field
+ * clocks, persistent outbox, delta sync. Before that, writes are local only.
+ */
+type Writer = { put: (store: string, item: any) => Promise<void>; remove: (store: string, id: string) => Promise<void> };
+let writer: Writer | null = null;
+export const setSyncWriter = (w: Writer | null) => { writer = w; };
 
 // All local store/table names (trusted constants — safe as SQL identifiers).
 const ALL_STORES: string[] = Object.values(STORES);
@@ -40,6 +46,11 @@ class DatabaseService {
         `CREATE TABLE IF NOT EXISTS "${s}" (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL, updatedAt TEXT, deleted INTEGER DEFAULT 0, deletedAt TEXT);`
     ).join('\n');
     await db.execAsync(ddl);
+    // Local-only sync bookkeeping.
+    await db.execAsync(
+      `CREATE TABLE IF NOT EXISTS "_outbox" (key TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL);
+       CREATE TABLE IF NOT EXISTS "_meta" (key TEXT PRIMARY KEY NOT NULL, value TEXT);`
+    );
     return db;
   }
 
@@ -100,59 +111,68 @@ class DatabaseService {
     });
   }
 
-  // Write + fire-and-forget cloud push (mirrors web put()).
+  /** Create/update a record — routed through the SyncEngine (field-level sync). */
   async put<T extends { id: string }>(storeName: string, item: T): Promise<void> {
+    if (writer && storeName !== STORES.PROFILE) return writer.put(storeName, item);
     const db = await this.getDB();
-    const itemWithTimestamp: any = { ...item, updatedAt: new Date().toISOString() };
-    await this.upsert(db, storeName, itemWithTimestamp);
-    if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
-      try {
-        await firebaseService.pushItemToCloud(getFirestoreCollectionName(storeName), itemWithTimestamp);
-      } catch (e) {
-        console.warn('Cloud sync failed:', e);
-      }
-    }
+    await this.upsert(db, storeName, { ...item, updatedAt: new Date().toISOString() });
   }
 
-  // Soft delete: write a tombstone and push it (so sync can't resurrect it).
+  /** Soft delete (tombstone) — synced so no client can resurrect it. */
   async delete(storeName: string, id: string): Promise<void> {
+    if (writer && storeName !== STORES.PROFILE) return writer.remove(storeName, id);
     const db = await this.getDB();
     const existing = await this.get<any>(storeName, id);
     const now = new Date().toISOString();
-    const tombstone = { ...(existing ?? { id }), id, deleted: true, deletedAt: now, updatedAt: now };
-    await this.upsert(db, storeName, tombstone);
-    if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
-      try {
-        await firebaseService.pushItemToCloud(getFirestoreCollectionName(storeName), tombstone);
-      } catch (e) {
-        console.warn('Cloud soft-delete sync failed:', e);
-      }
-    }
+    await this.upsert(db, storeName, { ...(existing ?? { id }), id, deleted: true, deletedAt: now, updatedAt: now });
   }
 
-  // Hard delete — fully removes (used by cleanup).
+  /** Local-only removal of an old tombstone (cloud tombstones are kept). */
   async hardDelete(storeName: string, id: string): Promise<void> {
     const db = await this.getDB();
     await db.runAsync(`DELETE FROM "${storeName}" WHERE id = ?`, [id]);
-    if (isFirebaseConfigured() && storeName !== STORES.PROFILE) {
-      try {
-        await firebaseService.deleteItemFromCloud(getFirestoreCollectionName(storeName), id);
-      } catch (e) {
-        console.warn('Cloud delete failed:', e);
-      }
-    }
   }
 
-  /** Remove every local row (all stores). Used when a different account signs in. */
+  // ---- sync bookkeeping ----
+  async outboxAll<T>(): Promise<T[]> {
+    const db = await this.getDB();
+    const rows = await db.getAllAsync<Row>(`SELECT data FROM "_outbox"`);
+    return rows.map((r) => JSON.parse(r.data) as T);
+  }
+  async outboxPut(entries: { key: string }[]): Promise<void> {
+    if (!entries.length) return;
+    const db = await this.getDB();
+    await db.withTransactionAsync(async () => {
+      for (const e of entries) await db.runAsync(`INSERT OR REPLACE INTO "_outbox" (key, data) VALUES (?, ?)`, [e.key, JSON.stringify(e)]);
+    });
+  }
+  async outboxDelete(keys: string[]): Promise<void> {
+    if (!keys.length) return;
+    const db = await this.getDB();
+    await db.withTransactionAsync(async () => {
+      for (const k of keys) await db.runAsync(`DELETE FROM "_outbox" WHERE key = ?`, [k]);
+    });
+  }
+  async getMeta(key: string): Promise<string | null> {
+    const db = await this.getDB();
+    const row = await db.getFirstAsync<{ value: string }>(`SELECT value FROM "_meta" WHERE key = ?`, [key]);
+    return row?.value ?? null;
+  }
+  async setMeta(key: string, value: string): Promise<void> {
+    const db = await this.getDB();
+    await db.runAsync(`INSERT OR REPLACE INTO "_meta" (key, value) VALUES (?, ?)`, [key, value]);
+  }
+
+  /** Remove every local row (all stores + sync bookkeeping). Used when a different account signs in. */
   async wipeAll(): Promise<void> {
     const db = await this.getDB();
     await db.withTransactionAsync(async () => {
-      for (const s of ALL_STORES) await db.runAsync(`DELETE FROM "${s}"`);
+      for (const s of [...ALL_STORES, '_outbox', '_meta']) await db.runAsync(`DELETE FROM "${s}"`);
     });
   }
 
   async cleanupDeletedItems(storeName: string): Promise<void> {
-    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
     const all = await this.getAllIncludingDeleted<any>(storeName);
     const stale = all.filter((i) => i.deleted && i.deletedAt && new Date(i.deletedAt).getTime() < cutoff);
     for (const i of stale) await this.hardDelete(storeName, i.id);

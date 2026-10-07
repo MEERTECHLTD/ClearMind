@@ -5,3 +5,5 @@ export * from './filters';
 export * from './productivity';
 export * from './templates';
 export * from './views';
+export * from './reminders';
+export * from './widgets';

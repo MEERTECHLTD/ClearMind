@@ -12,7 +12,7 @@
  * and rethrows so the caller can surface it.
  */
 import { dbService } from '../services/db';
-import { syncBus } from '../services/events';
+import { onDataChange } from '../services/sync';
 
 type Listener = () => void;
 
@@ -107,6 +107,14 @@ export class CollectionStore<T extends { id: string }> {
     return this.removeMany([id]);
   }
 
+  /** Records written by the sync engine (own writes or inbound) — instant UI update. */
+  applyExternal(records: T[]) {
+    if (!this.snapshot.loaded) return;
+    const live = records.filter((r: any) => !r.deleted);
+    const gone = records.filter((r: any) => r.deleted).map((r) => r.id);
+    this.apply(live, gone);
+  }
+
   /** Device-local field update (no updatedAt stamp, no cloud push). */
   async patchLocal(id: string, fields: Partial<T>): Promise<void> {
     const cur = this.snapshot.items.find((x) => x.id === id);
@@ -131,9 +139,7 @@ let busWired = false;
 export function getStore<T extends { id: string }>(name: string): CollectionStore<T> {
   if (!busWired) {
     busWired = true;
-    syncBus.subscribe((changed) => {
-      void stores.get(changed)?.load();
-    });
+    onDataChange((coll, records) => stores.get(coll)?.applyExternal(records as any));
   }
   let s = stores.get(name);
   if (!s) {
