@@ -3,7 +3,8 @@ import { Bell, Cloud, LogOut, Moon, Save, Info, RefreshCw, Check, AlertCircle, L
 import { UserProfile } from '../../types';
 import { dbService, STORES } from '../../services/db';
 import { isFirebaseConfigured } from '../../services/firebase';
-import { syncAllStores, dispatchAllSyncEvents } from '../../services/syncService';
+import { dispatchAllSyncEvents } from '../../services/syncService';
+import { syncNow } from '../../services/syncEngine';
 import { 
   isNotificationSupported, 
   isNotificationPermitted, 
@@ -86,7 +87,8 @@ const SettingsView: React.FC<SettingsProps> = ({ user, onUpdateUser, onLogout })
 
     try {
       // Use centralized sync service for all stores
-      const result = await syncAllStores();
+      const r = await syncNow();
+      const result = { success: r.failed.length === 0, totalItemsSynced: r.pulled + r.pushed, failedStores: r.failed };
 
       // Dispatch sync events for all stores to update views
       dispatchAllSyncEvents();

@@ -9,8 +9,9 @@ import {
 } from './components/tasks/TaskViews';
 import { ViewState, UserProfile, Task, CalendarEvent } from './types';
 import { dbService, STORES, getLocalStoreName, getAllFirestoreCollections } from './services/db';
-import { firebaseService, isFirebaseConfigured, FirebaseUser } from './services/firebase';
-import { handleRealtimeUpdate, syncDeletedItems, dispatchSyncEvent } from './services/syncService';
+import { firebaseService, isFirebaseConfigured, FirebaseUser, auth } from './services/firebase';
+import { dispatchAllSyncEvents } from './services/syncService';
+import { startSync, stopSync } from './services/syncEngine';
 import { 
   initializeNotifications, 
   startNotificationScheduler, 
@@ -408,51 +409,31 @@ const App: React.FC = () => {
   const SYNC_THROTTLE_MS = 1000; // Minimum 1 second between sync events per store
 
   // Real-time sync setup using centralized sync service
+  // Realtime, field-level, offline-safe sync (services/syncEngine). Local data is
+  // scoped to its account: a different account signing in on this browser
+  // starts from a clean local database instead of inheriting someone's data.
   const startRealTimeSync = useCallback(() => {
     if (!isFirebaseConfigured()) return;
-    
-    // Clean up existing listeners
-    if (syncCleanupRef.current) {
-      syncCleanupRef.current();
-    }
-
-    // Get all Firestore collection names from centralized mapping
-    const firestoreCollections = getAllFirestoreCollections();
-
-    setSyncStatus('syncing');
-
-    const cleanup = firebaseService.subscribeToAllCollections(
-      firestoreCollections,
-      async (firestoreCollection: string, cloudItems: any[]) => {
-        try {
-          // Use centralized mapping for collection -> store conversion
-          const localStoreName = getLocalStoreName(firestoreCollection);
+    void (async () => {
+      const uid = auth?.currentUser?.uid;
+      if (!uid) return;
+      try {
+        const owner = localStorage.getItem('cm.localOwnerUid');
+        if (owner && owner !== uid) {
+          stopSync();
+          await dbService.wipeAll();
           
-          // Handle real-time update using centralized sync service
-          const { updated } = await handleRealtimeUpdate(firestoreCollection, cloudItems);
-          
-          // Get local items for deleted sync
-          const localItems = await dbService.getAllIncludingDeleted<any>(localStoreName);
-          
-          // Sync any locally deleted items that are newer than cloud
-          await syncDeletedItems(firestoreCollection, localItems as any, cloudItems);
-          
-          setSyncStatus('connected');
-          
-          // Throttle sync events to prevent excessive re-renders
-          const now = Date.now();
-          const lastEvent = lastSyncEventRef.current[localStoreName] || 0;
-          if (now - lastEvent > SYNC_THROTTLE_MS) {
-            lastSyncEventRef.current[localStoreName] = now;
-            dispatchSyncEvent(localStoreName);
-          }
-        } catch (error) {
-          console.error(`Sync error for ${firestoreCollection}:`, error);
+          dispatchAllSyncEvents();
         }
+        localStorage.setItem('cm.localOwnerUid', uid);
+      } catch (e) {
+        console.warn('owner check failed', e);
       }
-    );
-
-    syncCleanupRef.current = cleanup;
+      setSyncStatus('syncing');
+      await startSync();
+      setSyncStatus('connected');
+    })();
+    syncCleanupRef.current = () => stopSync();
   }, []);
 
   // Cleanup real-time sync on unmount or logout
