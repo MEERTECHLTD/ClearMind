@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Flag, Hash, Inbox, Tag, Plus, Trash2, Copy, ChevronRight, Repeat, X, ListTree } from 'lucide-react';
+import { CalendarDays, Flag, Hash, Inbox, Tag, Plus, Trash2, Copy, ChevronRight, Repeat, X, ListTree, Rows3, Bell, Timer, Bot } from 'lucide-react';
+import type { Section } from '../../types';
+import { STORES } from '../../services/db';
+import { useStore } from './store';
 import { formatDueDate, formatTime, describeRecurrence, priorityOf, subtasksOf, MONTH_SHORT } from '../../shared/tasks';
 import { Modal, TaskCheck, cx, PRIORITY_COLOR, PRIORITY_LABEL, dueColor } from './ui';
-import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker } from './pickers';
+import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker, SectionPicker, RemindersPicker, DurationPicker, describeReminder, describeDuration } from './pickers';
+import { TaskComments, SOURCE_LABEL, isAgentSource } from './Comments';
 import { updateTask, duplicateTask, createProject, createLabel, projectColor } from './actions';
 import { TaskEditor } from './TaskEditor';
 import { useTaskData, useTaskUI } from './TaskContext';
 
-type Picker = null | 'date' | 'priority' | 'project' | 'labels';
+type Picker = null | 'date' | 'priority' | 'project' | 'labels' | 'section' | 'reminders' | 'duration';
 
 const stamp = (iso?: string | null) => {
   if (!iso) return '';
@@ -32,7 +36,16 @@ export function TaskDetailModal({ taskId, onClose, onOpenTask }: { taskId: strin
   const [desc, setDesc] = useState('');
   const [picker, setPicker] = useState<Picker>(null);
   const [addingSub, setAddingSub] = useState(false);
-  const refs = { date: useRef<HTMLButtonElement>(null), priority: useRef<HTMLButtonElement>(null), project: useRef<HTMLButtonElement>(null), labels: useRef<HTMLButtonElement>(null) };
+  const refs = {
+    date: useRef<HTMLButtonElement>(null), priority: useRef<HTMLButtonElement>(null), project: useRef<HTMLButtonElement>(null), labels: useRef<HTMLButtonElement>(null),
+    section: useRef<HTMLButtonElement>(null), reminders: useRef<HTMLButtonElement>(null), duration: useRef<HTMLButtonElement>(null),
+  };
+  const { items: allSections } = useStore<Section>(STORES.SECTIONS);
+  const projectId = task?.projectId ?? null;
+  const sections = useMemo(
+    () => (projectId ? allSections.filter((x) => !x.deleted && !x.archived && x.projectId === projectId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)) : []),
+    [allSections, projectId],
+  );
 
   // Load editable text when switching tasks — not on every store update.
   useEffect(() => {
@@ -59,6 +72,12 @@ export function TaskDetailModal({ taskId, onClose, onOpenTask }: { taskId: strin
   const project = task.projectId ? projectMap.get(task.projectId) : null;
   const p = priorityOf(task);
   const taskLabels = (task.labelIds ?? []).map((id) => labelMap.get(id)).filter(Boolean) as NonNullable<ReturnType<typeof labelMap.get>>[];
+  const section = task.sectionId ? sections.find((x) => x.id === task.sectionId) ?? null : null;
+  const reminders = task.reminders ?? [];
+  const needsTime = reminders.some((r) => r.type === 'relative') && (!task.dueDate || !task.dueTime);
+  const origin = task.agent
+    ? `Added by ${task.agent}${task.source ? ` via ${SOURCE_LABEL[task.source] ?? task.source}` : ''}`
+    : task.source && task.source !== 'web' ? `Added from ${SOURCE_LABEL[task.source] ?? task.source}` : '';
 
   return (
     <Modal open onClose={close} wide>
@@ -121,6 +140,10 @@ export function TaskDetailModal({ taskId, onClose, onOpenTask }: { taskId: strin
               )}
             </div>
           </div>
+
+          <div className="mt-6 pl-8">
+            <TaskComments taskId={task.id} />
+          </div>
         </div>
 
         <aside className={`md:w-64 shrink-0 px-5 pb-5 md:pt-3 md:border-l ${cx.border} bg-gray-50/60 dark:bg-white/[0.02]`}>
@@ -134,7 +157,7 @@ export function TaskDetailModal({ taskId, onClose, onOpenTask }: { taskId: strin
               {task.dueDate ? `${formatDueDate(task.dueDate)}${task.dueTime ? ` ${formatTime(task.dueTime)}` : ''}` : 'No date'}
             </span>
           </SideField>
-          {task.recurrence ? <p className={`text-xs -mt-1 pb-2 ${cx.muted}`}>{describeRecurrence(task.recurrence)}</p> : null}
+          {task.recurrence ? <p className={`flex items-center gap-1 text-xs pt-1.5 pb-2 border-b ${cx.border} ${cx.muted}`}><Repeat size={12} aria-hidden /> Repeats {describeRecurrence(task.recurrence).replace(/^Every/, 'every')}</p> : null}
           <SideField label="Priority" refEl={refs.priority} onClick={() => setPicker('priority')}>
             <Flag size={15} color={PRIORITY_COLOR[p]} fill={p === 'None' ? 'none' : PRIORITY_COLOR[p]} />
             <span>{PRIORITY_LABEL[p]}</span>
@@ -145,10 +168,31 @@ export function TaskDetailModal({ taskId, onClose, onOpenTask }: { taskId: strin
               <span className="flex flex-wrap gap-1">{taskLabels.map((l) => <span key={l.id} className="text-xs px-1.5 py-0.5 rounded" style={{ color: l.color, background: `${l.color}1A` }}>{l.name}</span>)}</span>
             ) : <span className={cx.muted}>Add labels</span>}
           </SideField>
-          <p className={`text-xs mt-3 ${cx.faint}`}>
-            {task.createdAt ? `Created ${stamp(task.createdAt)}` : ''}
-            {task.completed && task.completedAt ? ` · Completed ${stamp(task.completedAt)}` : ''}
-          </p>
+          {project && sections.length ? (
+            <SideField label="Section" refEl={refs.section} onClick={() => setPicker('section')}>
+              <Rows3 size={15} className={cx.muted} />
+              <span className={`truncate ${section ? '' : cx.muted}`}>{section?.name ?? 'No section'}</span>
+            </SideField>
+          ) : null}
+          <SideField label="Reminders" refEl={refs.reminders} onClick={() => setPicker('reminders')}>
+            <Bell size={15} className={reminders.length ? 'text-blue-500 shrink-0' : `${cx.muted} shrink-0`} />
+            <span className={`truncate ${reminders.length ? '' : cx.muted}`}>{reminders.length ? reminders.map(describeReminder).join(', ') : 'Add reminder'}</span>
+          </SideField>
+          {needsTime ? <p className="text-xs text-amber-600 dark:text-amber-400 pt-1.5">“Before” reminders need a due date and time to fire.</p> : null}
+          <SideField label="Duration" refEl={refs.duration} onClick={() => setPicker('duration')}>
+            <Timer size={15} className={cx.muted} />
+            <span className={task.duration ? '' : cx.muted}>{task.duration ? describeDuration(task.duration) : 'Add duration'}</span>
+          </SideField>
+          <div className={`text-xs mt-3 space-y-1 ${cx.faint}`}>
+            {origin ? (
+              <p className="flex items-center gap-1">{task.agent || isAgentSource(task.source) ? <Bot size={12} className="text-blue-500" aria-hidden /> : null}{origin}</p>
+            ) : null}
+            <p>
+              {task.createdAt ? `Created ${stamp(task.createdAt)}` : ''}
+              {task.completed && task.completedAt ? ` · Completed ${stamp(task.completedAt)}` : ''}
+              {task.taskNumber ? ` · #${task.taskNumber}` : ''}
+            </p>
+          </div>
         </aside>
       </div>
 
@@ -160,6 +204,12 @@ export function TaskDetailModal({ taskId, onClose, onOpenTask }: { taskId: strin
         onChange={(id) => updateTask(task, { projectId: id })} onCreate={(name) => createProject({ title: name }).id} />
       <LabelPicker anchor={refs.labels.current} open={picker === 'labels'} onClose={() => setPicker(null)} value={task.labelIds ?? []} labels={labels}
         onChange={(ids) => updateTask(task, { labelIds: ids })} onCreate={(name) => createLabel({ name }).id} />
+      <SectionPicker anchor={refs.section.current} open={picker === 'section'} onClose={() => setPicker(null)} value={task.sectionId} sections={sections}
+        onChange={(id) => updateTask(task, { sectionId: id })} />
+      <RemindersPicker anchor={refs.reminders.current} open={picker === 'reminders'} onClose={() => setPicker(null)} value={reminders}
+        dueDate={task.dueDate} dueTime={task.dueTime} onChange={(r) => updateTask(task, { reminders: r })} />
+      <DurationPicker anchor={refs.duration.current} open={picker === 'duration'} onClose={() => setPicker(null)} value={task.duration}
+        onChange={(m) => updateTask(task, { duration: m })} />
     </Modal>
   );
 }

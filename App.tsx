@@ -2,12 +2,15 @@ import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import { TaskProvider } from './components/tasks/TaskContext';
+import { applyTheme, cachedThemePref, getThemePref, onThemeChange } from './services/theme';
+import { useStore } from './components/tasks/store';
+import { savePreferences } from './components/tasks/actions';
 // Todoist-style task views — the default experience, so loaded eagerly (the
 // sidebar uses the same module).
 import {
   InboxView, TodayView, UpcomingView, SearchView, FiltersLabelsView, CompletedView, ProjectView, LabelView, FilterView,
 } from './components/tasks/TaskViews';
-import { ViewState, UserProfile, Task, CalendarEvent } from './types';
+import { ViewState, UserProfile, Task, CalendarEvent, Preferences } from './types';
 import { dbService, STORES, getLocalStoreName, getAllFirestoreCollections } from './services/db';
 import { firebaseService, isFirebaseConfigured, FirebaseUser, auth } from './services/firebase';
 import { dispatchAllSyncEvents } from './services/syncService';
@@ -20,6 +23,7 @@ import {
   isNotificationPermitted,
   showNotification
 } from './services/notificationService';
+import { startWebReminders } from './services/webReminders';
 
 // Lazy load all view components for code splitting
 const ProjectsView = lazy(() => import('./components/views/ProjectsView'));
@@ -32,7 +36,7 @@ const GoalsView = lazy(() => import('./components/views/GoalsView'));
 const MilestonesView = lazy(() => import('./components/views/MilestonesView'));
 const DailyLogView = lazy(() => import('./components/views/DailyLogView'));
 const AnalyticsView = lazy(() => import('./components/views/AnalyticsView'));
-const SettingsView = lazy(() => import('./components/views/SettingsView'));
+const SettingsHub = lazy(() => import('./components/settings/SettingsHub'));
 const OnboardingView = lazy(() => import('./components/views/OnboardingView'));
 const MindMapView = lazy(() => import('./components/views/MindMapView'));
 const CalendarView = lazy(() => import('./components/views/CalendarView'));
@@ -41,6 +45,9 @@ const AuthView = lazy(() => import('./components/views/AuthView'));
 const ApplicationsView = lazy(() => import('./components/views/ApplicationsView'));
 const ApplicationReviewerView = lazy(() => import('./components/views/ApplicationReviewerView'));
 const LearningVaultView = lazy(() => import('./components/views/LearningVaultView'));
+const ProductivityView = lazy(() => import('./components/views/ProductivityView'));
+const ActivityView = lazy(() => import('./components/views/ActivityView'));
+const TemplatesView = lazy(() => import('./components/views/TemplatesView'));
 
 
 // Loading fallback component
@@ -59,9 +66,11 @@ const VALID_VIEWS: ViewState[] = [
   'goals', 'milestones', 'iris', 'rant', 'dailylog',
   'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'reviewer', 'learningvault',
   'inbox', 'today', 'upcoming', 'search', 'filters', 'completed', 'project', 'label', 'filter',
+  'productivity', 'activity', 'templates',
 ];
 const parseHash = (): { view: ViewState; param?: string } => {
-  const [head, ...rest] = decodeURIComponent(window.location.hash.slice(1)).split('/');
+  // Optional "?…" after the route carries view options (e.g. #today?task=<id>).
+  const [head, ...rest] = decodeURIComponent(window.location.hash.slice(1).split('?')[0]).split('/');
   const view = head as ViewState;
   if (!VALID_VIEWS.includes(view)) return { view: 'today' };
   if (view === 'tasks') return { view: 'today' };
@@ -198,15 +207,8 @@ const App: React.FC = () => {
     };
     checkUser();
 
-    // Theme Check
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'light') {
-      setIsDarkMode(false);
-      document.documentElement.classList.remove('dark');
-    } else {
-      setIsDarkMode(true);
-      document.documentElement.classList.add('dark');
-    }
+    // Theme: Light / Dark / System (synced preference, cached locally).
+    setIsDarkMode(applyTheme(cachedThemePref()));
 
     // PWA Install Event
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -242,46 +244,12 @@ const App: React.FC = () => {
     const checkNotifications = async () => {
       if (!isNotificationSupported() || !isNotificationPermitted()) return;
 
-      const tasks = await dbService.getAll<Task>(STORES.TASKS);
       const events = await dbService.getAll<CalendarEvent>(STORES.EVENTS);
       const today = new Date().toISOString().split('T')[0];
       const now = new Date();
       const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-      // Check tasks
-      for (const task of tasks) {
-        if (!task.completed && !task.notified && task.dueDate === today) {
-          // Check if task has a specific time and it's within 5 minutes
-          if (task.dueTime) {
-            const [taskHour, taskMin] = task.dueTime.split(':').map(Number);
-            const [nowHour, nowMin] = currentTime.split(':').map(Number);
-            const taskMinutes = taskHour * 60 + taskMin;
-            const nowMinutes = nowHour * 60 + nowMin;
-            
-            // Notify 5 minutes before or at the time
-            if (taskMinutes - nowMinutes <= 5 && taskMinutes - nowMinutes >= 0) {
-              await showNotification('⏰ Task Reminder', {
-                body: `Coming up: ${task.title} at ${task.dueTime}`,
-                tag: `task-${task.id}`,
-                data: { type: 'task', id: task.id }
-              });
-              const updatedTask = { ...task, notified: true };
-              await dbService.put(STORES.TASKS, updatedTask);
-            }
-          } else {
-            // No specific time, notify once for today (between 8-9 AM)
-            if (now.getHours() >= 8 && now.getHours() < 9) {
-              await showNotification('📋 Task Due Today', {
-                body: task.title,
-                tag: `task-${task.id}`,
-                data: { type: 'task', id: task.id }
-              });
-              const updatedTask = { ...task, notified: true };
-              await dbService.put(STORES.TASKS, updatedTask);
-            }
-          }
-        }
-      }
+      // Task reminders: services/webReminders (shared planner, synced prefs).
 
       // Check calendar events
       for (const event of events) {
@@ -323,6 +291,7 @@ const App: React.FC = () => {
       // here was removed to stop double-firing. See services/notificationService.ts.
     };
 
+    const stopReminders = startWebReminders();
     // Initialize notification service
     initializeNotifications().then((initialized) => {
       if (initialized) {
@@ -341,20 +310,24 @@ const App: React.FC = () => {
       clearInterval(notificationInterval);
       clearTimeout(initialCheckTimeout);
       stopNotificationScheduler();
+      stopReminders();
     };
   }, []);
 
+  // Quick toggle in the top bar: switch to the opposite explicit theme (synced).
   const toggleTheme = useCallback(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-      setIsDarkMode(false);
-    } else {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-      setIsDarkMode(true);
-    }
+    const next = isDarkMode ? 'light' : 'dark';
+    setIsDarkMode(applyTheme(next));
+    savePreferences({ theme: next });
   }, [isDarkMode]);
+
+  // Apply the synced theme preference whenever it changes (any device).
+  const prefsSnap = useStore<Preferences>(STORES.PREFERENCES);
+  useEffect(() => {
+    const p = prefsSnap.items[0]?.theme;
+    if (p && p !== getThemePref()) setIsDarkMode(applyTheme(p));
+  }, [prefsSnap.items]);
+  useEffect(() => onThemeChange(setIsDarkMode), []);
 
   // Download the signed Android APK (replaces the PWA install prompt).
   const ANDROID_APK_URL =
@@ -483,6 +456,12 @@ const App: React.FC = () => {
         return <LabelView id={viewParam ?? ''} />;
       case 'filter':
         return <FilterView id={viewParam ?? ''} />;
+      case 'productivity':
+        return <ProductivityView />;
+      case 'activity':
+        return <ActivityView projectId={viewParam} />;
+      case 'templates':
+        return <TemplatesView />;
       case 'applications':
         return <ApplicationsView />;
       case 'reviewer':
@@ -506,7 +485,7 @@ const App: React.FC = () => {
       case 'analytics':
         return <AnalyticsView />;
       case 'settings':
-        return <SettingsView user={userProfile} onUpdateUser={setUserProfile} onLogout={handleLogout} />;
+        return <SettingsHub user={userProfile} onUpdateUser={setUserProfile} onLogout={handleLogout} />;
       case 'mindmap':
         return <MindMapView />;
       case 'calendar':

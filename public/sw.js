@@ -33,7 +33,9 @@ self.addEventListener('notificationclick', (event) => {
   let urlToOpen = '/';
 
   // Route to appropriate page based on notification type
-  if (data) {
+  if (data && data.url) {
+    urlToOpen = data.url;
+  } else if (data) {
     switch (data.type) {
       case 'task':
         urlToOpen = '/?view=tasks';

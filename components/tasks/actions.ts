@@ -19,6 +19,7 @@ export const state = (): D.DomainState => ({
   sections: getStore<Section>(STORES.SECTIONS).getSnapshot().items,
   comments: getStore<Comment>(STORES.COMMENTS).getSnapshot().items,
   completions: getStore<Completion>(STORES.COMPLETIONS).getSnapshot().items,
+  filters: getStore<import('../../types').SavedFilter>(STORES.FILTERS).getSnapshot().items,
   preferences: (getStore<Preferences>(STORES.PREFERENCES).getSnapshot().items[0] as Preferences | undefined) ?? null,
 });
 
@@ -142,3 +143,43 @@ export function resolveNames(projectName: string | undefined, projectId: string 
   const labelIds = refs.map((r) => r.id ?? createLabel({ name: r.name }).id);
   return { projectId: pid, labelIds: [...new Set(labelIds)] };
 }
+
+// ------------------------------------------------------------------ project workspace (sections / board)
+
+/** Add a section to a project (name trimmed; ignored when blank). */
+export const addSection = (projectId: string, name: string): Section | null =>
+  name.trim() ? createSection(projectId, name.trim()) : null;
+
+export const renameSection = (id: string, name: string) => { if (name.trim()) updateSection(id, { name: name.trim() }); };
+
+export const setSectionCollapsed = (id: string, collapsed: boolean) => updateSection(id, { collapsed });
+
+/** Delete a section; its tasks move to the project's "No section" list. Returns an undo. */
+export const removeSection = (id: string): (() => void) => deleteSection(id).undo;
+
+/** Swap a section with its neighbour. `orderedIds` is the project's current visible section order. */
+export function moveSection(projectId: string, orderedIds: string[], id: string, dir: -1 | 1) {
+  const ids = [...orderedIds];
+  const i = ids.indexOf(id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  reorderSections(projectId, ids);
+}
+
+export const setProjectView = (p: Project, view: 'list' | 'board') => { if ((p.view ?? 'list') !== view) updateProject(p, { view }); };
+
+export const toggleProjectFavorite = (p: Project) => updateProject(p, { favorite: !p.favorite });
+
+/** Move tasks into a section of a project (`sectionId: null` = "No section"). Returns an undo. */
+export const moveToSection = (taskIds: string[], projectId: string, sectionId: string | null): (() => void) =>
+  moveTasks(taskIds, { projectId, sectionId }).undo;
+
+// ------------------------------------------------------------------ saved filters (web UI)
+
+/** Create (no id) or update a saved filter; the query must already be valid. */
+export const saveFilterAction = (input: { id?: string; name: string; query: string; color?: string | null; favorite?: boolean }) =>
+  run((s, c) => D.saveFilter(s, input, c)).result;
+
+/** Tombstone a saved filter. Returns an undo. */
+export const deleteFilterAction = (id: string): (() => void) => deleteFilter(id).undo;

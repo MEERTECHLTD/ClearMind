@@ -702,4 +702,8 @@ export type ViewState =
   | 'completed'
   | 'project'
   | 'label'
-  | 'filter';
+  | 'filter'
+  // Productivity, activity history and project templates (web).
+  | 'productivity'
+  | 'activity'
+  | 'templates';

@@ -15,6 +15,14 @@ import { TaskItem } from './TaskItem';
 import { Popover, MenuItem, Modal, cx, PRIORITY_COLOR, useTaskToast } from './ui';
 import { updateTask, updateProject, deleteProject, projectSubtree, projectColor, deleteLabel, updateLabel, createLabel, createProject } from './actions';
 import { LIST_COLORS } from '../../shared/tasks';
+import { ProjectWorkspace } from './ProjectWorkspace';
+// Saved filters (query language shared with mobile / agents).
+import type { SavedFilter, Section as TaskSection, Preferences as Prefs } from '../../types';
+import { Filter as FilterIcon, Star } from 'lucide-react';
+import { runFilter } from '../../shared/domain';
+import { STORES } from '../../services/db';
+import { useStore } from './store';
+import { SavedFilterForm } from './SavedFilterForm';
 
 export const go = (hash: string) => { window.location.hash = hash; };
 
@@ -198,7 +206,45 @@ export const FILTERS: WebFilter[] = [
   { id: 'recurring', title: 'Recurring', icon: <Repeat size={18} className="text-blue-500" />, empty: 'No repeating tasks yet — try “every monday” when adding a task.', select: (t) => openOnly(t).filter((x) => !!x.recurrence).sort(compareTasks) },
 ];
 
+/** Live saved filters (synced), ordered, plus a runner bound to the current data. */
+export function useSavedFilters() {
+  const { tasks, projects, labels } = useTaskData();
+  const snap = useStore<SavedFilter>(STORES.FILTERS);
+  const sections = useStore<TaskSection>(STORES.SECTIONS).items;
+  const weekStart = useStore<Prefs>(STORES.PREFERENCES).items[0]?.weekStart ?? 1;
+  const filters = useMemo(() => snap.items.filter((f) => !f.deleted).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name)), [snap.items]);
+  const exec = useMemo(() => (query: string): Task[] | null => {
+    try { return runFilter(tasks, query, { projects, labels, sections, weekStart }); } catch { return null; }
+  }, [tasks, projects, labels, sections, weekStart]);
+  return { filters, loaded: snap.loaded, exec };
+}
+
+function SavedFilterView({ id }: { id: string }) {
+  const { loading } = useTaskData();
+  const { filters, loaded, exec } = useSavedFilters();
+  const [edit, setEdit] = useState(false);
+  const f = filters.find((x) => x.id === id);
+  const list = useMemo(() => (f ? exec(f.query) : []), [f, exec]);
+  if (loading || !loaded) return <Loading />;
+  if (!f) return <Page title="Filter" back><Empty icon={<FilterIcon size={30} className={cx.muted} />} title="This filter no longer exists" /></Page>;
+  return (
+    <Page title={f.name} titleColor={f.color ?? undefined} subtitle={list ? `${plural(list.length)} · ${f.query}` : `Invalid query: ${f.query}`} back actions={
+      <button onClick={() => setEdit(true)} className={`p-1.5 rounded-md ${cx.hover} ${cx.muted}`} aria-label="Edit filter"><Pencil size={16} /></button>
+    }>
+      {list ? <TaskList tasks={list} showProject showParent /> : null}
+      {list && !list.length ? <Empty icon={<FilterIcon size={30} color={f.color ?? undefined} className={f.color ? '' : cx.muted} />} title="Nothing matches right now" /> : null}
+      {!list ? <Empty icon={<FilterIcon size={30} className="text-red-500" />} title="This filter’s query has a syntax error" subtitle="Edit the filter to fix it." /> : null}
+      <SavedFilterForm open={edit} initial={f} onClose={() => setEdit(false)} onDeleted={() => go('filters')} />
+    </Page>
+  );
+}
+
 export function FilterView({ id }: { id: string }) {
+  if (id.startsWith('saved:')) return <SavedFilterView id={id.slice(6)} />;
+  return <BuiltInFilterView id={id} />;
+}
+
+function BuiltInFilterView({ id }: { id: string }) {
   const { tasks, loading } = useTaskData();
   const f = FILTERS.find((x) => x.id === id) ?? FILTERS[0];
   const list = useMemo(() => f.select(tasks), [f, tasks]);
@@ -247,15 +293,35 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (c: 
 export function FiltersLabelsView() {
   const { tasks, labels, loading } = useTaskData();
   const [form, setForm] = useState<null | { initial?: Label }>(null);
+  const [filterForm, setFilterForm] = useState<null | { initial?: SavedFilter }>(null);
+  const saved = useSavedFilters();
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of tasks) if (!t.completed) for (const id of t.labelIds ?? []) m.set(id, (m.get(id) ?? 0) + 1);
     return m;
   }, [tasks]);
+  const savedCounts = useMemo(() => new Map(saved.filters.map((f) => [f.id, saved.exec(f.query)?.length ?? null])), [saved.filters, saved.exec]);
   if (loading) return <Loading />;
   const sorted = [...labels].sort((a, b) => a.name.localeCompare(b.name));
   return (
     <Page title="Filters & Labels">
+      <Section title="My filters" action={<button onClick={() => setFilterForm({})} className={`p-1 rounded-md ${cx.hover} ${cx.muted}`} aria-label="Add filter"><Plus size={16} /></button>}>
+        {saved.filters.map((f) => {
+          const n = savedCounts.get(f.id);
+          return (
+            <div key={f.id} className={`group flex items-center gap-3 py-2.5 px-1 border-b ${cx.border} ${cx.hover} text-sm cursor-pointer`} onClick={() => go(`filter/saved:${f.id}`)}>
+              <FilterIcon size={16} color={f.color ?? '#9CA3AF'} className="shrink-0" />
+              <span className="flex-1 min-w-0">
+                <span className={`block truncate ${cx.text}`}>{f.name}{f.favorite ? <Star size={11} className="inline ml-1.5 -mt-0.5 text-amber-500" fill="currentColor" /> : null}</span>
+                <span className={`block truncate text-xs font-mono ${n === null ? 'text-red-500' : cx.faint}`}>{f.query}</span>
+              </span>
+              <span className={cx.muted}>{n || ''}</span>
+              <button onClick={(e) => { e.stopPropagation(); setFilterForm({ initial: f }); }} className={`p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 ${cx.muted}`} aria-label={`Edit ${f.name}`}><Pencil size={14} /></button>
+            </div>
+          );
+        })}
+        {!saved.filters.length ? <p className={`text-sm py-3 ${cx.muted}`}>No saved filters yet. Add one with + — e.g. “p1 &amp; #Work &amp; !@waiting”.</p> : null}
+      </Section>
       <Section title="Filters">
         {FILTERS.map((f) => (
           <button key={f.id} onClick={() => go(`filter/${f.id}`)} className={`w-full flex items-center gap-3 py-2.5 px-1 border-b ${cx.border} ${cx.hover} text-sm ${cx.text}`}>
@@ -274,6 +340,7 @@ export function FiltersLabelsView() {
         {!sorted.length ? <p className={`text-sm py-3 ${cx.muted}`}>No labels yet. Add one with +, or type “@label” when adding a task.</p> : null}
       </Section>
       <LabelForm open={!!form} initial={form?.initial} onClose={() => setForm(null)} />
+      <SavedFilterForm open={!!filterForm} initial={filterForm?.initial} onClose={() => setFilterForm(null)} />
     </Page>
   );
 }
@@ -342,62 +409,9 @@ export function ProjectForm({ open, onClose, initial, parentId }: { open: boolea
   );
 }
 
+/** Project page — the full workspace (tracker, sections, list/board) lives in ProjectWorkspace. */
 export function ProjectView({ id }: { id: string }) {
-  const { tasks, projects, projectMap, loading } = useTaskData();
-  const toast = useTaskToast();
-  const [menu, setMenu] = useState(false);
-  const [form, setForm] = useState<null | 'edit' | 'child'>(null);
-  const [showDone, setShowDone] = useState(false);
-  const moreRef = useRef<HTMLButtonElement>(null);
-  const project = projectMap.get(id);
-  const open = useMemo(() => projectTasks(tasks, id), [tasks, id]);
-  const done = useMemo(() => tasks.filter((t) => t.completed && !t.parentId && t.projectId === id), [tasks, id]);
-  const children = useMemo(() => orderedProjects(projects).filter(({ project: p }) => p.parentId === id), [projects, id]);
-  if (loading) return <Loading />;
-  if (!project) return <Page title="Project" back><Empty icon={<Hash size={30} className={cx.muted} />} title="This project no longer exists" /></Page>;
-
-  const remove = () => {
-    const ids = new Set(projectSubtree(projects, project.id));
-    const n = tasks.filter((t) => t.projectId && ids.has(t.projectId)).length;
-    if (!confirm(`Delete “${project.title}”${ids.size > 1 ? ' and its sub-projects' : ''}, including ${plural(n)}? This can’t be undone.`)) return;
-    deleteProject(project.id);
-    toast('Project deleted');
-    go('inbox');
-  };
-
-  return (
-    <Page title={project.title} titleColor={projectColor(project)} subtitle={`${plural(open.length, 'open task')}${project.archived ? ' · archived' : ''}`} back actions={
-      <>
-        <button ref={moreRef} onClick={() => setMenu(true)} className={`p-1.5 rounded-md ${cx.hover} ${cx.muted}`} aria-label="Project options"><MoreHorizontal size={18} /></button>
-        <Popover anchor={moreRef.current} open={menu} onClose={() => setMenu(false)} width={220}>
-          <MenuItem icon={<Pencil size={15} />} label="Edit project" onClick={() => { setMenu(false); setForm('edit'); }} />
-          <MenuItem icon={<FolderPlus size={15} />} label="Add sub-project" onClick={() => { setMenu(false); setForm('child'); }} />
-          {project.archived
-            ? <MenuItem icon={<ArchiveRestore size={15} />} label="Unarchive" onClick={() => { setMenu(false); updateProject(project, { archived: false }); toast('Project restored'); }} />
-            : <MenuItem icon={<Archive size={15} />} label="Archive" onClick={() => { setMenu(false); updateProject(project, { archived: true }); toast('Project archived'); }} />}
-          <MenuItem icon={<Trash2 size={15} />} label="Delete project" danger onClick={() => { setMenu(false); remove(); }} />
-        </Popover>
-      </>
-    }>
-      {children.length ? (
-        <div className="mb-2">
-          {children.map(({ project: c }) => (
-            <button key={c.id} onClick={() => go(`project/${c.id}`)} className={`w-full flex items-center gap-3 py-2 px-1 border-b ${cx.border} ${cx.hover} text-sm ${cx.text}`}>
-              <Hash size={15} color={projectColor(c)} /><span className="flex-1 text-left">{c.title}</span>
-              <span className={cx.muted}>{tasks.filter((t) => !t.completed && t.projectId === c.id).length || ''}</span><ChevronRight size={15} className={cx.faint} />
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <TaskList tasks={open} addDefaults={{ projectId: project.id }} />
-      {done.length ? (
-        <Section title="Completed" subtitle={String(done.length)} action={<button onClick={() => setShowDone((x) => !x)} className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">{showDone ? 'Hide' : 'Show'}</button>}>
-          {showDone ? <TaskList tasks={done} /> : null}
-        </Section>
-      ) : null}
-      <ProjectForm open={form !== null} initial={form === 'edit' ? project : null} parentId={form === 'child' ? project.id : null} onClose={() => setForm(null)} />
-    </Page>
-  );
+  return <ProjectWorkspace id={id} />;
 }
 
 export function CompletedView() {
