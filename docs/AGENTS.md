@@ -66,6 +66,25 @@ The local server needs Firestore admin credentials. It looks for them in this or
 
 Keep the file at mode `600` and **never commit it**.
 
+### Claude.ai and ChatGPT (web, desktop and mobile apps): OAuth, no token to copy
+
+Paste the connector URL, then sign in to ClearMind and approve:
+
+```
+https://clearmind.meertech.tech/api/mcp
+```
+
+- **Claude:** Settings → Connectors → *Add custom connector* → paste the URL → *Connect*. A ClearMind page opens; sign in, choose permissions, and click **Allow**.
+- **ChatGPT:** Settings → Apps & Connectors → Advanced → enable *Developer mode* → *Create* → paste the URL, Authentication **OAuth** → sign in and **Allow**. ChatGPT's deep-research connectors use the `search` and `fetch` tools, which cover tasks, projects and notes.
+
+**How it works**
+- The MCP endpoint answers unauthenticated requests with `401` and `WWW-Authenticate: Bearer resource_metadata=…`.
+- The client discovers `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, then registers itself (Dynamic Client Registration, public client).
+- It sends you to `/oauth/authorize` (consent) and exchanges the code with **PKCE S256** at `/api/oauth/token`.
+- The access token it receives is an ordinary scoped agent token. It shows up under *Connected agents* with the client's name, is audited, and can be revoked there; revoking also stops refreshes. Refresh tokens rotate on every use.
+
+**For clients without OAuth**, a token can go in the URL instead: `https://clearmind.meertech.tech/api/mcp?key=cm_…`. URLs end up in logs and history, so prefer OAuth or the `Authorization` header.
+
 ### Codex (`~/.codex/config.toml`)
 
 ```toml
@@ -213,6 +232,7 @@ clearmind import ~/Obsidian/RanaWallet --into Projects/RanaWallet   # whole vaul
 | Task | Command |
 |---|---|
 | Rebuild bundles after changing `shared/`, `server/`, `api-src/` or `cli/` | `npm run build:agent` (esbuild → `dist-agent/*.mjs` (gitignored) and `api/mcp.js`, `api/v1.js` (committed; Vercel deploys them)) |
+| Live OAuth connector flow (as claude.ai/ChatGPT do it) | `node scripts/e2e-oauth.mjs`: throwaway account; registration → consent → PKCE token → MCP → refresh → revoke; then full cleanup |
 | Unit and protocol tests | `npx vitest run` (`shared/agents/agents.test.ts`, `server/mcp.test.ts` drives a real MCP SDK client) |
 | Live end to end | `npm run test:e2e:agent`: creates a throwaway anonymous account, exercises MCP and REST, then deletes everything |
 

@@ -200,7 +200,8 @@ describe('safety', () => {
     for (const t of m) {
       expect(t.name).toMatch(/^[a-z_]{3,64}$/);
       expect(t.inputSchema.type).toBe('object');
-      expect(t.scopes.length).toBeGreaterThan(0);
+      // search/fetch need tasks:read OR notes:read (checked inside the tool).
+      if (!['search', 'fetch'].includes(t.name)) expect(t.scopes.length).toBeGreaterThan(0);
     }
   });
   it('productivity reads match what the apps compute', async () => {
@@ -292,5 +293,24 @@ describe('notes tools', () => {
     const r2 = await call(full, 'notes_list', {});
     expect((r2 as any).error.code).toBe('forbidden'); // task tokens don't get notes implicitly
     expect(toolManifest().filter((t) => t.name.startsWith('notes_')).map((t) => t.name)).toEqual(['notes_list', 'notes_get', 'notes_search', 'notes_create', 'notes_update', 'notes_daily', 'notes_import', 'notes_delete']);
+  });
+});
+
+describe('search & fetch (ChatGPT connector contract)', () => {
+  it('searches tasks and notes the token can read, and fetches full text', async () => {
+    const both = await authenticate(repo, await issue('ChatGPT', ['tasks:read', 'tasks:write', 'notes:read', 'notes:write']), sha256, 'mcp');
+    await ok(both, 'tasks_create', { title: 'Rotate Flutterwave keys', description: 'Before launch', due_string: 'tomorrow' });
+    await ok(both, 'notes_create', { title: 'Payments', content: 'Flutterwave keys live in the vault.' });
+    const r = await ok(both, 'search', { query: 'flutterwave' });
+    expect(r.results.map((x: any) => x.id.split(':')[0]).sort()).toEqual(['note', 'task']);
+    const note = await ok(both, 'fetch', { id: r.results.find((x: any) => x.id.startsWith('note:')).id });
+    expect(note).toMatchObject({ title: 'Payments', text: 'Flutterwave keys live in the vault.' });
+    expect(note.url).toMatch(/#notes\//);
+    const task = await ok(both, 'fetch', { id: r.results.find((x: any) => x.id.startsWith('task:')).id });
+    expect(task.text).toContain('Before launch');
+    // a tasks-only token never sees notes
+    const tasksOnly = await ok(readonly, 'search', { query: 'flutterwave' });
+    expect(tasksOnly.results.every((x: any) => !x.id.startsWith('note:'))).toBe(true);
+    expect((await call(readonly, 'fetch', { id: note.id })) .ok).toBe(false);
   });
 });

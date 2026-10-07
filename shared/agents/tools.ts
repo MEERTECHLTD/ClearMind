@@ -775,6 +775,67 @@ export const TOOLS: ToolDef[] = [
       return { result: { deleted: r.deleted.map((n) => ({ id: n.id, path: NV.notePath(n) })) }, edits: r.edits as D.Edit[], summary: `deleted ${r.deleted.length} note(s)` };
     },
   },
+
+  // ---------------------------------------------------------------- ChatGPT connector contract
+  // ChatGPT's connectors (deep research / company knowledge) require exactly
+  // `search` and `fetch` with these shapes; Claude and other clients can use them too.
+  {
+    name: 'search', title: 'Search ClearMind', scopes: [],
+    description: 'Search the user\'s ClearMind tasks, projects and notes. Returns result ids to pass to `fetch` for the full text.',
+    input: { type: 'object', properties: { query: { type: 'string', description: 'What to look for' } }, required: ['query'] },
+    run: async ({ state, args, auth, now }) => {
+      const canTasks = auth.token.scopes.includes('tasks:read');
+      const canNotes = auth.token.scopes.includes('notes:read');
+      if (!canTasks && !canNotes) throw new AgentError('forbidden', 'This token can read neither tasks nor notes.');
+      const q = String(args.query ?? '').trim();
+      const results: { id: string; title: string; url: string; text?: string }[] = [];
+      const origin = 'https://clearmind.meertech.tech';
+      if (canNotes) {
+        const index = NV.buildIndex(state.notes ?? []);
+        for (const h of NV.searchVault(index, q, 15)) results.push({ id: `note:${h.note.id}`, title: NV.notePath(h.note), url: `${origin}/#notes/${h.note.id}`, text: h.matches[0]?.text ?? NV.excerpt(h.note, 160) });
+      }
+      if (canTasks) {
+        const r = D.globalSearch(state, q, { includeCompleted: true, limit: 15 });
+        const d = describe(state, now);
+        for (const t of r.tasks) { const x: any = d(t); results.push({ id: `task:${t.id}`, title: t.title, url: `${origin}/#today?task=${t.id}`, text: [x.due?.human, x.project, t.completed ? 'completed' : null].filter(Boolean).join(' · ') }); }
+        for (const p of r.projects) results.push({ id: `project:${p.id}`, title: `Project: ${p.title}`, url: `${origin}/#project/${p.id}` });
+      }
+      return { result: { results } };
+    },
+  },
+  {
+    name: 'fetch', title: 'Fetch ClearMind item', scopes: [],
+    description: 'Get the full content of a search result by id (note:…, task:… or project:…).',
+    input: { type: 'object', properties: { id: { type: 'string', description: 'An id returned by search' } }, required: ['id'] },
+    run: async ({ state, args, auth, now }) => {
+      const [kind, ...rest] = String(args.id ?? '').split(':');
+      const id = rest.join(':');
+      const origin = 'https://clearmind.meertech.tech';
+      const need = (scope: AgentScope) => { if (!auth.token.scopes.includes(scope)) throw new AgentError('forbidden', `This token is missing scope: ${scope}.`); };
+      if (kind === 'note') {
+        need('notes:read');
+        const index = NV.buildIndex(state.notes ?? []);
+        const n = noteRef(() => NV.requireNote(index, id));
+        const d = NV.noteDetail(index, n);
+        return { result: { id: args.id, title: d.path, text: n.content, url: `${origin}/#notes/${n.id}`, metadata: { tags: d.tags, updated_at: d.updated_at, backlinks: d.backlinks.map((b) => b.path) } } };
+      }
+      if (kind === 'task') {
+        need('tasks:read');
+        const t = getTask(state, id);
+        const x: any = describe(state, now)(t);
+        const comments = (state.comments ?? []).filter((c) => c.taskId === t.id && !c.deleted).map((c) => `- ${c.text}`);
+        const text = [t.title, t.description ? `\n${t.description}` : '', x.due ? `\nDue: ${x.due.human}${x.due.time ? ' ' + x.due.time : ''}` : '', `\nProject: ${x.project}`, `\nPriority: ${x.priority}`, t.completed ? '\nCompleted' : '', comments.length ? `\n\nComments:\n${comments.join('\n')}` : ''].join('');
+        return { result: { id: args.id, title: t.title, text, url: `${origin}/#today?task=${t.id}`, metadata: x } };
+      }
+      if (kind === 'project') {
+        need('projects:read');
+        const p = resolveProject(state, id)!;
+        const tasks = live(state.tasks).filter((t) => t.projectId === p.id && !t.completed);
+        return { result: { id: args.id, title: p.title, text: `${p.title}\n\nOpen tasks:\n${tasks.map((t) => `- ${t.title}`).join('\n') || '(none)'}`, url: `${origin}/#project/${p.id}`, metadata: { open: tasks.length } } };
+      }
+      throw new AgentError('invalid', 'Unknown id — use an id returned by search.');
+    },
+  },
 ];
 
 /** Run a pure note op, translating its errors to agent errors. */
