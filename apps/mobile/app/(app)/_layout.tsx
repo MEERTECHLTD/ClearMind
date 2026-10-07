@@ -24,8 +24,8 @@ const ALWAYS_HIDDEN = [
   'project/[id]', 'label/[id]', 'filter/[id]', 'completed', 'tasks', 'task/[id]', 'quickadd', 'activity', 'templates',
   'settings/index', 'settings/account', 'settings/general', 'settings/appearance', 'settings/productivity',
   'settings/notifications', 'settings/integrations', 'settings/security', 'settings/data', 'settings/navigation', 'settings/quickadd',
-  'dashboard', 'calendar', 'iris', 'notes', 'dailylog', 'goals', 'habits', 'milestones',
-  'applications', 'rant', 'dailymapper', 'learningvault', 'analytics', 'projects', 'mindmap', 'diagnostics',
+  'dashboard', 'calendar', 'iris', 'notes', 'note/[id]', 'dailylog', 'goals', 'habits', 'milestones',
+  'applications', 'rant', 'dailymapper', 'learningvault', 'analytics', 'projects', 'mindmap', 'diagnostics', 'notes-graph',
 ];
 
 function AppTabs() {

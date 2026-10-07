@@ -18,7 +18,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'clearmind',
   owner: EAS_OWNER,
   scheme: 'clearmind',
-  version: '0.2.0', // versionName — bump per release (see README Play checklist)
+  version: '0.3.0', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
   userInterfaceStyle: 'dark', // the UI is dark-only; keeps native pickers/dialogs consistent
   newArchEnabled: true,
