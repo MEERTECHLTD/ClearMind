@@ -17,7 +17,7 @@ const TasksView: React.FC = () => {
   const [editTitle, setEditTitle] = useState('');
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
-  const [editPriority, setEditPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
+  const [editPriority, setEditPriority] = useState<Task['priority']>('Medium');
   const [editDescription, setEditDescription] = useState('');
   
   // Sort state
@@ -159,7 +159,7 @@ const TasksView: React.FC = () => {
     return `${hour12}:${minutes} ${ampm}`;
   };
 
-  const getPriorityValue = (priority: 'High' | 'Medium' | 'Low'): number => {
+  const getPriorityValue = (priority: Task['priority']): number => {
     switch (priority) {
       case 'High': return 3;
       case 'Medium': return 2;

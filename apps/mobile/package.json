@@ -41,6 +41,7 @@
     "expo-splash-screen": "~0.30.0",
     "expo-sqlite": "~15.2.0",
     "expo-status-bar": "~2.2.0",
+    "expo-system-ui": "~5.0.11",
     "expo-task-manager": "~13.1.0",
     "firebase": "^12.7.0",
     "lucide-react-native": "^0.561.0",

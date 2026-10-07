@@ -9,6 +9,26 @@ same Firestore collections/paths, same data model, same Gemini AI core.
 > are roadmapped in [ROADMAP.md](./ROADMAP.md). See [PORTING_NOTES.md](./PORTING_NOTES.md)
 > for the per-view porting inventory and the root `DECISIONS.md` for architecture.
 
+## Task management (Todoist-style)
+
+The home of the app is a fast task manager — bottom tabs **Inbox · Today ·
+Upcoming · Search · Browse** (all other ClearMind tools live under Browse).
+
+- **Quick Add** (the + button, from any task screen) understands plain language:
+  `Pay rent every month p1 #Home @bills`, `Call Sam tomorrow 4pm`,
+  `Standup every weekday 9:30`, `Review in 3 days`. Recognised words become
+  chips; tap ✕ on a chip to keep the word as text.
+- **Priorities** P1–P4, **projects** (nested, colours, archive, reorder via
+  long-press), **labels**, **sub-tasks**, **recurring tasks** (completing one
+  rolls it to the next date), **smart filters** (Overdue, Next 7 days, P1–P3,
+  No date, Recurring) and **Completed** (tap a tick to restore).
+- Gestures: swipe right = complete, swipe left = reschedule, long-press = actions,
+  pull down = sync. Completing/deleting offers **Undo**.
+- Works offline (sqlite is the source of truth) and syncs with the web app.
+
+Logic lives in `shared/tasks/` (pure TS, unit-tested: `npm test` at the repo root).
+See DECISIONS.md D11 for the data-model notes.
+
 ## Prerequisites
 
 - Node 20+, the monorepo installed from the **repo root**: `npm install`

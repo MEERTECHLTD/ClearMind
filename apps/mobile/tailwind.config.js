@@ -24,6 +24,9 @@ module.exports = {
         'ink': '#e2e8f0',
         'ink-muted': '#9ca3af',
         'hairline': '#1f2937',
+        // Use `line` for border colours: NativeWind's preset also defines `hairline`
+        // as a border WIDTH, so `border-hairline` draws a full box, not a coloured edge.
+        'line': '#1f2937',
       },
     },
   },

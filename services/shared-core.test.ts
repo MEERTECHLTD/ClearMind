@@ -42,7 +42,7 @@ describe('shared/data/collections (real module)', () => {
   });
 
   it('exposes 16 syncable stores / collections, all unique', () => {
-    expect(getSyncableStores().length).toBe(16);
+    expect(getSyncableStores().length).toBe(17);
     const fs = getAllFirestoreCollections();
     expect(new Set(fs).size).toBe(fs.length);
   });

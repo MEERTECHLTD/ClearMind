@@ -9,7 +9,7 @@ export default function Index() {
   const { user, checking, configured } = useAuth();
   if (!configured) return <ConfigMissing />;
   if (checking) return <Spinner label="Starting…" />;
-  return <Redirect href={user ? '/(app)/dashboard' : '/(auth)/welcome'} />;
+  return <Redirect href={user ? '/(app)/today' : '/(auth)/welcome'} />;
 }
 
 function ConfigMissing() {

@@ -14,7 +14,7 @@ export default function SettingsScreen() {
   const [syncing, setSyncing] = useState(false);
 
   const name = profile?.nickname || user?.displayName || user?.email?.split('@')[0] || 'You';
-  const email = user?.email ?? '(guest)';
+  const email = user?.email ?? 'Guest account';
   const provider = user?.providerData?.[0]?.providerId ?? (user?.isAnonymous ? 'anonymous' : '—');
   const initial = (name?.[0] ?? '?').toUpperCase();
   const version = (Constants.expoConfig?.version as string) ?? '';
@@ -56,7 +56,7 @@ export default function SettingsScreen() {
         <Text className="text-ink-muted text-xs font-semibold mt-6 mb-2 ml-1">DATA</Text>
         <Card>
           <Text className="text-ink-muted text-sm mb-3">
-            Your data lives on this device and syncs to your ClearMind cloud account ({email}) — the same project as the web app.
+            Your data lives on this device and syncs to your ClearMind cloud account{user?.email ? ` (${user.email})` : ''} — the same account as the web app.
           </Text>
           <Button title={syncing ? 'Syncing…' : 'Sync now'} onPress={onSync} loading={syncing} variant="secondary" icon={<RefreshCw size={18} color="#e2e8f0" />} />
         </Card>

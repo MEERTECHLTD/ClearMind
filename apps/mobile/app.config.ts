@@ -12,9 +12,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'ClearMind',
   slug: 'clearmind',
   scheme: 'clearmind',
-  version: '0.0.23', // versionName — bump per release (see README Play checklist)
+  version: '0.1.0', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
-  userInterfaceStyle: 'automatic',
+  userInterfaceStyle: 'dark', // the UI is dark-only; keeps native pickers/dialogs consistent
   newArchEnabled: true,
   icon: './assets/branding/icon.png',
   splash: {

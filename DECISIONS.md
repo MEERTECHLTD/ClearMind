@@ -222,3 +222,53 @@ GitHub secrets / a device — none available here. The **source branding was
 visually verified**; the workflow YAML + both scripts pass parse/syntax checks; no
 secret material is tracked; and the web app stays green. The first real CI run is a
 developer step after setting the 11 secrets and committing a synced lockfile.
+
+---
+
+## D11 — Todoist-style task layer (mobile v0.1.0)
+
+**Decision:** The mobile app's primary experience is now a fast task manager:
+bottom tabs **Inbox · Today · Upcoming · Search · Browse**, a global **Quick Add**
+sheet with natural-language parsing, a task detail sheet, projects (nested,
+colour, archive, reorder), labels, smart filters, completed view, subtasks and
+recurring tasks. All other ClearMind tools (Overview, Calendar, Iris, Notes,
+Habits, …) moved under **Browse → ClearMind tools**; the old *More* tab was
+removed and `/tasks` redirects to Today.
+
+**Data model — additive only, no migration needed.** Every new `Task` field is
+optional and nullable (`projectId`, `parentId`, `labelIds`, `recurrence`,
+`order`, `createdAt`, `completedAt`), so existing records stay valid and the web
+app keeps reading them. `TaskPriority` gained `'None'` (P4): `High/Medium/Low`
+keep their meaning as P1/P2/P3, so no existing task changes priority. Projects
+reuse the existing `projects` collection (the same records the web Project
+planner shows) with optional `color`, `parentId`, `order`, `archived`. Labels
+are a new `labels` store/collection (web IndexedDB bumped to v10 to create it;
+Firestore rules already cover `users/{uid}/*`). Tasks whose project was deleted
+elsewhere fall back to the Inbox instead of disappearing.
+
+**Pure, tested core in `shared/tasks/`:** dates, recurrence (`nextOccurrence`
+rolls a recurring task forward on completion and catches up overdue ones), the
+Quick Add parser (dates, times, `every …`, `p1–p4`, `#project`, `@label`/`%label`
+with greedy multi-word matching and per-token "un-parse"), view selectors and
+state transitions (complete cascades to subtasks; restoring a subtask reopens
+its parents; delete removes descendants). Covered by `shared/tasks/tasks.test.ts`.
+
+**One store per collection (`apps/mobile/lib/collectionStore.ts`).** Previously
+each `useCollection()` call held its own copy and only saw its own writes, so a
+task completed on Today stayed open on Inbox until remount. `useCollection` now
+subscribes (via `useSyncExternalStore`) to a shared store: writes are optimistic
+on every screen, then persisted (sqlite first, then cloud). A failed local write
+reloads from sqlite (rollback). UI code never awaits the cloud push — Firestore
+writes wait for the network while offline.
+
+**Local data is scoped to its account.** The sqlite cache is tagged with the
+owner uid; if a *different* account signs in on the device, local rows are wiped
+before any screen reads them (previously the old account's tasks leaked into —
+and were pushed to — the new account). The same account signing back in keeps
+its local, possibly-unsynced edits. Sign-out first attempts a bounded (8 s) sync.
+
+**Reminders** are reconciled after the optimistic save (off the UI path), and the
+notification id is written local-only (it means nothing on other devices).
+
+**Dark-only UI.** `userInterfaceStyle` is `dark` (+ `expo-system-ui`) so native
+pickers/dialogs match the dark design instead of flipping with the OS theme.
