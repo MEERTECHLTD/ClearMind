@@ -121,6 +121,21 @@ export class SyncEngine {
     this.setStatus({});
   }
 
+  /**
+   * Re-read the persisted outbox after another process (e.g. an Android widget
+   * running in its own JS context) wrote to local storage. Disk is the source
+   * of truth: every in-memory change is persisted before it is acknowledged.
+   */
+  reloadOutbox(): Promise<void> {
+    return this.serial(async () => {
+      if (this.flushing) await this.flushing;
+      this.outbox.clear();
+      for (const e of await this.local.outboxAll()) this.outbox.set(e.key, e);
+      this.loaded = true;
+      this.setStatus({});
+    });
+  }
+
   // ---------------------------------------------------------------- writes
 
   /**

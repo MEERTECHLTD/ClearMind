@@ -12,7 +12,7 @@ import { renderWidgetByName } from './render';
 
 async function completeFromWidget(taskId: string) {
   const { dbService, STORES } = await import('../services/db');
-  const { engine, startSync, stopSync } = await import('../services/sync');
+  const { engine, startSync, stopSync, isSyncRunning, markExternalWrites } = await import('../services/sync');
   const all = async <T,>(s: string) => (await dbService.getAll<T>(s)) as T[];
   const prefs = (await all<Preferences>(STORES.PREFERENCES))[0] ?? null;
   const state: D.DomainState = {
@@ -22,6 +22,8 @@ async function completeFromWidget(taskId: string) {
   if (!state.tasks.some((t) => t.id === taskId && !t.completed)) return;
   const r = D.completeTask(state, taskId, { source: 'widget', timezone: prefs?.timezone ?? null });
   await engine.apply(r.edits);
+  // Usually a separate JS context from the app: tell the app to absorb this on resume.
+  await markExternalWrites([...new Set(r.edits.map((e) => e.coll))]);
   const after = D.applyEdits(state, r.edits);
   await refreshWidgets({ tasks: after.tasks, projects: after.projects, completions: after.completions ?? [], preferences: prefs, signedIn: true });
   // Try to push now (restores the Firebase session from storage; bounded).
@@ -32,10 +34,12 @@ async function completeFromWidget(taskId: string) {
       const t = setTimeout(() => res(null), 4000);
       const un = auth.onAuthStateChanged((u) => { if (u) { clearTimeout(t); un(); res(u); } });
     });
-    if (user) {
+    if (user && !isSyncRunning()) {
       await startSync();
       await engine.flush();
       stopSync();
+    } else if (user) {
+      await engine.flush(); // same context as a running app — don't stop its sync
     }
   } catch { /* stays queued in the outbox; sent on next app open */ }
 }

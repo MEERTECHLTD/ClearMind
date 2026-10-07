@@ -8,12 +8,15 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { getFlag } from '../lib/flags';
-import { resumeSync, setOnline } from '../services/sync';
+import { resumeSync, setOnline, absorbExternalWrites } from '../services/sync';
 
 export function useAppLifecycleSync(): void {
   useEffect(() => {
     const appSub = AppState.addEventListener('change', (s) => {
-      if (s === 'active' && getFlag('autoSyncOnForeground')) void resumeSync();
+      if (s !== 'active') return;
+      // Widgets write from their own JS context — always pick those up.
+      if (getFlag('autoSyncOnForeground')) void resumeSync();
+      else void absorbExternalWrites();
     });
     const netUnsub = NetInfo.addEventListener((state) => setOnline(state.isConnected !== false));
     return () => {

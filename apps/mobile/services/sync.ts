@@ -82,8 +82,38 @@ export function stopSync() {
   remote = null;
 }
 
+export const isSyncRunning = () => remote !== null;
+
+/**
+ * Headless work (Android widgets) runs in a separate JS context and writes
+ * straight to sqlite + the outbox, then sets this flag. The foreground app
+ * absorbs those writes on resume: reload the outbox and re-broadcast the
+ * touched collections so screens, notifications and widgets update.
+ */
+export const EXTERNAL_WRITES_KEY = 'clearmind:externalWrites';
+export async function markExternalWrites(colls: string[]) {
+  try {
+    const prev = JSON.parse((await AsyncStorage.getItem(EXTERNAL_WRITES_KEY)) ?? '[]') as string[];
+    await AsyncStorage.setItem(EXTERNAL_WRITES_KEY, JSON.stringify([...new Set([...prev, ...colls])]));
+  } catch { /* best effort */ }
+}
+export async function absorbExternalWrites(): Promise<void> {
+  let colls: string[] = [];
+  try {
+    colls = JSON.parse((await AsyncStorage.getItem(EXTERNAL_WRITES_KEY)) ?? '[]');
+    if (!colls.length) return;
+    await AsyncStorage.removeItem(EXTERNAL_WRITES_KEY);
+  } catch { return; }
+  await engine.reloadOutbox();
+  for (const coll of colls) {
+    const recs = await dbService.getAllIncludingDeleted<Rec>(coll);
+    options.onLocalChange(coll, recs);
+  }
+}
+
 /** Foreground / reconnect: push pending work, and do the daily reconcile if due. */
 export async function resumeSync() {
+  await absorbExternalWrites().catch((e) => logWarn('absorb external writes: ' + String(e)));
   void engine.flush();
   const last = await local.getMeta('lastReconcile');
   if (remote && (!last || Date.now() - new Date(last).getTime() > RECONCILE_EVERY)) void engine.reconcileAll(remote);

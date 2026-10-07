@@ -216,4 +216,22 @@ describe('SyncEngine — multi-client', () => {
     // Only the doc(s) at the cursor boundary are re-sent, not the whole collection.
     expect(seen.reduce((x, y) => x + y, 0)).toBeLessThanOrEqual(1);
   });
+
+  it('a widget writing from another JS context is absorbed: the app reloads the outbox and pushes it', async () => {
+    const server = new MemoryServer();
+    const app = client('android', server, Date.now());
+    await app.engine.start(app.remote);
+    const r = createTask(await app.state(), { title: 'From widget' }, { source: 'android', now: NOW });
+    await app.engine.apply(r.edits);
+    await settle();
+    // Headless widget context: same storage, its own engine, offline (no session).
+    const widget = new SyncEngine(app.local, { clientId: 'android', collections: COLLS, onLocalChange: () => {} });
+    await widget.apply(completeTask(await app.state(), r.result.id, { source: 'widget', now: NOW }).edits);
+    expect(server.get('tasks', r.result.id)?.completed).toBeFalsy();
+    await app.engine.reloadOutbox();
+    expect(app.engine.pendingCount()).toBeGreaterThan(0);
+    await app.engine.flush();
+    expect(server.get('tasks', r.result.id)?.completed).toBe(true);
+    expect(app.engine.pendingCount()).toBe(0);
+  });
 });
