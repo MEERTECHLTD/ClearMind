@@ -21,6 +21,7 @@ import {
   Coffee,
   Ellipsis,
   CheckSquare,
+  MessageSquare as CommentIcon, Zap as AdjustIcon,
 } from 'lucide-react-native';
 import type { DailyMapperEntry, DailyMapperTemplate } from '@clearmind/shared';
 import { todayView } from '@clearmind/shared/tasks';
@@ -636,10 +637,10 @@ function EntryCard({
           ) : null}
 
           {entry.comment ? (
-            <Text className="text-ink-muted text-sm mt-2">💬 {entry.comment}</Text>
+            <View className="flex-row items-start mt-2"><CommentIcon size={14} color={T.muted} style={{ marginTop: 2 }} /><Text className="text-ink-muted text-sm ml-1.5 flex-1">{entry.comment}</Text></View>
           ) : null}
           {entry.adjustment ? (
-            <Text className="text-amber-400 text-sm mt-1">⚡ {entry.adjustment}</Text>
+            <View className="flex-row items-start mt-1"><AdjustIcon size={14} color="#FBBF24" style={{ marginTop: 2 }} /><Text className="text-amber-400 text-sm ml-1.5 flex-1">{entry.adjustment}</Text></View>
           ) : null}
 
           <View className="mt-3">

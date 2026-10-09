@@ -65,7 +65,7 @@ export default function ProductivityScreen() {
   return (
     <Screen padded={false}>
       <PageHeader
-        title="Progress"
+        title="Insights"
         subtitle={tab === 'tasks' ? 'Task momentum, goals and streaks' : 'Insights across all of ClearMind'}
         right={<IconButton label="Productivity settings" onPress={() => router.push('/(app)/settings/productivity')}><Settings2 size={22} color={T.ink} /></IconButton>}
       />
@@ -95,7 +95,7 @@ export default function ProductivityScreen() {
           <View className="flex-row items-center">
             <View className="flex-1">
               <View className="h-3 rounded-full bg-midnight-lighter overflow-hidden"><View style={{ width: `${Math.round(todayPct * 100)}%`, height: 12, backgroundColor: today.met ? T.success : T.accent }} /></View>
-              <Text className="text-ink text-sm mt-2">{today.met ? 'Daily goal reached 🎉' : `${today.goal - today.completed} more to reach your goal`}</Text>
+              <Text className="text-ink text-sm mt-2">{today.met ? 'Daily goal reached' : `${today.goal - today.completed} more to reach your goal`}</Text>
             </View>
           </View>
           <View className="flex-row mt-4">

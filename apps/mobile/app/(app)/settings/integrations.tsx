@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
-import { Bot, Plus, KeyRound, Copy, ShieldAlert, CheckCircle2, XCircle, Terminal, Globe, Cpu } from 'lucide-react-native';
+import { Bot, Plus, KeyRound, Copy, ShieldAlert, CheckCircle2, XCircle, Terminal, Globe, Cpu, Check, TriangleAlert } from 'lucide-react-native';
 import type { AgentScope, AgentToken, AgentAudit } from '@clearmind/shared';
 import { SCOPES, SCOPE_PRESETS } from '@clearmind/shared/agents/tokens';
 import { createAgentToken, revokeAgentToken, subscribeAgentTokens, subscribeAgentAudit, connectionSnippets } from '@clearmind/shared/data/agentTokens';
@@ -132,9 +132,9 @@ export default function IntegrationsSettings() {
             const on = scopes.includes(s.scope);
             return (
               <Pressable key={s.scope} onPress={() => setScopes(on ? scopes.filter((x) => x !== s.scope) : [...scopes, s.scope])} className="flex-row items-center py-2.5" accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
-                <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: on ? T.accent : T.line, backgroundColor: on ? T.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>{on ? <Text className="text-white text-xs font-bold">✓</Text> : null}</View>
+                <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: on ? T.accent : T.line, backgroundColor: on ? T.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>{on ? <Check size={14} color="#fff" strokeWidth={3} /> : null}</View>
                 <View className="flex-1 ml-3">
-                  <Text className="text-ink text-[15px]">{s.label}{s.risky ? '  ⚠︎' : ''}</Text>
+                  <View className="flex-row items-center"><Text className="text-ink text-[15px]">{s.label}</Text>{s.risky ? <TriangleAlert size={14} color="#F59E0B" style={{ marginLeft: 6 }} accessibilityLabel="Higher risk" /> : null}</View>
                   <Text className="text-ink-muted text-xs">{s.detail}</Text>
                 </View>
               </Pressable>

@@ -18,7 +18,7 @@ export const DEFAULT_PREFERENCES: Required<Omit<Preferences, keyof import('../ty
   completeSound: true,
   swipeRight: 'complete',
   swipeLeft: 'schedule',
-  navTabs: ['inbox', 'today', 'upcoming', 'search', 'browse'],
+  navTabs: ['inbox', 'today', 'upcoming', 'notes', 'search', 'browse'],
   quickAddProjectId: null,
   quickAddPriority: 'None',
   quickAddParse: true,
@@ -50,7 +50,8 @@ export const NAV_DESTINATIONS = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'today', label: 'Today' },
   { id: 'upcoming', label: 'Upcoming' },
+  { id: 'notes', label: 'Notes' },
   { id: 'search', label: 'Search' },
-  { id: 'productivity', label: 'Productivity' },
+  { id: 'productivity', label: 'Insights' },
   { id: 'browse', label: 'Browse' },
 ] as const;

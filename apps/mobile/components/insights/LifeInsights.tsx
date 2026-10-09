@@ -27,11 +27,6 @@ import { T } from '../../lib/theme';
 // ---------------------------------------------------------------------------
 // Derived-shape types (ported 1:1 from the web AnalyticsView).
 // ---------------------------------------------------------------------------
-interface WeeklyTaskData {
-  day: string;
-  completed: number;
-  created: number;
-}
 interface HabitStreakData {
   name: string;
   streak: number;
@@ -105,54 +100,6 @@ function Legend({ slices }: { slices: Slice[] }) {
         </View>
       ))}
     </View>
-  );
-}
-
-/** Weekly grouped bars: completed (green) + due (blue) per day. */
-function WeeklyBars({ width, data }: { width: number; data: WeeklyTaskData[] }) {
-  if (width <= 0 || data.length === 0) return null;
-  const H = 170;
-  const padTop = 10;
-  const padBottom = 22;
-  const chartBottom = H - padBottom;
-  const plotH = chartBottom - padTop;
-  const max = Math.max(1, ...data.map((d) => Math.max(d.completed, d.created)));
-  const n = data.length;
-  const groupW = width / n;
-  const barW = Math.max(4, groupW * 0.26);
-  return (
-    <Svg width={width} height={H}>
-      <Line x1={0} y1={chartBottom} x2={width} y2={chartBottom} stroke={T.line} strokeWidth={1} />
-      {data.map((d, i) => {
-        const center = i * groupW + groupW / 2;
-        const cH = (d.completed / max) * plotH;
-        const dH = (d.created / max) * plotH;
-        return (
-          <G key={i}>
-            <Rect
-              x={center - barW - 1}
-              y={chartBottom - dH}
-              width={barW}
-              height={dH}
-              rx={2}
-              fill="#3B82F6"
-              opacity={0.7}
-            />
-            <Rect
-              x={center + 1}
-              y={chartBottom - cH}
-              width={barW}
-              height={cH}
-              rx={2}
-              fill="#10B981"
-            />
-            <SvgText x={center} y={H - 6} fill={T.faint} fontSize={10} textAnchor="middle">
-              {d.day}
-            </SvgText>
-          </G>
-        );
-      })}
-    </Svg>
   );
 }
 
@@ -312,22 +259,6 @@ export function LifeInsights() {
     }));
   }, [logs]);
 
-  const weeklyTaskData = useMemo<WeeklyTaskData[]>(() => {
-    const today = new Date();
-    const weekData: WeeklyTaskData[] = [];
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const dayName = dayNames[date.getDay()];
-      const completedOnDay = tasks.filter((t) => t.completed && t.dueDate === dateStr).length;
-      const createdOnDay = tasks.filter((t) => t.dueDate === dateStr).length;
-      weekData.push({ day: dayName, completed: completedOnDay, created: createdOnDay });
-    }
-    return weekData;
-  }, [tasks]);
-
   const habitStreaks = useMemo<HabitStreakData[]>(
     () =>
       habits
@@ -403,8 +334,6 @@ export function LifeInsights() {
 
   if (loading) return <Spinner label="Crunching your numbers…" />;
 
-  const hasWeekly = weeklyTaskData.some((d) => d.completed > 0 || d.created > 0);
-
   return (
       <ScrollView
         className="flex-1"
@@ -415,7 +344,7 @@ export function LifeInsights() {
         <View className="flex-row flex-wrap -mx-1.5 mb-2">
           <View className="w-1/2 px-1.5 mb-3">
             <StatCard
-              label="Task Completion"
+              label="All-time completion"
               value={`${counts.taskCompletionRate}%`}
               icon={<CheckCircle2 size={18} color="#10b981" />}
             />
@@ -466,30 +395,7 @@ export function LifeInsights() {
           )}
         </ChartCard>
 
-        {/* Weekly Task Activity */}
-        <ChartCard title="Weekly Task Activity" icon={<TrendingUp size={18} color={T.ink} />}>
-          {hasWeekly ? (
-            <View>
-              <Measured height={170} render={(w) => <WeeklyBars width={w} data={weeklyTaskData} />} />
-              <View className="flex-row justify-center mt-2">
-                <View className="flex-row items-center mr-4">
-                  <View className="w-2.5 h-2.5 rounded-sm mr-1.5" style={{ backgroundColor: '#10B981' }} />
-                  <Text className="text-ink-muted text-xs">Completed</Text>
-                </View>
-                <View className="flex-row items-center">
-                  <View className="w-2.5 h-2.5 rounded-sm mr-1.5" style={{ backgroundColor: '#3B82F6' }} />
-                  <Text className="text-ink-muted text-xs">Due</Text>
-                </View>
-              </View>
-            </View>
-          ) : (
-            <ChartEmpty
-              icon={<BarChart2 size={32} color={T.faint} />}
-              line1="No task activity this week."
-              line2="Complete tasks to see trends."
-            />
-          )}
-        </ChartCard>
+        {/* Task activity per day/week lives in the Tasks tab (from completion records) — not repeated here. */}
 
         {/* Top Habit Streaks */}
         <ChartCard title="Top Habit Streaks" icon={<Flame size={18} color={T.ink} />}>

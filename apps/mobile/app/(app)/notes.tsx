@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, TextInput, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { FileText, Search, X, NotebookPen, Network, CalendarDays, Star, ArrowUpDown, Link as LinkIcon, Trash2, Folder } from 'lucide-react-native';
+import { FileText, Search, X, NotebookPen, Network, Workflow, CalendarDays, Star, ArrowUpDown, Link as LinkIcon, Trash2, Folder } from 'lucide-react-native';
 import type { Note } from '@clearmind/shared';
 import { searchVault, excerpt } from '@clearmind/shared/notes';
 import { Screen, AppHeader, Fab, EmptyState, Spinner, SegmentedControl, ActionMenu, useToast, type MenuAction } from '../../components/ui';
@@ -152,11 +152,15 @@ export default function NotesScreen() {
     <Screen padded={false}>
       <AppHeader
         title="Notes"
+        onBack={null}
         subtitle={`${notes.length} note${notes.length === 1 ? '' : 's'} · linked thinking`}
         right={
           <>
             <Pressable onPress={today} hitSlop={8} className="p-2 active:opacity-60" accessibilityRole="button" accessibilityLabel="Open today's daily note">
               <CalendarDays size={22} color={T.ink} />
+            </Pressable>
+            <Pressable onPress={() => router.push('/(app)/mindmap')} hitSlop={8} className="p-2 active:opacity-60" accessibilityRole="button" accessibilityLabel="Mind maps">
+              <Workflow size={22} color={T.ink} />
             </Pressable>
             <Pressable onPress={() => router.push('/(app)/notes-graph')} hitSlop={8} className="p-2 -mr-2 active:opacity-60" accessibilityRole="button" accessibilityLabel="Graph view">
               <Network size={22} color={T.ink} />

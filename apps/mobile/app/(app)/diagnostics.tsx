@@ -115,7 +115,7 @@ export default function DiagnosticsScreen() {
           {logs.length === 0 ? (
             <View className="flex-row items-center">
               <Activity size={16} color="#10b981" />
-              <Text className="text-ink-muted text-sm ml-2">No errors logged. 🎉</Text>
+              <Text className="text-ink-muted text-sm ml-2">No errors logged.</Text>
             </View>
           ) : (
             logs.slice(0, 40).map((l, i) => (

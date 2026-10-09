@@ -4,7 +4,7 @@ import { useRouter, type Href } from 'expo-router';
 import {
   Inbox, Hash, Plus, Tag, CircleCheck, Settings, ChevronRight, ChevronDown, Pencil, Trash2, Archive, ArchiveRestore,
   ArrowUp, ArrowDown, FolderPlus, CalendarDays, Sparkles, NotebookPen, Flame, Target, ScrollText,
-  LayoutGrid, Flag, FolderKanban, Briefcase, GraduationCap, Network, MessageSquareWarning,
+  LayoutGrid, Flag, FolderKanban, Briefcase, GraduationCap, CalendarRange,
 } from 'lucide-react-native';
 import type { Label, Project, SavedFilter } from '@clearmind/shared';
 import { Star, History, LayoutTemplate, Bot, Filter as FilterIcon, Search as SearchIcon } from 'lucide-react-native';
@@ -19,12 +19,16 @@ import { ProjectFormSheet, LabelFormSheet } from '../../components/tasks/forms';
 import { FILTERS } from '../../components/tasks/filters';
 import { C } from '../../components/tasks/theme';
 import { useAuth } from '../../hooks/useAuth';
+import { usePreferences } from '../../hooks/usePreferences';
+import { DEFAULT_PREFERENCES } from '@clearmind/shared/domain';
 import { projectColor, updateProject, deleteProject, moveProject, deleteLabel, projectSubtree } from '../../services/taskActions';
 
 /**
  * Every ClearMind capability is a first-class Browse destination, grouped by
- * purpose (no separate "tools" drawer). Projects + plans live under MY
- * PROJECTS; overview/analytics are part of Today and Progress.
+ * purpose (no separate "tools" drawer). Notes sits at the top (unless it's a
+ * tab); mind maps open from Notes; Daily Log + Rant Corner are the Journal;
+ * projects + plans live under MY PROJECTS; overview/analytics are part of
+ * Today and Insights. Nothing is listed twice.
  */
 type Dest = { label: string; icon: (c: string) => React.ReactNode; href: Href; color?: string };
 const GROUPS: { title: string; items: Dest[] }[] = [
@@ -39,12 +43,9 @@ const GROUPS: { title: string; items: Dest[] }[] = [
     ],
   },
   {
-    title: 'CAPTURE & THINK',
+    title: 'THINK',
     items: [
-      { label: 'Notes', icon: (c) => <NotebookPen size={20} color={c} />, href: '/(app)/notes' },
-      { label: 'Mind Map', icon: (c) => <Network size={20} color={c} />, href: '/(app)/mindmap' },
-      { label: 'Daily Log', icon: (c) => <ScrollText size={20} color={c} />, href: '/(app)/dailylog' },
-      { label: 'Rant Corner', icon: (c) => <MessageSquareWarning size={20} color={c} />, href: '/(app)/rant' },
+      { label: 'Journal', icon: (c) => <ScrollText size={20} color={c} />, href: '/(app)/journal' },
       { label: 'Iris (AI assistant)', icon: (c) => <Sparkles size={20} color={c} />, href: '/(app)/iris', color: '#C084FC' },
     ],
   },
@@ -103,6 +104,8 @@ export default function BrowseScreen() {
   const ui = useTaskUI();
   const toast = useToast();
   const { profile, user } = useAuth();
+  const { prefs } = usePreferences();
+  const tabs = prefs.navTabs ?? DEFAULT_PREFERENCES.navTabs;
   const [projectForm, setProjectForm] = useState<null | { initial?: Project; parentId?: string }>(null);
   const [labelForm, setLabelForm] = useState<null | { initial?: Label }>(null);
   const [projectMenu, setProjectMenu] = useState<Project | null>(null);
@@ -154,8 +157,10 @@ export default function BrowseScreen() {
       <OfflineBanner />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <NavRow icon={<Inbox size={20} color={C.accent} />} label="Inbox" count={counts.get(null)} onPress={() => router.push('/(app)/inbox')} />
+        {!tabs.includes('notes') ? <NavRow icon={<NotebookPen size={20} color={C.accent} />} label="Notes" onPress={() => router.push('/(app)/notes')} /> : null}
+        {!tabs.includes('upcoming') ? <NavRow icon={<CalendarRange size={20} color="#A78BFA" />} label="Upcoming" onPress={() => router.push('/(app)/upcoming')} /> : null}
         <NavRow icon={<CircleCheck size={20} color={C.success} />} label="Completed" onPress={() => router.push('/(app)/completed')} />
-        <NavRow icon={<Flame size={20} color="#F97316" />} label="Progress & insights" onPress={() => router.push('/(app)/productivity')} />
+        {!tabs.includes('productivity') ? <NavRow icon={<Flame size={20} color="#F97316" />} label="Insights" onPress={() => router.push('/(app)/productivity')} /> : null}
         <NavRow icon={<History size={20} color={C.muted} />} label="Activity" onPress={() => router.push('/(app)/activity')} />
 
         {favorites.projects.length + favorites.labels.length + favorites.filters.length ? (
