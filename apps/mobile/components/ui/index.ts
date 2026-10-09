@@ -21,3 +21,4 @@ export { ToastProvider, useToast } from './Toast';
 export { Sheet } from './Sheet';
 export { ActionMenu, type MenuAction } from './ActionMenu';
 export { FormSheet } from './FormSheet';
+export { Avatar } from './Avatar';

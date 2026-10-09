@@ -60,6 +60,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const uidRef = useRef<string | null>(null);
 
   const cacheProfile = useCallback(async (uid: string) => {
+    // Show the on-device copy (name, photo) immediately — don't make the UI wait
+    // for the network — then refresh it from Firestore.
+    const cachedFirst = await dbService.get<UserProfile>(STORES.PROFILE, PROFILE_ID).catch(() => null);
+    if (cachedFirst && uidRef.current === uid) setProfile((p) => p ?? cachedFirst);
     try {
       const cloud = await firebaseService.getUserProfile(uid);
       if (cloud) {

@@ -12,7 +12,7 @@ import { useCollection } from '../../hooks/useCollection';
 import { STORES } from '../../services/db';
 import { SavedFilterSheet } from '../../components/tasks/SavedFilterSheet';
 import { orderedProjects, openCounts } from '@clearmind/shared/tasks';
-import { Screen, ActionMenu, confirmDialog, useToast } from '../../components/ui';
+import { Screen, ActionMenu, confirmDialog, useToast, Avatar } from '../../components/ui';
 import { OfflineBanner } from '../../components/tasks/TaskScreen';
 import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { ProjectFormSheet, LabelFormSheet } from '../../components/tasks/forms';
@@ -146,9 +146,9 @@ export default function BrowseScreen() {
   return (
     <Screen padded={false}>
       <View className="flex-row items-center px-4 pt-2 pb-2">
-        <View className="w-9 h-9 rounded-full bg-accent items-center justify-center mr-3">
-          <Text className="text-white font-extrabold">{name[0]?.toUpperCase() ?? '?'}</Text>
-        </View>
+        <Pressable onPress={() => router.push('/(app)/settings/account')} className="mr-3" accessibilityRole="button" accessibilityLabel={`Account: ${name}`}>
+          <Avatar size={36} />
+        </Pressable>
         <Text className="text-ink text-[26px] font-extrabold flex-1" numberOfLines={1} accessibilityRole="header">Browse</Text>
         <Pressable onPress={() => router.push('/(app)/settings')} hitSlop={8} className="p-2 rounded-full active:bg-midnight-lighter" accessibilityLabel="Settings" accessibilityRole="button">
           <Settings size={22} color={C.ink} />
