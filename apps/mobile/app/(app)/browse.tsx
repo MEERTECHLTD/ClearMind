@@ -225,7 +225,7 @@ export default function BrowseScreen() {
         <SectionTitle title="MORE" />
         <NavRow icon={<LayoutTemplate size={20} color={C.accent} />} label="Project templates" onPress={() => router.push('/(app)/templates')} />
         <NavRow icon={<Bot size={20} color={C.accent} />} label="Integrations & AI agents" onPress={() => router.push('/(app)/settings/integrations')} />
-        <NavRow icon={<SearchIcon size={20} color={C.accent} />} label="Search" onPress={() => router.push('/(app)/search')} />
+        {!tabs.includes('search') ? <NavRow icon={<SearchIcon size={20} color={C.accent} />} label="Search" onPress={() => router.push('/(app)/search')} /> : null}
       </ScrollView>
 
       <SavedFilterSheet visible={!!filterForm} initial={filterForm?.initial} onClose={() => setFilterForm(null)} />
