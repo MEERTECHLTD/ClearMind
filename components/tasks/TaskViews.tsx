@@ -23,6 +23,7 @@ import { runFilter } from '../../shared/domain';
 import { STORES } from '../../services/db';
 import { useStore } from './store';
 import { SavedFilterForm } from './SavedFilterForm';
+import { AcrossClearMind } from './AcrossClearMind';
 
 export const go = (hash: string) => { window.location.hash = hash; };
 
@@ -91,6 +92,7 @@ export function TodayView() {
         <TaskList tasks={due} showProject showParent addDefaults={{ dueDate: today }} />
       </Section>
       {!count ? <Empty icon={<Sun size={34} className="text-green-500" />} title="You’re all clear for today" subtitle="Enjoy the calm — or add something to plan your day." /> : null}
+      <AcrossClearMind today={today} />
     </Page>
   );
 }

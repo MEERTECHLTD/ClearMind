@@ -1,10 +1,10 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Avatar } from './Avatar';
 import {
-  LayoutDashboard, Folder, FileText, Repeat, Target, Flag, Sparkles, MessageSquare, Book, BarChart2, Settings,
-  ChevronLeft, ChevronDown, ChevronRight, MoreHorizontal, Network, Calendar, ClipboardList, Briefcase, ScanSearch, BookOpen,
+  FileText, Repeat, Target, Flag, Sparkles, Calendar, ClipboardList, Briefcase, BookOpen, NotebookPen, TrendingUp, FolderKanban,
+  ChevronLeft, ChevronDown, ChevronRight, MoreHorizontal, Flame,
   Plus, Search, Inbox, CalendarCheck, CalendarRange, LayoutGrid, CircleCheck, Hash, Pencil, FolderPlus, ArrowUp, ArrowDown,
-  Archive, Trash2, Flame, History, LayoutTemplate, Star, Filter as FilterIcon, StarOff,
+  Archive, Trash2, History, LayoutTemplate, Star, Filter as FilterIcon, StarOff,
 } from 'lucide-react';
 import { ViewState, UserProfile, Project, Completion, Preferences } from '../types';
 import { daySummary, dailyStreak } from '../shared/domain';
@@ -27,24 +27,37 @@ interface SidebarProps {
   isMobileOpen?: boolean;
 }
 
-const TOOLS: { id: ViewState; label: string; icon: React.ReactNode }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-  { id: 'projects', label: 'Project planner', icon: <Folder size={18} /> },
-  { id: 'applications', label: 'Applications', icon: <Briefcase size={18} /> },
-  { id: 'reviewer', label: 'AI Reviewer', icon: <ScanSearch size={18} className="text-blue-400" /> },
-  { id: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
-  { id: 'dailymapper', label: 'Daily Mapper', icon: <ClipboardList size={18} /> },
-  { id: 'notes', label: 'Notes', icon: <FileText size={18} /> },
-  { id: 'learningvault', label: 'Learning Vault', icon: <BookOpen size={18} /> },
-  { id: 'habits', label: 'Habits', icon: <Repeat size={18} /> },
-  { id: 'goals', label: 'Goals', icon: <Target size={18} /> },
-  { id: 'milestones', label: 'Milestones', icon: <Flag size={18} /> },
-  { id: 'mindmap', label: 'Mind Map', icon: <Network size={18} /> },
-  { id: 'iris', label: 'AI (Iris)', icon: <Sparkles size={18} className="text-purple-400" /> },
-  { id: 'rant', label: 'Rant Corner', icon: <MessageSquare size={18} /> },
-  { id: 'dailylog', label: 'Daily Log', icon: <Book size={18} /> },
-  { id: 'analytics', label: 'Analytics', icon: <BarChart2 size={18} /> },
-  { id: 'settings', label: 'Settings', icon: <Settings size={18} /> },
+/**
+ * Grouped ClearMind tools (same IA as mobile Browse). Each item may also be
+ * "active" for related routes (Applications covers the AI Reviewer). Settings
+ * lives in the avatar header and the top bar; Dashboard folded into Today,
+ * Mind Map into Notes, Productivity + Analytics into Insights, Daily Log + Rant
+ * Corner into Journal.
+ */
+type ToolItem = { id: ViewState; label: string; icon: React.ReactNode; also?: ViewState[] };
+type ToolGroup = { key: string; label: string; items: ToolItem[] };
+const GROUPS: ToolGroup[] = [
+  {
+    key: 'plan', label: 'Plan', items: [
+      { id: 'calendar', label: 'Calendar', icon: <Calendar size={18} className="text-rose-500" /> },
+      { id: 'dailymapper', label: 'Daily Mapper', icon: <ClipboardList size={18} className="text-cyan-500" /> },
+      { id: 'goals', label: 'Goals', icon: <Target size={18} className="text-emerald-500" /> },
+      { id: 'milestones', label: 'Milestones', icon: <Flag size={18} className="text-violet-500" /> },
+      { id: 'habits', label: 'Habits', icon: <Repeat size={18} className="text-orange-500" /> },
+    ],
+  },
+  {
+    key: 'think', label: 'Think', items: [
+      { id: 'journal', label: 'Journal', icon: <NotebookPen size={18} className="text-pink-500" />, also: ['dailylog', 'rant'] },
+      { id: 'iris', label: 'Iris (AI)', icon: <Sparkles size={18} className="text-purple-500" /> },
+    ],
+  },
+  {
+    key: 'grow', label: 'Grow', items: [
+      { id: 'applications', label: 'Applications', icon: <Briefcase size={18} className="text-blue-500" />, also: ['reviewer'] },
+      { id: 'learningvault', label: 'Learning Vault', icon: <BookOpen size={18} className="text-teal-500" /> },
+    ],
+  },
 ];
 
 const readBool = (k: string, d: boolean) => {
@@ -57,7 +70,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
   const ui = useTaskUI();
   const toast = useTaskToast();
   const [showProjects, setShowProjects] = useState(() => readBool('cm.sb.projects', true));
-  const [showTools, setShowTools] = useState(() => readBool('cm.sb.tools', false));
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => Object.fromEntries(GROUPS.map((g) => [g.key, readBool(`cm.sb.${g.key}`, true)])));
+  const toggleGroup = (k: string) => setOpenGroups((o) => { const v = !o[k]; writeBool(`cm.sb.${k}`, v); return { ...o, [k]: v }; });
   const [showArchived, setShowArchived] = useState(false);
   const [form, setForm] = useState<null | { initial?: Project; parentId?: string }>(null);
   const [menuFor, setMenuFor] = useState<{ project: Project; el: HTMLElement } | null>(null);
@@ -67,7 +81,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
   const archived = useMemo(() => projects.filter((p) => p.archived), [projects]);
   const counts = useMemo(() => openCounts(tasks, projectMap), [tasks, projectMap]);
   const todayCount = useMemo(() => { const v = todayView(tasks); return v.overdue.length + v.today.length; }, [tasks]);
-  const toolActive = TOOLS.some((t) => t.id === currentView);
   const saved = useSavedFilters();
   const [showFavs, setShowFavs] = useState(() => readBool('cm.sb.favs', true));
   const favProjects = useMemo(() => tree.filter(({ project }) => project.favorite).map(({ project }) => project), [tree]);
@@ -85,14 +98,17 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
       ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 font-semibold'
       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`;
 
-  const Item = ({ id, label, icon, count, hash }: { id: ViewState; label: string; icon: React.ReactNode; count?: number; hash?: string }) => (
-    <li>
-      <button onClick={() => (hash ? go(hash) : onChangeView(id))} className={navBtn(currentView === id && !hash)} title={!expanded ? label : ''} aria-current={currentView === id ? 'page' : undefined}>
-        <span className="shrink-0">{icon}</span>
-        {expanded ? <><span className="flex-1 text-left truncate">{label}</span>{count ? <span className="text-xs text-gray-400">{count}</span> : null}</> : null}
-      </button>
-    </li>
-  );
+  const Item = ({ id, label, icon, count, active }: { id: ViewState; label: string; icon: React.ReactNode; count?: number; active?: boolean }) => {
+    const on = active ?? currentView === id;
+    return (
+      <li>
+        <button onClick={() => onChangeView(id)} className={navBtn(on)} title={!expanded ? label : undefined} aria-label={!expanded ? label : undefined} aria-current={on ? 'page' : undefined}>
+          <span className="shrink-0">{icon}</span>
+          {expanded ? <><span className="flex-1 text-left truncate">{label}</span>{count ? <span className="text-xs text-gray-400">{count}</span> : null}</> : null}
+        </button>
+      </li>
+    );
+  };
 
   const siblings = (p: Project) => tree.filter((x) => (x.project.parentId ?? null) === (p.parentId ?? null)).map((x) => x.project);
 
@@ -123,7 +139,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
       <nav className="flex-1 overflow-y-auto px-2 pb-4 touch-pan-y overscroll-contain">
         <ul className="space-y-0.5">
           <li>
-            <button onClick={() => ui.openQuickAdd()} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10" title={!expanded ? 'Add task (Q)' : ''}>
+            <button onClick={() => ui.openQuickAdd()} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10" title={!expanded ? 'Add task (Q)' : undefined} aria-label={!expanded ? 'Add task' : undefined}>
               <span className="w-[18px] h-[18px] rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0"><Plus size={14} /></span>
               {expanded ? <><span className="flex-1 text-left">Add task</span><kbd className="text-[10px] font-normal text-gray-400 border border-gray-300 dark:border-gray-700 rounded px-1">Q</kbd></> : null}
             </button>
@@ -132,6 +148,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
           <Item id="inbox" label="Inbox" icon={<Inbox size={18} className="text-blue-500" />} count={counts.get(null)} />
           <Item id="today" label="Today" icon={<CalendarCheck size={18} className="text-green-600" />} count={todayCount} />
           <Item id="upcoming" label="Upcoming" icon={<CalendarRange size={18} className="text-violet-500" />} />
+          <Item id="notes" label="Notes" icon={<FileText size={18} className="text-amber-500" />} active={currentView === 'notes' || currentView === 'mindmap'} />
           <Item id="filters" label="Filters & Labels" icon={<LayoutGrid size={18} className="text-orange-500" />} />
           {expanded ? saved.filters.filter((f) => !f.favorite).slice(0, 8).map((f) => (
             <li key={f.id}>
@@ -142,12 +159,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
           )) : null}
           <Item id="completed" label="Completed" icon={<CircleCheck size={18} className="text-emerald-500" />} />
           <li>
-            <button onClick={() => onChangeView('productivity')} className={navBtn(currentView === 'productivity')} title={!expanded ? `Productivity · ${prod.done}/${prod.goal} today` : ''} aria-current={currentView === 'productivity' ? 'page' : undefined}>
-              <span className="shrink-0"><Flame size={18} className="text-orange-500" /></span>
+            <button onClick={() => onChangeView('insights')} className={navBtn(currentView === 'insights')} title={!expanded ? `Insights · ${prod.done}/${prod.goal} today` : undefined} aria-label={!expanded ? 'Insights' : undefined} aria-current={currentView === 'insights' ? 'page' : undefined}>
+              <span className="shrink-0"><TrendingUp size={18} className="text-orange-500" /></span>
               {expanded ? (
                 <>
-                  <span className="flex-1 text-left truncate">Productivity</span>
-                  {prod.streak ? <span className="text-[11px] text-orange-500 tabular-nums" title={`${prod.streak}-day streak`}>{prod.streak}🔥</span> : null}
+                  <span className="flex-1 text-left truncate">Insights</span>
+                  {prod.streak ? <span className="inline-flex items-center gap-0.5 text-[11px] text-orange-500 tabular-nums" title={`${prod.streak}-day streak`}>{prod.streak}<Flame size={11} aria-hidden /></span> : null}
                   <span className="flex items-center gap-1.5" title={`${prod.done} of ${prod.goal} done today`}>
                     <span className="w-10 h-1.5 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden">
                       <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.round((prod.done / Math.max(1, prod.goal)) * 100))}%`, background: prod.met ? '#16A34A' : '#3B82F6' }} />
@@ -203,6 +220,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
               </button>
               <button onClick={() => setForm({})} className="p-1 rounded text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-white/10" aria-label="Add project" title="Add project"><Plus size={15} /></button>
             </div>
+            <ul className="space-y-0.5">
+              <li>
+                <button onClick={() => onChangeView('projects')} className={navBtn(currentView === 'projects')} aria-current={currentView === 'projects' ? 'page' : undefined}>
+                  <FolderKanban size={16} className="shrink-0 text-gray-500 dark:text-gray-400" />
+                  <span className="flex-1 text-left truncate">All projects &amp; plans</span>
+                </button>
+              </li>
+            </ul>
             {showProjects ? (
               <ul className="space-y-0.5">
                 {tree.map(({ project, depth }) => {
@@ -238,21 +263,30 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
               </ul>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <ul className="space-y-0.5 mt-3"><Item id="projects" label="All projects & plans" icon={<FolderKanban size={18} className="text-gray-500 dark:text-gray-400" />} /></ul>
+        )}
 
-        {/* ClearMind tools */}
-        <div className="mt-5">
-          {expanded ? (
-            <button onClick={() => { setShowTools(!showTools); writeBool('cm.sb.tools', !showTools); }} className="w-full flex items-center gap-1 px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" aria-expanded={showTools || toolActive}>
-              ClearMind tools {showTools || toolActive ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            </button>
-          ) : <div className="border-t dark:border-gray-800 border-gray-200 mx-2 mb-2" />}
-          {showTools || toolActive || !expanded ? (
-            <ul className="space-y-0.5">
-              {TOOLS.map((t) => <Item key={t.id} id={t.id} label={t.label} icon={<span className="text-gray-500 dark:text-gray-400">{t.icon}</span>} />)}
-            </ul>
-          ) : null}
-        </div>
+        {/* ClearMind tools, grouped */}
+        {GROUPS.map((g) => {
+          const isActive = (t: ToolItem) => currentView === t.id || !!t.also?.includes(currentView);
+          const groupActive = g.items.some(isActive);
+          const open = openGroups[g.key] || groupActive;
+          return (
+            <div key={g.key} className={expanded ? 'mt-5' : 'mt-3'}>
+              {expanded ? (
+                <button onClick={() => toggleGroup(g.key)} className="w-full flex items-center gap-1 px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" aria-expanded={open}>
+                  {g.label} {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </button>
+              ) : <div className="border-t dark:border-gray-800 border-gray-200 mx-2 mb-2" role="separator" aria-label={g.label} />}
+              {open || !expanded ? (
+                <ul className="space-y-0.5" aria-label={g.label}>
+                  {g.items.map((t) => <Item key={t.id} id={t.id} label={t.label} icon={t.icon} active={isActive(t)} />)}
+                </ul>
+              ) : null}
+            </div>
+          );
+        })}
       </nav>
 
       <ProjectForm open={!!form} initial={form?.initial} parentId={form?.parentId} onClose={() => setForm(null)} />

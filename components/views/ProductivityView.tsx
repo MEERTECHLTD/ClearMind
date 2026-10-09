@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Flame, Trophy, Target, TrendingUp, TrendingDown, Settings2, CircleCheck, Bot, Clock, AlertTriangle } from 'lucide-react';
+import { Flame, Trophy, Target, TrendingUp, TrendingDown, CircleCheck, Bot, Clock, AlertTriangle } from 'lucide-react';
 import type { Completion, Preferences } from '../../types';
 import { productivitySummary, intervalSummary, weeklyTrend, LEVELS, resolvePreferences, type Interval } from '../../shared/domain';
 import { WEEKDAY_SHORT, MONTH_SHORT, parseISODate } from '../../shared/tasks';
@@ -9,7 +9,7 @@ import { useTaskData } from '../tasks/TaskContext';
 import { cx, PRIORITY_COLOR } from '../tasks/ui';
 import { projectColor } from '../tasks/actions';
 import { go } from '../tasks/TaskViews';
-import { PageShell, Card, Segmented, PageLoading } from './PageShell';
+import { Card, Segmented, PageLoading } from './PageShell';
 
 const ACCENT = '#3B82F6';
 const GOAL_MET = '#16A34A';
@@ -78,7 +78,8 @@ function BreakdownRow({ label, value, total, color, icon }: { label: string; val
   );
 }
 
-export default function ProductivityView() {
+/** The "Tasks" tab of Insights (#insights): momentum, goals, streaks and breakdowns from the completion log. */
+export default function ProductivityPanel() {
   const { tasks, projectMap, loading } = useTaskData();
   const cs = useStore<Completion>(STORES.COMPLETIONS);
   const ps = useStore<Preferences>(STORES.PREFERENCES);
@@ -109,9 +110,7 @@ export default function ProductivityView() {
   const agentDone = sources.filter(([s]) => AGENT_SOURCES.has(s)).reduce((n, [, v]) => n + v, 0);
 
   return (
-    <PageShell title="Productivity" subtitle="Momentum, goals and streaks — across every device and agent" wide actions={
-      <button onClick={settings} className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`} aria-label="Productivity settings"><Settings2 size={15} /><span className="hidden sm:inline">Goals</span></button>
-    }>
+    <>
       <div className="grid gap-4 md:grid-cols-2">
         {/* Momentum */}
         <Card className="md:col-span-2">
@@ -124,7 +123,7 @@ export default function ProductivityView() {
             </div>
             <div className="hidden sm:block text-right">
               <p className={`text-2xl font-bold tabular-nums ${cx.text}`}>{m.totalCompleted.toLocaleString()}</p>
-              <p className={`text-xs ${cx.muted}`}>tasks completed</p>
+              <p className={`text-xs ${cx.muted}`}>completions, all time</p>
             </div>
           </div>
           <div className="mt-4"><Meter value={Math.round(lvlPct * 100)} max={100} color={ACCENT} /></div>
@@ -254,6 +253,6 @@ export default function ProductivityView() {
         <button onClick={() => go('activity')} className={`inline-flex items-center gap-2 ${cx.btnGhost}`}>Activity</button>
       </div>
       <p className={`text-xs mt-6 ${cx.muted}`}>Momentum: P1 4 · P2 3 · P3 2 · P4 1 points, +1 when on time, +5 per daily goal and +20 per weekly goal met, plus your current streak.</p>
-    </PageShell>
+    </>
   );
 }

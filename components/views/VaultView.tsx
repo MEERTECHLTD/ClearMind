@@ -10,7 +10,7 @@ import {
   FolderClosed, Search, Bookmark, Tags, Link2, ArrowUpRight, ListTree, Waypoints, Info, FileSearch, SquarePen, CalendarDays,
   SquareTerminal, LayoutTemplate, Settings, FilePlus2, Columns2, Pencil, FolderInput, Copy, Trash2, Star, Link as LinkIcon,
   PanelLeft, PanelRight, BookOpen, Bold, Italic, Highlighter, ListChecks, TextSearch, Shuffle, X, Pin, Sparkles, ArrowLeft, ArrowRight,
-  Code2, ExternalLink, Locate, Strikethrough, Paperclip, LayoutDashboard,
+  Code2, ExternalLink, Locate, Strikethrough, Paperclip, LayoutDashboard, Network,
 } from 'lucide-react';
 import type { Note } from '../../types';
 import { useTaskToast } from '../tasks/ui';
@@ -298,6 +298,8 @@ export default function VaultView({ noteId }: { noteId?: string }) {
     { id: 'new-canvas', name: 'Canvas: Create new canvas', icon: <LayoutDashboard size={14} />, run: () => newCanvas(undefined) },
     { id: 'new-note-split', name: 'Create new note to the right', icon: <Columns2 size={14} />, run: () => { createNote({ folder: newNoteFolder(noteRef.current) }).then((n) => { openNote(n.id, { split: desktop, newTab: true }); requestRename(n.id); }).catch((e) => toast(e.message)); } },
     { id: 'daily', name: 'Daily notes: Open today’s daily note', icon: <CalendarDays size={14} />, hotkey: 'Mod+Alt+D', run: () => openDaily() },
+    // Mind maps live under Notes now (no separate sidebar entry); #mindmap still works.
+    { id: 'mindmaps', name: 'Mind maps: Open mind maps', icon: <Network size={14} />, run: () => { window.location.hash = 'mindmap'; } },
     { id: 'graph', name: 'Graph view: Open graph view', icon: <Waypoints size={14} />, hotkey: 'Mod+G', run: () => openGraph() },
     { id: 'local-graph', name: 'Graph view: Open local graph', icon: <Waypoints size={14} />, run: () => showRight('graph'), when: needNote },
     { id: 'reading', name: 'Toggle reading view', icon: <BookOpen size={14} />, hotkey: 'Mod+E', run: toggleReading, when: needNote },
@@ -472,6 +474,7 @@ export default function VaultView({ noteId }: { noteId?: string }) {
     { label: 'Create new canvas', icon: <LayoutDashboard size={18} />, run: () => newCanvas(undefined), hk: '' },
     { label: 'Open today’s daily note', icon: <CalendarDays size={18} />, run: () => openDaily(), hk: 'Mod+Alt+D' },
     { label: 'Open graph view', icon: <Waypoints size={18} />, run: () => openGraph(), hk: 'Mod+G' },
+    { label: 'Mind maps', icon: <Network size={18} />, run: () => { window.location.hash = 'mindmap'; }, hk: '' },
     { label: 'Open command palette', icon: <SquareTerminal size={18} />, run: () => setModal('palette'), hk: 'Mod+P' },
     { label: 'Insert template', icon: <LayoutTemplate size={18} />, run: () => (noteRef.current ? setModal('templates') : toast('Open a note to insert a template')), hk: 'Mod+Alt+T' },
   ];
