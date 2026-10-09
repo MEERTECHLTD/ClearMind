@@ -18,7 +18,7 @@ import {
   type UserContext, type ParsedActions,
 } from '../../services/gemini';
 import {
-  Screen, AppHeader, EmptyState, Spinner, confirmDialog, useToast,
+  Screen, AppHeader, EmptyState, Spinner, IconButton, confirmDialog, useToast,
 } from '../../components/ui';
 import { T } from '../../lib/theme';
 
@@ -681,15 +681,15 @@ export default function IrisScreen() {
         title="Iris"
         subtitle="Your AI co-pilot for the journey"
         right={
-          <View className="flex-row items-center">
-            <View className="flex-row items-center mr-3">
+          <>
+            <View className="flex-row items-center mr-1" accessibilityLabel={`${Math.max(messages.length - 1, 0)} messages`}>
               <MessageSquare size={12} color={T.muted} />
               <Text className="text-ink-muted text-xs ml-1">{Math.max(messages.length - 1, 0)}</Text>
             </View>
-            <Pressable onPress={clearConversation} hitSlop={8} className="p-1.5 active:opacity-60">
+            <IconButton onPress={clearConversation} label="Clear conversation">
               <Trash2 size={18} color={T.muted} />
-            </Pressable>
-          </View>
+            </IconButton>
+          </>
         }
       />
 
@@ -746,9 +746,12 @@ export default function IrisScreen() {
         <Pressable
           onPress={handleSend}
           disabled={!input.trim() || isTyping}
+          accessibilityRole="button"
+          accessibilityLabel={isTyping ? 'Iris is replying' : 'Send message'}
+          accessibilityState={{ disabled: !input.trim() || isTyping, busy: isTyping }}
           className={`w-12 h-12 rounded-full items-center justify-center ${!input.trim() || isTyping ? 'bg-midnight-lighter opacity-50' : 'bg-accent active:bg-accent-hover'}`}
         >
-          {isTyping ? <ActivityIndicator color="#fff" /> : <Send size={20} color="#fff" />}
+          <Send size={20} color="#fff" />
         </Pressable>
       </View>
 
@@ -778,7 +781,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </View>
       {isUser && (
         <View className="w-8 h-8 rounded-full bg-accent/20 border border-accent/40 items-center justify-center ml-2 mt-0.5">
-          <User size={16} color="#60a5fa" />
+          <User size={16} color={T.accent} />
         </View>
       )}
     </View>
@@ -792,6 +795,7 @@ function TypingIndicator() {
         <Bot size={16} color="#c084fc" />
       </View>
       <View className="bg-midnight-light border border-line rounded-2xl rounded-tl-sm px-4 py-3 flex-row items-center">
+        {/* Inline (in-bubble) activity: the kit Spinner is full-area, so a small native indicator stays here. */}
         <ActivityIndicator color={T.muted} size="small" />
         <Text className="text-ink-muted text-sm ml-2">Iris is thinking…</Text>
       </View>

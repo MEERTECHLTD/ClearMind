@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { View, Text, Pressable, FlatList, Modal, ScrollView, ActivityIndicator } from 'react-native';
-import { AlertTriangle, Trash2, Sparkles, Bot, Flame, Send, X } from 'lucide-react-native';
+import { View, Text, Pressable, FlatList, ScrollView } from 'react-native';
+import { AlertTriangle, Trash2, Sparkles, Flame, Send, MoreHorizontal, ListPlus } from 'lucide-react-native';
 import type { Rant } from '@clearmind/shared';
 import { STORES } from '../../services/db';
 import { newId } from '../../lib/id';
@@ -8,8 +8,9 @@ import { useCollection } from '../../hooks/useCollection';
 import { generateResponse, isApiConfigured } from '../../services/gemini';
 import {
   Screen, AppHeader, Card, TextArea, SegmentedControl, Badge, Button, Spinner,
-  EmptyState, confirmDialog, useToast,
+  EmptyState, confirmDialog, useToast, Sheet, ActionMenu, IconButton,
 } from '../../components/ui';
+import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { T } from '../../lib/theme';
 
 type Mood = NonNullable<Rant['mood']>;
@@ -49,6 +50,17 @@ function formatStamp(iso?: string) {
   }
 }
 
+/** Open a follow-up sheet once the action menu has dismissed (same pattern as the task menu). */
+const afterMenu = (fn: () => void) => setTimeout(fn, 250);
+
+/** Quick Add pre-fill from free text: first line as the title (≤80 chars), the full text as description when it says more. */
+function taskFromText(text: string) {
+  const trimmed = text.trim();
+  const firstLine = trimmed.split('\n')[0].trim();
+  const title = firstLine.length > 80 ? `${firstLine.slice(0, 79).trimEnd()}…` : firstLine;
+  return { title, description: trimmed !== title ? trimmed : undefined };
+}
+
 function buildAdvicePrompt(content: string, mood: Mood) {
   return `A user is venting in their private "Rant Corner". Their current mood is "${mood}". They are frustrated that their schedules, tasks, or productivity efforts aren't translating into the real-life impact they expected.
 
@@ -69,6 +81,8 @@ Keep it personal and practical. Use plain text (no markdown headers).`;
 export default function RantScreen() {
   const { items: rants, loading, create, remove } = useCollection<Rant>(STORES.RANTS);
   const toast = useToast();
+  const ui = useTaskUI();
+  const [menuFor, setMenuFor] = useState<Rant | null>(null);
 
   const [draft, setDraft] = useState('');
   const [mood, setMood] = useState<Mood>('venting');
@@ -219,7 +233,7 @@ export default function RantScreen() {
         ItemSeparatorComponent={() => <View className="h-3" />}
         renderItem={({ item }) => (
           <View className="px-4">
-            <RantRow rant={item} onDelete={() => onDelete(item)} />
+            <RantRow rant={item} onMenu={() => setMenuFor(item)} />
           </View>
         )}
         ListEmptyComponent={
@@ -233,6 +247,16 @@ export default function RantScreen() {
         }
       />
 
+      <ActionMenu
+        visible={!!menuFor}
+        onClose={() => setMenuFor(null)}
+        title="Rant"
+        actions={menuFor ? [
+          { label: 'Turn into task', icon: <ListPlus size={18} color={T.ink} />, onPress: () => afterMenu(() => ui.openQuickAdd(taskFromText(menuFor.content))) },
+          { label: 'Delete', icon: <Trash2 size={18} color={T.danger} />, destructive: true, onPress: () => onDelete(menuFor) },
+        ] : []}
+      />
+
       <AdviceModal
         visible={adviceOpen}
         loading={adviceLoading}
@@ -244,19 +268,23 @@ export default function RantScreen() {
   );
 }
 
-function RantRow({ rant, onDelete }: { rant: Rant; onDelete: () => void }) {
+function RantRow({ rant, onMenu }: { rant: Rant; onMenu: () => void }) {
   const mood = (rant.mood ?? 'venting') as Mood;
   return (
-    <Card>
-      <View className="flex-row items-start justify-between mb-2">
-        <Badge label={MOOD_LABEL[mood]} tone={MOOD_TONE[mood]} />
-        <Pressable onPress={onDelete} hitSlop={8} className="p-1 -mr-1 active:opacity-60">
-          <Trash2 size={18} color={T.muted} />
-        </Pressable>
-      </View>
-      <Text className="text-ink text-base leading-relaxed">{rant.content}</Text>
-      <Text className="text-ink-muted text-xs mt-2">{formatStamp(rant.createdAt || rant.timestamp)}</Text>
-    </Card>
+    <Pressable onLongPress={onMenu} delayLongPress={300} accessibilityHint="Long-press for actions">
+      <Card>
+        <View className="flex-row items-start justify-between mb-2">
+          <Badge label={MOOD_LABEL[mood]} tone={MOOD_TONE[mood]} />
+          <View className="-mr-2 -mt-2">
+            <IconButton onPress={onMenu} label="Rant actions">
+              <MoreHorizontal size={18} color={T.muted} />
+            </IconButton>
+          </View>
+        </View>
+        <Text className="text-ink text-base leading-relaxed">{rant.content}</Text>
+        <Text className="text-ink-muted text-xs mt-2">{formatStamp(rant.createdAt || rant.timestamp)}</Text>
+      </Card>
+    </Pressable>
   );
 }
 
@@ -270,47 +298,32 @@ function AdviceModal({
   onClose: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 bg-black/60 justify-end">
-        <View className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8 max-h-[85%]">
-          <View className="flex-row items-center mb-4">
-            <View className="w-8 h-8 rounded-full bg-accent items-center justify-center mr-2">
-              <Bot size={18} color="#fff" />
-            </View>
-            <Text className="text-ink text-lg font-bold flex-1">Iris's advice</Text>
-            <Pressable onPress={onClose} hitSlop={10} className="p-1 active:opacity-60">
-              <X size={22} color={T.muted} />
-            </Pressable>
+    <Sheet visible={visible} onClose={onClose} title="Iris's advice">
+      <ScrollView showsVerticalScrollIndicator={false} style={{ flexGrow: 0 }}>
+        {concern ? (
+          <View className="bg-midnight border border-line rounded-2xl p-3.5 mb-4">
+            <Text className="text-ink-muted text-xs mb-1">Your concern</Text>
+            <Text className="text-ink-muted text-sm italic">"{concern}"</Text>
           </View>
+        ) : null}
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {concern ? (
-              <View className="bg-midnight-light border border-line rounded-2xl p-3.5 mb-4">
-                <Text className="text-ink-muted text-xs mb-1">Your concern</Text>
-                <Text className="text-ink-muted text-sm italic">"{concern}"</Text>
-              </View>
-            ) : null}
-
-            {loading ? (
-              <View className="items-center py-10">
-                <ActivityIndicator color="#3B82F6" />
-                <Text className="text-ink-muted text-sm mt-3">Analyzing and crafting advice…</Text>
-              </View>
-            ) : (
-              <Text className="text-ink text-base leading-relaxed">{advice}</Text>
-            )}
-          </ScrollView>
-
-          <View className="mt-5">
-            <Button
-              title="Done"
-              variant="secondary"
-              onPress={onClose}
-              icon={<Send size={16} color={T.ink} />}
-            />
+        {loading ? (
+          <View className="h-36 rounded-2xl overflow-hidden">
+            <Spinner label="Analyzing and crafting advice…" />
           </View>
-        </View>
+        ) : (
+          <Text className="text-ink text-base leading-relaxed">{advice}</Text>
+        )}
+      </ScrollView>
+
+      <View className="mt-5">
+        <Button
+          title="Done"
+          variant="secondary"
+          onPress={onClose}
+          icon={<Send size={16} color={T.ink} />}
+        />
       </View>
-    </Modal>
+    </Sheet>
   );
 }

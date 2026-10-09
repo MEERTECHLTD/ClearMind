@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
-import { View, Text, Pressable, FlatList, Modal } from 'react-native';
-import { CircleCheck, Zap, Meh, Frown, Pencil, Trash2, NotebookPen } from 'lucide-react-native';
+import { View, Text, Pressable, FlatList } from 'react-native';
+import { CircleCheck, Zap, Meh, Frown, Pencil, Trash2, NotebookPen, MoreHorizontal, ListPlus } from 'lucide-react-native';
 import type { LogEntry } from '@clearmind/shared';
 import { STORES } from '../../services/db';
 import { newId } from '../../lib/id';
 import { useCollection } from '../../hooks/useCollection';
 import {
   Screen, AppHeader, Card, TextArea, DateField, SegmentedControl, Badge, Fab,
-  EmptyState, Spinner, confirmDialog, useToast,
+  EmptyState, Spinner, confirmDialog, useToast, FormSheet, ActionMenu, IconButton,
 } from '../../components/ui';
+import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { T } from '../../lib/theme';
 
 type Mood = LogEntry['mood'];
@@ -45,6 +46,17 @@ function formatDateHeader(date: string): string {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Open a follow-up sheet once the action menu has dismissed (same pattern as the task menu). */
+const afterMenu = (fn: () => void) => setTimeout(fn, 250);
+
+/** Quick Add pre-fill from free text: first line as the title (≤80 chars), the full text as description when it says more. */
+function taskFromText(text: string) {
+  const trimmed = text.trim();
+  const firstLine = trimmed.split('\n')[0].trim();
+  const title = firstLine.length > 80 ? `${firstLine.slice(0, 79).trimEnd()}…` : firstLine;
+  return { title, description: trimmed !== title ? trimmed : undefined };
+}
+
 type Row =
   | { kind: 'header'; key: string; date: string; count: number }
   | { kind: 'entry'; key: string; entry: LogEntry };
@@ -54,6 +66,8 @@ export default function DailyLogScreen() {
   const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<LogEntry | null>(null);
+  const [menuFor, setMenuFor] = useState<LogEntry | null>(null);
+  const ui = useTaskUI();
 
   // Group + sort by date descending; build a flat list of date headers + entries.
   const rows = useMemo<Row[]>(() => {
@@ -79,7 +93,9 @@ export default function DailyLogScreen() {
     if (await confirmDialog({ title: 'Delete entry', message: 'Delete this log entry?', confirmText: 'Delete', destructive: true })) {
       remove(entry.id);
       toast.show('Entry deleted', 'info');
+      return true;
     }
+    return false;
   };
 
   const handleSave = (data: { date: string; content: string; mood: Mood }) => {
@@ -104,7 +120,7 @@ export default function DailyLogScreen() {
 
       {entries.length === 0 ? (
         <EmptyState
-          icon={<NotebookPen size={34} color="#3B82F6" />}
+          icon={<NotebookPen size={34} color={T.accent} />}
           title="No logs yet"
           subtitle="Document your failures and small wins."
           ctaTitle="Write your first entry"
@@ -123,29 +139,42 @@ export default function DailyLogScreen() {
               </View>
             ) : (
               <View className="mb-3">
-                <LogRow entry={item.entry} onEdit={() => openEdit(item.entry)} onDelete={() => onDelete(item.entry)} />
+                <LogRow entry={item.entry} onEdit={() => openEdit(item.entry)} onMenu={() => setMenuFor(item.entry)} />
               </View>
             )
           }
         />
       )}
 
-      <Fab onPress={openAdd} />
+      <Fab onPress={openAdd} label="New log entry" />
 
       <LogFormModal
         visible={formOpen}
         initial={editing}
         onCancel={() => setFormOpen(false)}
         onSave={handleSave}
+        onDelete={editing ? async () => { if (await onDelete(editing)) setFormOpen(false); } : undefined}
+      />
+
+      <ActionMenu
+        visible={!!menuFor}
+        onClose={() => setMenuFor(null)}
+        title="Log entry"
+        actions={menuFor ? [
+          { label: 'Edit', icon: <Pencil size={18} color={T.ink} />, onPress: () => afterMenu(() => openEdit(menuFor)) },
+          { label: 'Turn into task', icon: <ListPlus size={18} color={T.ink} />, onPress: () => afterMenu(() => ui.openQuickAdd(taskFromText(menuFor.content))) },
+          { label: 'Delete', icon: <Trash2 size={18} color={T.danger} />, destructive: true, onPress: () => { onDelete(menuFor); } },
+        ] : []}
       />
     </Screen>
   );
 }
 
-function LogRow({ entry, onEdit, onDelete }: { entry: LogEntry; onEdit: () => void; onDelete: () => void }) {
+function LogRow({ entry, onEdit, onMenu }: { entry: LogEntry; onEdit: () => void; onMenu: () => void }) {
   const meta = MOOD_META[entry.mood] ?? MOOD_META.Neutral;
   const Icon = meta.icon;
   return (
+    <Pressable onPress={onEdit} onLongPress={onMenu} delayLongPress={300} accessibilityRole="button" accessibilityLabel={`Edit ${entry.mood} entry`} accessibilityHint="Long-press for more actions">
     <Card>
       <View className="flex-row items-center justify-between mb-2">
         <View className="flex-row items-center">
@@ -154,27 +183,26 @@ function LogRow({ entry, onEdit, onDelete }: { entry: LogEntry; onEdit: () => vo
             <Badge label={entry.mood} tone={meta.tone} />
           </View>
         </View>
-        <View className="flex-row items-center">
-          <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Pencil size={18} color={T.muted} />
-          </Pressable>
-          <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Trash2 size={18} color={T.muted} />
-          </Pressable>
+        <View className="-mr-2 -my-2">
+          <IconButton onPress={onMenu} label="Entry actions">
+            <MoreHorizontal size={18} color={T.muted} />
+          </IconButton>
         </View>
       </View>
       <Text className="text-ink text-[15px] leading-relaxed">{entry.content}</Text>
     </Card>
+    </Pressable>
   );
 }
 
 function LogFormModal({
-  visible, initial, onCancel, onSave,
+  visible, initial, onCancel, onSave, onDelete,
 }: {
   visible: boolean;
   initial: LogEntry | null;
   onCancel: () => void;
   onSave: (d: { date: string; content: string; mood: Mood }) => void;
+  onDelete?: () => void;
 }) {
   const [date, setDate] = useState(todayISO());
   const [content, setContent] = useState('');
@@ -198,44 +226,38 @@ function LogFormModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
-          <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit entry' : 'New log entry'}</Text>
+    <FormSheet
+      visible={visible}
+      onClose={onCancel}
+      title={initial ? 'Edit entry' : 'New log entry'}
+      submitLabel={initial ? 'Save' : 'Add entry'}
+      onSubmit={save}
+      submitDisabled={!content.trim()}
+      onDelete={onDelete}
+      deleteLabel="Delete entry"
+    >
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">Date</Text>
+      <View className="mb-4">
+        <DateField value={date} onChange={(v) => setDate(v ?? todayISO())} clearable={false} />
+      </View>
 
-          <Text className="text-ink-muted text-xs mb-1.5 ml-1">Date</Text>
-          <View className="mb-4">
-            <DateField value={date} onChange={(v) => setDate(v ?? todayISO())} clearable={false} />
-          </View>
+      <TextArea
+        label="Entry"
+        placeholder="How was your coding session today? What did you learn?"
+        value={content}
+        onChangeText={setContent}
+        autoFocus
+        minHeight={120}
+        className="mb-4"
+      />
 
-          <TextArea
-            label="Entry"
-            placeholder="How was your coding session today? What did you learn?"
-            value={content}
-            onChangeText={setContent}
-            autoFocus
-            minHeight={120}
-            className="mb-4"
-          />
-
-          <Text className="text-ink-muted text-xs mb-1.5 ml-1">Mood</Text>
-          <SegmentedControl<Mood>
-            value={mood}
-            onChange={setMood}
-            segments={MOOD_SEGMENTS}
-            className="mb-5"
-          />
-
-          <View className="flex-row gap-3">
-            <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
-              <Text className="text-ink font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable onPress={save} className="flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover">
-              <Text className="text-white font-bold">{initial ? 'Save' : 'Add entry'}</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">Mood</Text>
+      <SegmentedControl<Mood>
+        value={mood}
+        onChange={setMood}
+        segments={MOOD_SEGMENTS}
+        className="mb-2"
+      />
+    </FormSheet>
   );
 }

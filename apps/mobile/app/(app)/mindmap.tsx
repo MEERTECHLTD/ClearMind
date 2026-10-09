@@ -3,7 +3,6 @@ import {
   View,
   Text,
   Pressable,
-  Modal,
   ScrollView,
   type LayoutChangeEvent,
 } from 'react-native';
@@ -31,7 +30,7 @@ import {
   ZoomIn,
   ZoomOut,
   Sparkles,
-  ArrowLeft,
+  ListPlus,
 } from 'lucide-react-native';
 import type { MindMap, MindMapNode, MindMapEdge } from '@clearmind/shared';
 import { STORES } from '../../services/db';
@@ -41,6 +40,10 @@ import { generateResponse, isApiConfigured } from '../../services/gemini';
 import {
   Screen,
   AppHeader,
+  PageHeader,
+  IconButton,
+  Fab,
+  FormSheet,
   Card,
   Input,
   SegmentedControl,
@@ -49,6 +52,7 @@ import {
   confirmDialog,
   useToast,
 } from '../../components/ui';
+import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { T } from '../../lib/theme';
 
 const NODE_COLORS = [
@@ -192,6 +196,7 @@ const NodeView = React.memo(
 export default function MindMapScreen() {
   const { items: maps, loading, create, update, remove } = useCollection<MindMap>(STORES.MINDMAPS);
   const toast = useToast();
+  const ui = useTaskUI();
 
   // editor state
   const [selectedMap, setSelectedMap] = useState<MindMap | null>(null);
@@ -715,6 +720,8 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                   setAiOpen(true);
                 }}
                 hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Generate a mind map with AI"
                 className="flex-row items-center bg-purple-600 rounded-full px-3 py-2 active:opacity-80"
               >
                 <Sparkles size={16} color="#fff" />
@@ -728,7 +735,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
           <Spinner label="Loading mind maps…" />
         ) : maps.length === 0 ? (
           <EmptyState
-            icon={<Network size={34} color="#3B82F6" />}
+            icon={<Network size={34} color={T.accent} />}
             title="No mind maps yet"
             subtitle="Map out an idea or sketch a decision tree."
             ctaTitle="New mind map"
@@ -744,7 +751,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                       {map.type === 'decision-tree' ? (
                         <GitBranch size={22} color="#10B981" />
                       ) : (
-                        <Network size={22} color="#3B82F6" />
+                        <Network size={22} color={T.accent} />
                       )}
                     </View>
                     <View className="flex-1">
@@ -758,13 +765,11 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                         Updated {new Date(map.updatedAt).toLocaleDateString()}
                       </Text>
                     </View>
-                    <Pressable
-                      onPress={() => deleteMap(map)}
-                      hitSlop={8}
-                      className="p-1.5 active:opacity-60"
-                    >
-                      <Trash2 size={18} color={T.muted} />
-                    </Pressable>
+                    <View className="-mr-2 -mt-2">
+                      <IconButton onPress={() => deleteMap(map)} label={`Delete ${map.title}`}>
+                        <Trash2 size={18} color={T.muted} />
+                      </IconButton>
+                    </View>
                   </View>
                 </Card>
               </View>
@@ -772,13 +777,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
           </ScrollView>
         )}
 
-        <Pressable
-          onPress={openCreate}
-          className="absolute bottom-6 right-5 w-14 h-14 rounded-full bg-accent items-center justify-center active:bg-accent-hover"
-          style={{ elevation: 6 }}
-        >
-          <Plus size={28} color="#fff" />
-        </Pressable>
+        <Fab onPress={openCreate} label="New mind map" />
 
         <CreateMapModal
           visible={creating}
@@ -804,56 +803,54 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
   /* ───────────────────────── EDITOR VIEW ───────────────────────── */
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={['top', 'bottom']}>
+      <PageHeader
+        title={selectedMap.title}
+        subtitle={`${selectedMap.type === 'decision-tree' ? 'Decision tree' : 'Mind map'} · ${selectedMap.nodes.length} nodes`}
+        onBack={closeEditor}
+        right={
+          <IconButton onPress={() => addNode(selectedNode || undefined)} label={selectedNode ? 'Add child node' : 'Add node'}>
+            <Plus size={22} color={T.accent} />
+          </IconButton>
+        }
+      />
+
       {/* toolbar */}
-      <View className="flex-row items-center justify-between px-3 py-2 border-b border-line bg-midnight-light">
-        <View className="flex-row items-center flex-1 mr-2">
-          <Pressable onPress={closeEditor} hitSlop={8} className="mr-2 p-1 active:opacity-60">
-            <ArrowLeft size={22} color={T.ink} />
+      <View className="flex-row items-center justify-between px-3 py-1.5 border-y border-line bg-midnight-light">
+        <View className="flex-row bg-midnight rounded-full p-0.5">
+          <Pressable
+            onPress={() => {
+              setTool('select');
+              setConnectingFrom(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Select tool"
+            accessibilityState={{ selected: tool === 'select' }}
+            className={`flex-row items-center px-3 py-1.5 rounded-full ${tool === 'select' ? 'bg-accent' : ''} active:opacity-80`}
+          >
+            <MousePointer size={15} color={tool === 'select' ? '#fff' : T.muted} />
+            <Text className={`text-xs ml-1.5 ${tool === 'select' ? 'text-white font-semibold' : 'text-ink-muted'}`}>Select</Text>
           </Pressable>
-          {selectedMap.type === 'decision-tree' ? (
-            <GitBranch size={18} color="#10B981" />
-          ) : (
-            <Network size={18} color="#3B82F6" />
-          )}
-          <Text className="text-ink font-semibold ml-2 flex-1" numberOfLines={1}>
-            {selectedMap.title}
-          </Text>
+          <Pressable
+            onPress={() => setTool('connect')}
+            accessibilityRole="button"
+            accessibilityLabel="Connect tool"
+            accessibilityState={{ selected: tool === 'connect' }}
+            className={`flex-row items-center px-3 py-1.5 rounded-full ${tool === 'connect' ? 'bg-accent' : ''} active:opacity-80`}
+          >
+            <Link2 size={15} color={tool === 'connect' ? '#fff' : T.muted} />
+            <Text className={`text-xs ml-1.5 ${tool === 'connect' ? 'text-white font-semibold' : 'text-ink-muted'}`}>Connect</Text>
+          </Pressable>
         </View>
 
         <View className="flex-row items-center">
-          <View className="flex-row bg-midnight rounded-full p-0.5 mr-1">
-            <Pressable
-              onPress={() => {
-                setTool('select');
-                setConnectingFrom(null);
-              }}
-              className={`p-2 rounded-full ${tool === 'select' ? 'bg-accent' : ''} active:opacity-80`}
-            >
-              <MousePointer size={16} color={tool === 'select' ? '#fff' : T.muted} />
-            </Pressable>
-            <Pressable
-              onPress={() => setTool('connect')}
-              className={`p-2 rounded-full ${tool === 'connect' ? 'bg-accent' : ''} active:opacity-80`}
-            >
-              <Link2 size={16} color={tool === 'connect' ? '#fff' : T.muted} />
-            </Pressable>
-          </View>
-
-          <Pressable onPress={() => zoomBy(1 / 1.25)} hitSlop={6} className="p-1.5 active:opacity-60">
+          <IconButton onPress={() => zoomBy(1 / 1.25)} label="Zoom out">
             <ZoomOut size={18} color={T.muted} />
-          </Pressable>
+          </IconButton>
           <Text className="text-ink-muted text-xs w-10 text-center">{zoomPct}%</Text>
-          <Pressable onPress={() => zoomBy(1.25)} hitSlop={6} className="p-1.5 active:opacity-60">
+          <IconButton onPress={() => zoomBy(1.25)} label="Zoom in">
             <ZoomIn size={18} color={T.muted} />
-          </Pressable>
-
-          <Pressable
-            onPress={() => addNode(selectedNode || undefined)}
-            className="flex-row items-center bg-accent rounded-full px-3 py-2 ml-1 active:bg-accent-hover"
-          >
-            <Plus size={16} color="#fff" />
-          </Pressable>
+          </IconButton>
         </View>
       </View>
 
@@ -913,6 +910,8 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                     key={`h-${edge.id}`}
                     onPress={() => onEdgeTap(edge)}
                     hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={dt ? `Edit connection label${edge.label ? `: ${edge.label}` : ''}` : 'Delete connection'}
                     style={{ position: 'absolute', left: mx, top: my, transform: [{ translateX: -16 }, { translateY: -12 }] }}
                     className="flex-row items-center justify-center rounded-full bg-midnight-lighter border border-line px-2 py-1 active:opacity-80"
                   >
@@ -960,6 +959,8 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                 setTool('select');
               }}
               hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel connecting"
               className="ml-2 active:opacity-60"
             >
               <X size={16} color="#fff" />
@@ -974,8 +975,9 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <ActionButton icon={<Pencil size={16} color={T.ink} />} label="Edit" onPress={() => openNodeEditor(selNode)} />
             <ActionButton icon={<Plus size={16} color="#10B981" />} label="Add child" onPress={() => addNode(selNode.id)} />
+            <ActionButton icon={<ListPlus size={16} color={T.ink} />} label="Create task" onPress={() => ui.openQuickAdd({ title: selNode.text })} />
             <ActionButton
-              icon={<Link2 size={16} color="#3B82F6" />}
+              icon={<Link2 size={16} color={T.accent} />}
               label="Connect"
               onPress={() => {
                 setTool('connect');
@@ -990,6 +992,9 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                 <Pressable
                   key={color}
                   onPress={() => changeColor(selNode.id, color)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: selNode.color === color }}
+                  accessibilityLabel={`Node colour ${color}`}
                   className="mx-1 rounded-full"
                   style={{
                     width: 24,
@@ -1010,75 +1015,41 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         <Text className="text-ink-muted text-xs text-center">{HELP_TEXT}</Text>
       </View>
 
-      {/* node text modal */}
-      <Modal
+      {/* node text sheet */}
+      <FormSheet
         visible={!!editingNode}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEditingNode(null)}
+        onClose={() => setEditingNode(null)}
+        title="Edit node"
+        onSubmit={saveNodeText}
       >
-        <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setEditingNode(null)}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
-            <Text className="text-ink text-lg font-bold mb-4">Edit node</Text>
-            <Input
-              placeholder="Node text"
-              value={nodeText}
-              onChangeText={setNodeText}
-              autoFocus
-              className="mb-5"
-            />
-            <View className="flex-row gap-3">
-              <Pressable
-                onPress={() => setEditingNode(null)}
-                className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80"
-              >
-                <Text className="text-ink font-semibold">Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={saveNodeText}
-                className="flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover"
-              >
-                <Text className="text-white font-bold">Save</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        <Input
+          placeholder="Node text"
+          value={nodeText}
+          onChangeText={setNodeText}
+          onSubmitEditing={saveNodeText}
+          autoFocus
+          className="mb-2"
+        />
+      </FormSheet>
 
-      {/* edge label modal (decision trees) */}
-      <Modal
+      {/* edge label sheet (decision trees) */}
+      <FormSheet
         visible={!!editingEdge}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEditingEdge(null)}
+        onClose={() => setEditingEdge(null)}
+        title="Connection label"
+        onSubmit={saveEdgeLabel}
+        onDelete={() => editingEdge && deleteEdge(editingEdge.id)}
+        deleteLabel="Delete connection"
       >
-        <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setEditingEdge(null)}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
-            <Text className="text-ink text-lg font-bold mb-4">Connection label</Text>
-            <Input
-              placeholder="e.g. Yes, No, Maybe…"
-              value={edgeLabel}
-              onChangeText={setEdgeLabel}
-              autoFocus
-              className="mb-5"
-            />
-            <View className="flex-row gap-3">
-              <Pressable
-                onPress={() => editingEdge && deleteEdge(editingEdge.id)}
-                className="flex-1 items-center py-3.5 rounded-full bg-red-500/15 active:bg-red-500/25"
-              >
-                <Text className="text-red-400 font-semibold">Delete</Text>
-              </Pressable>
-              <Pressable
-                onPress={saveEdgeLabel}
-                className="flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover"
-              >
-                <Text className="text-white font-bold">Save</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        <Input
+          placeholder="e.g. Yes, No, Maybe…"
+          value={edgeLabel}
+          onChangeText={setEdgeLabel}
+          onSubmitEditing={saveEdgeLabel}
+          autoFocus
+          className="mb-2"
+        />
+      </FormSheet>
     </Screen>
   );
 }
@@ -1114,6 +1085,8 @@ function ActionButton({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
       className="flex-row items-center bg-midnight rounded-full px-3 py-2 mr-2 active:opacity-80"
     >
       {icon}
@@ -1140,38 +1113,26 @@ function CreateMapModal({
   onCreate: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
-          <Text className="text-ink text-lg font-bold mb-4">New mind map</Text>
-          <Input placeholder="Mind map title" value={title} onChangeText={onTitle} autoFocus className="mb-4" />
-          <Text className="text-ink-muted text-xs mb-1.5 ml-1">Type</Text>
-          <SegmentedControl<MapType>
-            value={type}
-            onChange={onType}
-            segments={[
-              { label: 'Mind Map', value: 'mindmap' },
-              { label: 'Decision Tree', value: 'decision-tree' },
-            ]}
-            className="mb-5"
-          />
-          <View className="flex-row gap-3">
-            <Pressable
-              onPress={onCancel}
-              className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80"
-            >
-              <Text className="text-ink font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={onCreate}
-              className="flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover"
-            >
-              <Text className="text-white font-bold">Create</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <FormSheet
+      visible={visible}
+      onClose={onCancel}
+      title="New mind map"
+      submitLabel="Create"
+      onSubmit={onCreate}
+      submitDisabled={!title.trim()}
+    >
+      <Input placeholder="Mind map title" value={title} onChangeText={onTitle} autoFocus className="mb-4" />
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">Type</Text>
+      <SegmentedControl<MapType>
+        value={type}
+        onChange={onType}
+        segments={[
+          { label: 'Mind Map', value: 'mindmap' },
+          { label: 'Decision Tree', value: 'decision-tree' },
+        ]}
+        className="mb-2"
+      />
+    </FormSheet>
   );
 }
 
@@ -1191,45 +1152,29 @@ function AiModal({
   onGenerate: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/60 justify-end" onPress={busy ? undefined : onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
-          <View className="flex-row items-center mb-3">
-            <Sparkles size={20} color="#a855f7" />
-            <Text className="text-ink text-lg font-bold ml-2">AI mind map generator</Text>
-          </View>
-          <Text className="text-ink-muted text-sm mb-4">
-            Enter a topic and AI will sketch a starter mind map for you.
-          </Text>
-          <Input
-            placeholder="e.g. Learn React, Plan a trip…"
-            value={prompt}
-            onChangeText={onPrompt}
-            editable={!busy}
-            autoFocus
-            className="mb-5"
-          />
-          <View className="flex-row gap-3">
-            <Pressable
-              onPress={onCancel}
-              disabled={busy}
-              className={`flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80 ${busy ? 'opacity-50' : ''}`}
-            >
-              <Text className="text-ink font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={onGenerate}
-              disabled={busy || !prompt.trim()}
-              className={`flex-1 flex-row items-center justify-center py-3.5 rounded-full bg-purple-600 active:opacity-80 ${
-                busy || !prompt.trim() ? 'opacity-50' : ''
-              }`}
-            >
-              <Sparkles size={16} color="#fff" />
-              <Text className="text-white font-bold ml-1.5">{busy ? 'Generating…' : 'Generate'}</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <FormSheet
+      visible={visible}
+      onClose={busy ? () => {} : onCancel}
+      title="AI mind map generator"
+      submitLabel="Generate"
+      onSubmit={onGenerate}
+      submitDisabled={!prompt.trim()}
+      loading={busy}
+    >
+      <View className="flex-row items-center mb-4">
+        <Sparkles size={18} color="#a855f7" />
+        <Text className="text-ink-muted text-sm ml-2 flex-1">
+          Enter a topic and AI will sketch a starter mind map for you.
+        </Text>
+      </View>
+      <Input
+        placeholder="e.g. Learn React, Plan a trip…"
+        value={prompt}
+        onChangeText={onPrompt}
+        editable={!busy}
+        autoFocus
+        className="mb-2"
+      />
+    </FormSheet>
   );
 }
