@@ -17,7 +17,7 @@ import { Card, Input, TextArea, Select, DateField, SliderField, ProgressBar, Bad
 import { T } from '../../lib/theme';
 import {
   STATUSES, PRIORITIES, HEALTHS, STATUS_TONE, PRIORITY_TONE, HEALTH_TONE, formatDate, listToCsv, emptyForm, formFromProject,
-  type Status, type Priority, type Health, type PlanForm,
+  taskPct, type Status, type Priority, type Health, type PlanForm, type TaskProgress,
 } from './planModel';
 
 export * from './planModel';
@@ -137,9 +137,6 @@ function PlanBadges({ project }: { project: Project }) {
   );
 }
 
-/** Live task progress for a project, derived from its tasks (open vs done). */
-export interface TaskProgress { open: number; done: number }
-const taskPct = (t?: TaskProgress) => (t && t.open + t.done ? Math.round((t.done / (t.open + t.done)) * 100) : null);
 
 /** Portfolio card: plan status + live task counts. Tap opens the project. */
 export function PortfolioCard({ project, tasks, onPress, onLongPress }: {

@@ -27,7 +27,10 @@
     "./notes/graphStyle": "./notes/graphStyle.ts",
     "./notes/canvas": "./notes/canvas.ts",
     "./data/attachments": "./data/attachments.ts",
-    "./data/agentTokens": "./data/agentTokens.ts"
+    "./data/agentTokens": "./data/agentTokens.ts",
+    "./ai/transport": "./ai/transport.ts",
+    "./projects/plan": "./projects/plan.ts",
+    "./today/across": "./today/across.ts"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",

@@ -15,7 +15,7 @@ import { Screen, AppHeader, Fab, EmptyState, Spinner, StatCard, Sheet, ActionMen
 import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { createProject, updateProject, deleteProject, projectSubtree } from '../../services/taskActions';
 import {
-  CATEGORY_META, STATUSES, PRIORITIES, HEALTHS, listToCsv, applyPlanForm, PlanFormSheet, PlanSummary, PortfolioCard,
+  CATEGORY_META, STATUSES, PRIORITIES, HEALTHS, listToCsv, applyPlanForm, taskProgressByProject, PlanFormSheet, PlanSummary, PortfolioCard,
   type Status, type Priority, type Health, type PlanForm, type TaskProgress,
 } from '../../components/projects/plan';
 import { T } from '../../lib/theme';
@@ -82,16 +82,7 @@ export default function ProjectsScreen() {
   const loading = activeWsId ? wsLoading : ui.loading;
 
   // Live task counts per personal project (shared-workspace projects have no task list).
-  const taskCounts = useMemo(() => {
-    const m = new Map<string, TaskProgress>();
-    for (const t of ui.tasks) {
-      if (!t.projectId || t.parentId) continue;
-      const c = m.get(t.projectId) ?? { open: 0, done: 0 };
-      if (t.completed) c.done++; else c.open++;
-      m.set(t.projectId, c);
-    }
-    return m;
-  }, [ui.tasks]);
+  const taskCounts = useMemo(() => taskProgressByProject(ui.tasks), [ui.tasks]);
 
   const filtered = useMemo(
     () => (filter === 'All' ? projects : projects.filter((p) => p.category === filter)),
