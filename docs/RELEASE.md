@@ -35,7 +35,7 @@ npx eas-cli build -p android --profile preview          # installable .apk for t
 - **Signing:** the MEERTECH upload keystore ("ClearMind upload key", SHA-256 `D7:AC:04…6E`) is stored as EAS remote credentials.
 - **Google sign-in:** every signing certificate (debug, upload key, **and the Play App Signing key**) must have its SHA-1 on the Firebase Android app — see [ANDROID_GOOGLE_SIGNIN.md](ANDROID_GOOGLE_SIGNIN.md).
 
-**Google Play.** ClearMind is **not on Play yet**, so the first upload is manual:
+**Google Play.** ClearMind is live on Play (`tech.meertech.clearmind`); uploads are still manual (no service account yet). How the first upload was done:
 1. Create the app in Play Console (`tech.meertech.clearmind`). Fill in the store listing, content rating and data safety, using the privacy policy URL.
 2. Upload the `.aab` from the EAS build page to **Internal testing**. Enrol in Play App Signing.
 3. Create a Google Play service account with release permissions and upload its JSON key to EAS (`eas credentials`).
