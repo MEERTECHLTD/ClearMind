@@ -104,7 +104,7 @@ test.describe('headers and manifest', () => {
     const violations: string[] = [];
     page.on('console', (m) => { if (/Content.Security.Policy/i.test(m.text())) violations.push(m.text()); });
     await enterAsGuest(page);
-    for (const v of ['notes', 'habits', 'calendar', 'settings', 'dashboard', 'today'] as const) {
+    for (const v of ['notes', 'habits', 'calendar', 'settings', 'journal', 'insights', 'projects', 'today'] as const) {
       await go(page, v);
       await expect(views[v](page)).toBeVisible();
     }
