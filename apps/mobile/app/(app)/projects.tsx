@@ -1,22 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, FlatList, Modal, ScrollView } from 'react-native';
-import {
-  FolderKanban, Plus, Pencil, Trash2, Calendar, Users, Download, Upload, FileText,
-  Zap, Leaf, DollarSign, Heart, Monitor, GraduationCap, Building, Factory, ShoppingBag,
-  Megaphone, FlaskConical, Landmark, HandHeart, Rocket, User, FolderOpen, X, MessageSquare,
-  Layers, TriangleAlert, Wallet, Compass, ChartColumn, CircleAlert,
-} from 'lucide-react-native';
+import { View, Text, Pressable, FlatList, ScrollView } from 'react-native';
+import { useRouter } from 'expo-router';
+import { FolderKanban, Download, Upload, FileText, Pencil, Trash2, ExternalLink, ClipboardList } from 'lucide-react-native';
 import * as XLSX from 'xlsx';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import type { Project, ProjectCategory, Workspace } from '@clearmind/shared';
-import { STORES } from '../../services/db';
 import { newId } from '../../lib/id';
-import { useCollection } from '../../hooks/useCollection';
 import { workspaceService } from '../../services/workspaceService';
 import { isFirebaseConfigured } from '../../lib/firebase';
 import { WorkspaceBar, WorkspaceBanner, NewWorkspaceModal, MembersModal } from '../../components/ui/WorkspaceShare';
+import { Screen, AppHeader, Fab, EmptyState, Spinner, StatCard, Sheet, ActionMenu, confirmDialog, useToast } from '../../components/ui';
+import { useTaskUI } from '../../components/tasks/TaskUIProvider';
+import { createProject, updateProject, deleteProject, projectSubtree } from '../../services/taskActions';
+import {
+  CATEGORY_META, STATUSES, PRIORITIES, HEALTHS, listToCsv, applyPlanForm, PlanFormSheet, PlanSummary, PortfolioCard,
+  type Status, type Priority, type Health, type PlanForm, type TaskProgress,
+} from '../../components/projects/plan';
+import { T } from '../../lib/theme';
 
 // Origin-tagged project (where it lives — a shared workspace vs the personal store).
 type MProject = Project & { __wsId?: string };
@@ -24,134 +26,38 @@ const stripWsP = (p: MProject): Project => {
   const { __wsId, ...rest } = p;
   return rest as Project;
 };
-import {
-  Screen, AppHeader, Card, Input, TextArea, Select, DateField, SliderField, ProgressBar,
-  Badge, Fab, EmptyState, Spinner, StatCard, confirmDialog, useToast,
-} from '../../components/ui';
-import { T } from '../../lib/theme';
 
-type Status = Project['status'];
-type Priority = NonNullable<Project['priority']>;
-type Health = NonNullable<Project['healthStatus']>;
-type BadgeTone = 'accent' | 'green' | 'amber' | 'red' | 'muted';
-
-const STATUSES: Status[] = ['Not Started', 'Planning', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
-const PRIORITIES: Priority[] = ['Critical', 'High', 'Medium', 'Low'];
-const HEALTHS: Health[] = ['On Track', 'At Risk', 'Off Track'];
-
-// Category metadata: icon + accent hex (arbitrary colors -> inline style).
-const CATEGORY_META: { value: ProjectCategory; label: string; Icon: typeof Zap; color: string }[] = [
-  { value: 'Energy', label: 'Energy', Icon: Zap, color: '#eab308' },
-  { value: 'Green Energy', label: 'Green Energy', Icon: Leaf, color: '#22c55e' },
-  { value: 'Finance', label: 'Finance', Icon: DollarSign, color: '#10b981' },
-  { value: 'Health', label: 'Health', Icon: Heart, color: '#ef4444' },
-  { value: 'IT', label: 'IT', Icon: Monitor, color: '#3b82f6' },
-  { value: 'Education', label: 'Education', Icon: GraduationCap, color: '#a855f7' },
-  { value: 'Construction', label: 'Construction', Icon: Building, color: '#f97316' },
-  { value: 'Manufacturing', label: 'Manufacturing', Icon: Factory, color: T.faint },
-  { value: 'Retail', label: 'Retail', Icon: ShoppingBag, color: '#ec4899' },
-  { value: 'Marketing', label: 'Marketing', Icon: Megaphone, color: '#6366f1' },
-  { value: 'Research', label: 'Research', Icon: FlaskConical, color: '#06b6d4' },
-  { value: 'Government', label: 'Government', Icon: Landmark, color: '#64748b' },
-  { value: 'Non-Profit', label: 'Non-Profit', Icon: HandHeart, color: '#f43f5e' },
-  { value: 'Startup', label: 'Startup', Icon: Rocket, color: '#8b5cf6' },
-  { value: 'Personal', label: 'Personal', Icon: User, color: '#14b8a6' },
-  { value: 'Other', label: 'Other', Icon: FolderOpen, color: T.muted },
-];
-const getCategoryMeta = (c?: ProjectCategory) =>
-  CATEGORY_META.find((m) => m.value === c) || CATEGORY_META[CATEGORY_META.length - 1];
-
-const STATUS_TONE: Record<Status, BadgeTone> = {
-  'Completed': 'green',
-  'On Hold': 'amber',
-  'Cancelled': 'red',
-  'Not Started': 'muted',
-  'Planning': 'accent',
-  'In Progress': 'accent',
-};
-const PRIORITY_TONE: Record<Priority, BadgeTone> = {
-  Critical: 'red', High: 'amber', Medium: 'accent', Low: 'muted',
-};
-const HEALTH_TONE: Record<Health, BadgeTone> = {
-  'On Track': 'green', 'At Risk': 'amber', 'Off Track': 'red',
+/** Plan fields written onto a personal project through the domain layer (keeps activity + field-level sync). */
+const planPatch = (p: Project): Partial<Project> => {
+  const { id: _i, createdAt: _c, color: _co, parentId: _pa, order: _o, archived: _a, icon: _ic, favorite: _f, view: _v, ...rest } = p as any;
+  return rest;
 };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const formatDate = (dateStr?: string): string | null => {
-  if (!dateStr) return null;
-  const m = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
-  const d = new Date(dateStr);
-  if (!isNaN(d.getTime())) return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-  return dateStr;
-};
-
-const csvToList = (v: string): string[] => v.split(',').map((s) => s.trim()).filter(Boolean);
-const listToCsv = (v?: string[]): string => (v && v.length ? v.join(', ') : '');
-
-// ---- Excel column mapping (shared by template/export) ----
-const HEALTH_VALUES = ['On Track', 'At Risk', 'Off Track'];
-
-interface FormState {
-  title: string;
-  description: string;
-  status: Status;
-  priority: Priority;
-  category: ProjectCategory | '';
-  progress: number;
-  startDate?: string;
-  deadline?: string;
-  healthStatus: Health;
-  projectManager: string;
-  team: string;
-  stakeholders: string;
-  tags: string;
-  reportingStructure: string;
-  notes: string;
-}
-
-const emptyForm = (): FormState => ({
-  title: '', description: '', status: 'Planning', priority: 'Medium', category: '',
-  progress: 0, startDate: undefined, deadline: undefined, healthStatus: 'On Track',
-  projectManager: '', team: '', stakeholders: '', tags: '', reportingStructure: '', notes: '',
-});
-
-const formFromProject = (p: Project): FormState => ({
-  title: p.title,
-  description: p.description || '',
-  status: p.status,
-  priority: p.priority ?? 'Medium',
-  category: p.category ?? '',
-  progress: p.progress ?? 0,
-  startDate: p.startDate,
-  deadline: p.deadline,
-  healthStatus: p.healthStatus ?? 'On Track',
-  projectManager: p.projectManager ?? '',
-  team: listToCsv(p.team),
-  stakeholders: listToCsv(p.stakeholders),
-  tags: listToCsv(p.tags),
-  reportingStructure: p.reportingStructure ?? '',
-  notes: p.notes ?? '',
-});
-
+/**
+ * Projects portfolio — every project with its plan (status, health, progress,
+ * category) and live task counts. Same records as Browse → My Projects; a
+ * card opens the one project screen (tasks · board · plan). Shared
+ * workspaces and Excel import/export live here.
+ */
 export default function ProjectsScreen() {
-  const personal = useCollection<MProject>(STORES.PROJECTS);
+  const router = useRouter();
+  const ui = useTaskUI();
   const toast = useToast();
-
   const [filter, setFilter] = useState<ProjectCategory | 'All'>('All');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<MProject | null>(null);
   const [detail, setDetail] = useState<MProject | null>(null);
+  const [menu, setMenu] = useState<MProject | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Collaboration: shared workspaces (null active = personal local-first list).
+  // Collaboration: shared workspaces (separate Firestore path, not the personal store).
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWsId, setActiveWsId] = useState<string | null>(null);
   const [wsItems, setWsItems] = useState<MProject[]>([]);
   const [wsLoading, setWsLoading] = useState(false);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
-  const [wsToast, setWsToast] = useState<string | null>(null);
+
   const activeWorkspace = activeWsId ? workspaces.find((w) => w.id === activeWsId) ?? null : null;
 
   useEffect(() => {
@@ -167,17 +73,25 @@ export default function ProjectsScreen() {
     return workspaceService.subscribeProjects(
       wsId,
       (list) => { setWsItems(list.map((p) => ({ ...p, __wsId: wsId })) as MProject[]); setWsLoading(false); },
-      () => { setActiveWsId(null); setWsToast('That shared workspace is no longer available'); }
+      () => { setActiveWsId(null); toast.show('That shared workspace is no longer available', 'error'); }
     );
-  }, [activeWsId]);
-  useEffect(() => {
-    if (!wsToast) return;
-    const t = setTimeout(() => setWsToast(null), 2600);
-    return () => clearTimeout(t);
-  }, [wsToast]);
+  }, [activeWsId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const projects = activeWsId ? wsItems : personal.items;
-  const loading = activeWsId ? wsLoading : personal.loading;
+  const personal = useMemo(() => ui.projects.filter((p) => !p.deleted && !p.archived), [ui.projects]);
+  const projects: MProject[] = activeWsId ? wsItems : personal;
+  const loading = activeWsId ? wsLoading : ui.loading;
+
+  // Live task counts per personal project (shared-workspace projects have no task list).
+  const taskCounts = useMemo(() => {
+    const m = new Map<string, TaskProgress>();
+    for (const t of ui.tasks) {
+      if (!t.projectId || t.parentId) continue;
+      const c = m.get(t.projectId) ?? { open: 0, done: 0 };
+      if (t.completed) c.done++; else c.open++;
+      m.set(t.projectId, c);
+    }
+    return m;
+  }, [ui.tasks]);
 
   const filtered = useMemo(
     () => (filter === 'All' ? projects : projects.filter((p) => p.category === filter)),
@@ -199,33 +113,50 @@ export default function ProjectsScreen() {
 
   const openAdd = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (p: MProject) => { setEditing(p); setFormOpen(true); };
+  const openProject = (p: MProject) => (p.__wsId ? setDetail(p) : router.push(`/(app)/project/${p.id}`));
+
+  /** Create a personal project through the domain layer, then attach its plan. */
+  const createPersonal = (p: Project): Project => {
+    const created = createProject({ title: p.title, description: p.description || null });
+    updateProject(created, planPatch(p));
+    return created;
+  };
 
   const onDelete = async (p: MProject) => {
-    if (await confirmDialog({ title: 'Delete project', message: `Delete “${p.title}”?`, confirmText: 'Delete', destructive: true })) {
+    if (p.__wsId) {
+      if (!(await confirmDialog({ title: 'Delete project', message: `Delete “${p.title}” from this shared workspace for everyone?`, confirmText: 'Delete', destructive: true }))) return;
       try {
-        // Route by the item's origin — a shared-workspace delete can't touch personal.
-        if (p.__wsId) await workspaceService.deleteProject(p.__wsId, p.id);
-        else personal.remove(p.id);
+        await workspaceService.deleteProject(p.__wsId, p.id);
         setDetail((d) => (d && d.id === p.id ? null : d));
         toast.show('Project deleted', 'info');
       } catch {
         toast.show('Could not delete — check your connection', 'error');
       }
+      return;
     }
+    // Personal: same cascade as Browse (sub-projects, sections and tasks).
+    const ids = new Set(projectSubtree(ui.projects, p.id));
+    const n = ui.tasks.filter((t) => t.projectId && ids.has(t.projectId)).length;
+    const ok = await confirmDialog({
+      title: 'Delete project',
+      message: `Delete “${p.title}” and its ${n} task${n === 1 ? '' : 's'}${ids.size > 1 ? ' (including sub-projects)' : ''}? This can’t be undone.`,
+      confirmText: 'Delete', destructive: true,
+    });
+    if (ok) { await deleteProject(p.id); toast.show('Project deleted', 'info'); }
   };
 
   // ---- Workspace (collaboration) actions ----
   const handleCreateWorkspace = async (name: string, emails: string[], seed: boolean) => {
     const ws = await workspaceService.create(name, emails, []);
-    if (seed) await workspaceService.seedProjects(ws.id, personal.items.map((p) => ({ ...stripWsP(p), id: newId() })));
+    if (seed) await workspaceService.seedProjects(ws.id, personal.map((p) => ({ ...stripWsP(p), id: newId() })));
     setShowNewWorkspace(false);
     setActiveWsId(ws.id);
-    setWsToast(`Workspace “${ws.name}” created`);
+    toast.show(`Workspace “${ws.name}” created`, 'success');
   };
   const handleSetMembers = async (emails: string[]) => {
     if (!activeWorkspace) return;
     await workspaceService.setMembers(activeWorkspace, emails);
-    setWsToast('Members updated');
+    toast.show('Members updated', 'success');
   };
   const handleDeleteWorkspace = async () => {
     if (!activeWorkspace) return;
@@ -235,68 +166,35 @@ export default function ProjectsScreen() {
     setActiveWsId(null);
     setShowMembers(false);
     await workspaceService.remove(id);
-    setWsToast('Workspace deleted');
+    toast.show('Workspace deleted', 'info');
   };
 
-  const handleSave = async (f: FormState) => {
-    const title = f.title.trim();
-    if (!title) return;
-    const category = (f.category || undefined) as ProjectCategory | undefined;
+  const handleSave = async (f: PlanForm) => {
+    if (!f.title.trim()) return;
     // Route by the item's origin (edit) / the active workspace (new) — never an
     // ambiguous selection, so a shared-workspace save can't land in the personal list.
     const target = editing ? editing.__wsId ?? null : activeWsId;
-    if (editing) {
-      // Spread `editing` FIRST so deferred sub-entities (phases/risks/resources/
-      // metrics/check-ins/alignments/milestones) survive the edit.
-      const updated: MProject = ({
-        ...editing,
-        title,
-        description: f.description.trim(),
-        status: f.status,
-        progress: Math.round(f.progress),
-        priority: f.priority,
-        category,
-        startDate: f.startDate,
-        deadline: f.deadline,
-        healthStatus: f.healthStatus,
-        projectManager: f.projectManager.trim() || undefined,
-        team: csvToList(f.team),
-        stakeholders: csvToList(f.stakeholders),
-        tags: csvToList(f.tags),
-        reportingStructure: f.reportingStructure.trim() || undefined,
-        notes: f.notes.trim() || undefined,
-        updatedAt: new Date().toISOString(),
-      });
-      if (target) await workspaceService.putProject(target, stripWsP(updated));
-      else personal.update(updated);
-      toast.show('Project updated', 'success');
-    } else {
-      const created: MProject = ({
-        id: newId(),
-        title,
-        description: f.description.trim(),
-        status: f.status,
-        progress: Math.round(f.progress),
-        priority: f.priority,
-        category,
-        startDate: f.startDate,
-        deadline: f.deadline,
-        healthStatus: f.healthStatus,
-        projectManager: f.projectManager.trim() || undefined,
-        team: csvToList(f.team),
-        stakeholders: csvToList(f.stakeholders),
-        tags: csvToList(f.tags),
-        reportingStructure: f.reportingStructure.trim() || undefined,
-        notes: f.notes.trim() || undefined,
-        projectMilestones: [],
-        teamCheckIns: [],
-        createdAt: new Date().toISOString(),
-      });
-      if (target) await workspaceService.putProject(target, stripWsP(created));
-      else personal.create(created);
-      toast.show('Project created', 'success');
+    try {
+      if (editing) {
+        const updated = applyPlanForm(stripWsP(editing), f, editing.id);
+        if (target) await workspaceService.putProject(target, updated);
+        else updateProject(editing, planPatch(updated));
+        setDetail((d) => (d && d.id === editing.id ? { ...updated, __wsId: d.__wsId } : d));
+        toast.show('Project updated', 'success');
+      } else {
+        const fresh = applyPlanForm(null, f, newId());
+        if (target) {
+          await workspaceService.putProject(target, fresh);
+          toast.show('Project created', 'success');
+        } else {
+          const created = createPersonal(fresh);
+          toast.show(`Project “${created.title}” created`, 'success');
+        }
+      }
+      setFormOpen(false);
+    } catch {
+      toast.show('Could not save — check your connection', 'error');
     }
-    setFormOpen(false);
   };
 
   // ---------- Excel ----------
@@ -405,7 +303,7 @@ export default function ProjectsScreen() {
       const validStatuses = STATUSES as string[];
       const validPriorities = PRIORITIES as string[];
       const validCategories = CATEGORY_META.map((c) => c.value) as string[];
-      const validHealth = HEALTH_VALUES;
+      const validHealth = HEALTHS as string[];
 
       // Parsing helpers ported verbatim from the web importer.
       const parseDate = (dateValue: any): string | undefined => {
@@ -469,7 +367,7 @@ export default function ProjectsScreen() {
           createdAt: new Date().toISOString(),
         };
         if (activeWsId) await workspaceService.putProject(activeWsId, project);
-        else await personal.create(project);
+        else createPersonal(project);
         imported++;
       }
 
@@ -488,11 +386,7 @@ export default function ProjectsScreen() {
   if (loading) return <Spinner label="Loading projects…" />;
 
   const ListHeader = (
-    <View className="pt-3">
-      <Text className="text-ink-muted text-sm mb-3">
-        Manage projects with plans, teams, and progress.
-      </Text>
-
+    <View className="pt-1">
       <View className="flex-row gap-3 mb-4">
         <ActionButton icon={<Upload size={16} color="#a78bfa" />} label="Import" onPress={importProjects} disabled={busy} />
         <ActionButton icon={<Download size={16} color="#34d399" />} label="Export" onPress={exportProjects} disabled={busy} />
@@ -506,22 +400,24 @@ export default function ProjectsScreen() {
         <StatCard className="flex-1" label="Avg %" value={stats.avg} />
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3 -mx-4 px-4">
-        <FilterChip label={`All (${projects.length})`} active={filter === 'All'} onPress={() => setFilter('All')} />
-        {usedCategories.map((m) => {
-          const count = projects.filter((p) => p.category === m.value).length;
-          return (
-            <FilterChip
-              key={m.value}
-              label={`${m.label} (${count})`}
-              active={filter === m.value}
-              color={m.color}
-              icon={<m.Icon size={13} color={filter === m.value ? '#fff' : m.color} />}
-              onPress={() => setFilter(m.value)}
-            />
-          );
-        })}
-      </ScrollView>
+      {usedCategories.length ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3 -mx-4 px-4">
+          <FilterChip label={`All (${projects.length})`} active={filter === 'All'} onPress={() => setFilter('All')} />
+          {usedCategories.map((m) => {
+            const count = projects.filter((p) => p.category === m.value).length;
+            return (
+              <FilterChip
+                key={m.value}
+                label={`${m.label} (${count})`}
+                active={filter === m.value}
+                color={m.color}
+                icon={<m.Icon size={13} color={filter === m.value ? '#fff' : m.color} />}
+                onPress={() => setFilter(m.value)}
+              />
+            );
+          })}
+        </ScrollView>
+      ) : null}
     </View>
   );
 
@@ -541,9 +437,9 @@ export default function ProjectsScreen() {
 
       {projects.length === 0 ? (
         <EmptyState
-          icon={<FolderKanban size={40} color="#3B82F6" />}
+          icon={<FolderKanban size={34} color={T.accent} />}
           title="No projects yet"
-          subtitle="Create your first project or import from Excel."
+          subtitle="Create a project to plan it and track its tasks — or import from Excel."
           ctaTitle="New project"
           onCta={openAdd}
         />
@@ -560,35 +456,50 @@ export default function ProjectsScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <ProjectCard
+            <PortfolioCard
               project={item}
-              onPress={() => setDetail(item)}
-              onEdit={() => openEdit(item)}
-              onDelete={() => onDelete(item)}
+              tasks={item.__wsId ? undefined : taskCounts.get(item.id) ?? { open: 0, done: 0 }}
+              onPress={() => openProject(item)}
+              onLongPress={() => setMenu(item)}
             />
           )}
         />
       )}
 
-      <Fab onPress={openAdd} />
+      <Fab onPress={openAdd} label="New project" />
 
-      <ProjectFormModal
+      <PlanFormSheet
         visible={formOpen}
         initial={editing}
         onCancel={() => setFormOpen(false)}
         onSave={handleSave}
       />
 
-      <ProjectDetailModal
-        project={detail}
-        onClose={() => setDetail(null)}
-        onEdit={(p) => { setDetail(null); openEdit(p); }}
+      <ActionMenu
+        visible={!!menu}
+        onClose={() => setMenu(null)}
+        title={menu?.title}
+        actions={menu ? [
+          ...(!menu.__wsId ? [{ label: 'Open tasks', icon: <ExternalLink size={18} color={T.muted} />, onPress: () => router.push(`/(app)/project/${menu.id}`) }] : []),
+          { label: 'View plan', icon: <ClipboardList size={18} color={T.muted} />, onPress: () => { const p = menu; setTimeout(() => (p.__wsId ? setDetail(p) : router.push(`/(app)/project/${p.id}?tab=plan`)), 250); } },
+          { label: 'Edit plan', icon: <Pencil size={18} color={T.muted} />, onPress: () => { const p = menu; setTimeout(() => openEdit(p), 250); } },
+          { label: 'Delete', icon: <Trash2 size={18} color={T.danger} />, destructive: true, onPress: () => onDelete(menu) },
+        ] : []}
       />
+
+      {/* Shared-workspace projects have no task list — their plan opens here. */}
+      <Sheet visible={!!detail} onClose={() => setDetail(null)} title={detail?.title} fill>
+        {detail ? (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
+            <PlanSummary project={detail} onEdit={() => { const p = detail; setDetail(null); setTimeout(() => openEdit(p), 250); }} />
+          </ScrollView>
+        ) : null}
+      </Sheet>
 
       <NewWorkspaceModal
         visible={showNewWorkspace}
         supported={workspaceService.supported()}
-        seedCount={personal.items.length}
+        seedCount={personal.length}
         seedNoun="project"
         onCancel={() => setShowNewWorkspace(false)}
         onCreate={handleCreateWorkspace}
@@ -601,13 +512,6 @@ export default function ProjectsScreen() {
         onSave={handleSetMembers}
         onDelete={handleDeleteWorkspace}
       />
-      {wsToast ? (
-        <View className="absolute bottom-28 left-0 right-0 items-center" pointerEvents="none">
-          <View className="bg-emerald-600 px-4 py-2.5 rounded-2xl">
-            <Text className="text-white font-medium text-sm">{wsToast}</Text>
-          </View>
-        </View>
-      ) : null}
     </Screen>
   );
 }
@@ -619,7 +523,9 @@ function ActionButton({ icon, label, onPress, disabled }: { icon: React.ReactNod
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      className={`flex-1 flex-row items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-midnight-light border border-hairline active:opacity-70 ${disabled ? 'opacity-50' : ''}`}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      className={`flex-1 flex-row items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-midnight-light border border-line active:opacity-70 ${disabled ? 'opacity-50' : ''}`}
     >
       {icon}
       <Text className="text-ink text-xs font-semibold">{label}</Text>
@@ -631,315 +537,12 @@ function FilterChip({ label, active, onPress, color, icon }: { label: string; ac
   return (
     <Pressable
       onPress={onPress}
-      className={`flex-row items-center mr-2 px-3 py-2 rounded-full border active:opacity-70 ${active ? 'bg-accent border-accent' : 'bg-midnight-light border-hairline'}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      className={`flex-row items-center mr-2 px-3 py-2 rounded-full border active:opacity-70 ${active ? 'bg-accent border-accent' : 'bg-midnight-light border-line'}`}
     >
       {icon ? <View className="mr-1.5">{icon}</View> : null}
       <Text className={`text-xs font-semibold ${active ? 'text-white' : 'text-ink-muted'}`}>{label}</Text>
     </Pressable>
-  );
-}
-
-function ProjectCard({ project, onPress, onEdit, onDelete }: { project: Project; onPress: () => void; onEdit: () => void; onDelete: () => void }) {
-  const meta = getCategoryMeta(project.category);
-  const lastCheckIn = project.teamCheckIns?.[project.teamCheckIns.length - 1];
-  const phaseCount = project.implementationPlan?.phases?.length ?? 0;
-  const donePhases = project.implementationPlan?.phases?.filter((p) => p.status === 'Completed').length ?? 0;
-  const openRisks = project.risks?.filter((r) => r.status === 'Open').length ?? 0;
-
-  return (
-    <Card onPress={onPress}>
-      <View className="flex-row items-start">
-        <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: meta.color + '22' }}>
-          <meta.Icon size={20} color={meta.color} />
-        </View>
-        <View className="flex-1">
-          {project.category ? (
-            <Text className="text-[10px] uppercase tracking-wider font-semibold mb-0.5" style={{ color: meta.color }}>
-              {project.category}
-            </Text>
-          ) : null}
-          <Text className="text-ink text-base font-semibold" numberOfLines={1}>{project.title}</Text>
-        </View>
-        <View className="flex-row items-center ml-2">
-          <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Pencil size={17} color={T.muted} />
-          </Pressable>
-          <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Trash2 size={17} color={T.muted} />
-          </Pressable>
-        </View>
-      </View>
-
-      {project.description ? (
-        <Text className="text-ink-muted text-sm mt-2" numberOfLines={2}>{project.description}</Text>
-      ) : null}
-
-      <View className="flex-row flex-wrap gap-2 mt-3">
-        <Badge label={project.status} tone={STATUS_TONE[project.status]} />
-        {project.healthStatus ? <Badge label={project.healthStatus} tone={HEALTH_TONE[project.healthStatus]} /> : null}
-        {project.priority ? <Badge label={project.priority} tone={PRIORITY_TONE[project.priority]} /> : null}
-      </View>
-
-      {project.deadline ? (
-        <View className="flex-row items-center mt-3">
-          <Calendar size={13} color={T.muted} />
-          <Text className="text-ink-muted text-xs ml-1.5">Deadline: {formatDate(project.deadline)}</Text>
-        </View>
-      ) : null}
-
-      {(project.team?.length || lastCheckIn || phaseCount || openRisks) ? (
-        <View className="flex-row flex-wrap gap-x-4 gap-y-1 mt-2">
-          {project.team && project.team.length > 0 ? (
-            <MetaRow icon={<Users size={12} color={T.muted} />} text={`${project.team.length} member${project.team.length > 1 ? 's' : ''}`} />
-          ) : null}
-          {lastCheckIn ? (
-            <MetaRow icon={<MessageSquare size={12} color={T.muted} />} text={`Check-in ${formatDate(lastCheckIn.date)}`} />
-          ) : null}
-          {phaseCount ? (
-            <MetaRow icon={<Layers size={12} color="#818cf8" />} text={`${donePhases}/${phaseCount} phases`} />
-          ) : null}
-          {openRisks ? (
-            <MetaRow icon={<TriangleAlert size={12} color="#fb923c" />} text={`${openRisks} open risk${openRisks !== 1 ? 's' : ''}`} />
-          ) : null}
-        </View>
-      ) : null}
-
-      <View className="mt-3">
-        <View className="flex-row justify-between mb-1">
-          <Text className="text-ink-muted text-xs">Progress</Text>
-          <Text className="text-ink-muted text-xs">{project.progress ?? 0}%</Text>
-        </View>
-        <ProgressBar value={project.progress ?? 0} tone={(project.progress ?? 0) >= 100 ? 'green' : 'accent'} />
-      </View>
-
-      {project.tags && project.tags.length > 0 ? (
-        <View className="flex-row flex-wrap gap-1.5 mt-3 pt-3 border-t border-hairline">
-          {project.tags.slice(0, 6).map((t) => (
-            <View key={t} className="px-2 py-0.5 rounded bg-midnight-lighter">
-              <Text className="text-ink-muted text-[10px] uppercase tracking-wider">{t}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-function MetaRow({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <View className="flex-row items-center">
-      {icon}
-      <Text className="text-ink-muted text-xs ml-1">{text}</Text>
-    </View>
-  );
-}
-
-// ---------------- form modal ----------------
-
-function ProjectFormModal({
-  visible, initial, onCancel, onSave,
-}: {
-  visible: boolean;
-  initial: Project | null;
-  onCancel: () => void;
-  onSave: (f: FormState) => void;
-}) {
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const [lastVisible, setLastVisible] = useState(false);
-
-  if (visible !== lastVisible) {
-    setLastVisible(visible);
-    if (visible) setForm(initial ? formFromProject(initial) : emptyForm());
-  }
-
-  const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
-
-  const categoryOptions = [
-    { label: 'No category', value: '' },
-    ...CATEGORY_META.map((m) => ({ label: m.label, value: m.value })),
-  ];
-
-  const save = () => {
-    if (!form.title.trim()) return;
-    onSave(form);
-  };
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <View className="flex-1 bg-black/60 justify-end">
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '92%' }}>
-          <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <Text className="text-ink text-lg font-bold">{initial ? 'Edit project' : 'New project'}</Text>
-            <Pressable onPress={onCancel} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color={T.muted} />
-            </Pressable>
-          </View>
-
-          <ScrollView className="px-5" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <Input label="Title *" placeholder="Project title" value={form.title} onChangeText={(v) => set('title', v)} className="mb-3" />
-            <TextArea label="Description" placeholder="What is this project about?" value={form.description} onChangeText={(v) => set('description', v)} minHeight={70} className="mb-3" />
-
-            <View className="flex-row gap-3 mb-3">
-              <Select<Status> label="Status" value={form.status} onChange={(v) => set('status', v)} options={STATUSES.map((s) => ({ label: s, value: s }))} className="flex-1" />
-              <Select<Priority> label="Priority" value={form.priority} onChange={(v) => set('priority', v)} options={PRIORITIES.map((p) => ({ label: p, value: p }))} className="flex-1" />
-            </View>
-
-            <Select<string>
-              label="Category"
-              value={form.category}
-              onChange={(v) => set('category', v as ProjectCategory | '')}
-              options={categoryOptions}
-              className="mb-3"
-            />
-
-            <Select<Health> label="Health" value={form.healthStatus} onChange={(v) => set('healthStatus', v)} options={HEALTHS.map((h) => ({ label: h, value: h }))} className="mb-3" />
-
-            <View className="mb-3">
-              <SliderField label="Progress" value={form.progress} onChange={(v) => set('progress', v)} />
-            </View>
-
-            <View className="flex-row gap-3 mb-3">
-              <View className="flex-1">
-                <DateField label="Start date" value={form.startDate} onChange={(v) => set('startDate', v)} placeholder="Start" />
-              </View>
-              <View className="flex-1">
-                <DateField label="Deadline" value={form.deadline} onChange={(v) => set('deadline', v)} placeholder="Deadline" />
-              </View>
-            </View>
-
-            <Input label="Project manager" placeholder="e.g. John Smith" value={form.projectManager} onChangeText={(v) => set('projectManager', v)} className="mb-3" />
-            <Input label="Team members (comma-separated)" placeholder="Alice, Bob, Charlie" value={form.team} onChangeText={(v) => set('team', v)} className="mb-3" />
-            <Input label="Stakeholders (comma-separated)" placeholder="CEO, CTO" value={form.stakeholders} onChangeText={(v) => set('stakeholders', v)} className="mb-3" />
-            <Input label="Tags (comma-separated)" placeholder="react, api, mobile" value={form.tags} onChangeText={(v) => set('tags', v)} className="mb-3" />
-            <Input label="Reporting structure" placeholder="Reports to: …" value={form.reportingStructure} onChangeText={(v) => set('reportingStructure', v)} className="mb-3" />
-            <TextArea label="Notes" placeholder="Additional notes…" value={form.notes} onChangeText={(v) => set('notes', v)} minHeight={60} className="mb-4" />
-          </ScrollView>
-
-          <View className="flex-row gap-3 px-5 pt-3 pb-8 border-t border-hairline">
-            <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
-              <Text className="text-ink font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable onPress={save} className={`flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover ${form.title.trim() ? '' : 'opacity-50'}`}>
-              <Text className="text-white font-bold">{initial ? 'Save' : 'Create'}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-// ---------------- detail modal ----------------
-
-function ProjectDetailModal({ project, onClose, onEdit }: { project: Project | null; onClose: () => void; onEdit: (p: Project) => void }) {
-  if (!project) return null;
-  const meta = getCategoryMeta(project.category);
-  const budgetPct = project.totalBudget && project.totalBudget > 0
-    ? Math.round(((project.budgetUsed || 0) / project.totalBudget) * 100)
-    : null;
-
-  return (
-    <Modal visible={!!project} transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 bg-black/60 justify-end">
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '90%' }}>
-          <View className="flex-row items-center px-5 pt-5 pb-3">
-            <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: meta.color + '22' }}>
-              <meta.Icon size={20} color={meta.color} />
-            </View>
-            <Text className="text-ink text-lg font-bold flex-1" numberOfLines={2}>{project.title}</Text>
-            <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color={T.muted} />
-            </Pressable>
-          </View>
-
-          <ScrollView className="px-5" showsVerticalScrollIndicator={false}>
-            <View className="flex-row flex-wrap gap-2 mb-4">
-              <Badge label={project.status} tone={STATUS_TONE[project.status]} />
-              {project.healthStatus ? <Badge label={project.healthStatus} tone={HEALTH_TONE[project.healthStatus]} /> : null}
-              {project.priority ? <Badge label={project.priority} tone={PRIORITY_TONE[project.priority]} /> : null}
-              {project.category ? <Badge label={project.category} tone="muted" /> : null}
-            </View>
-
-            {project.description ? <Text className="text-ink text-sm mb-4 leading-5">{project.description}</Text> : null}
-
-            <View className="mb-4">
-              <View className="flex-row justify-between mb-1">
-                <Text className="text-ink-muted text-xs">Progress</Text>
-                <Text className="text-ink text-xs font-semibold">{project.progress ?? 0}%</Text>
-              </View>
-              <ProgressBar value={project.progress ?? 0} tone={(project.progress ?? 0) >= 100 ? 'green' : 'accent'} />
-            </View>
-
-            <DetailRow icon={<Calendar size={14} color={T.muted} />} label="Start" value={formatDate(project.startDate)} />
-            <DetailRow icon={<Calendar size={14} color={T.muted} />} label="Deadline" value={formatDate(project.deadline)} />
-            <DetailRow icon={<User size={14} color={T.muted} />} label="Manager" value={project.projectManager} />
-            <DetailRow icon={<Users size={14} color={T.muted} />} label="Team" value={listToCsv(project.team) || null} />
-            <DetailRow icon={<Compass size={14} color={T.muted} />} label="Stakeholders" value={listToCsv(project.stakeholders) || null} />
-            <DetailRow icon={<FileText size={14} color={T.muted} />} label="Reporting" value={project.reportingStructure} />
-            {budgetPct !== null ? (
-              <DetailRow icon={<Wallet size={14} color={T.muted} />} label="Budget used" value={`${budgetPct}%`} />
-            ) : null}
-
-            {project.tags && project.tags.length > 0 ? (
-              <View className="mt-1 mb-3">
-                <Text className="text-ink-muted text-xs mb-1.5">Tags</Text>
-                <View className="flex-row flex-wrap gap-1.5">
-                  {project.tags.map((t) => (
-                    <View key={t} className="px-2 py-1 rounded bg-midnight-lighter">
-                      <Text className="text-ink-muted text-[10px] uppercase tracking-wider">{t}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-
-            {project.notes ? (
-              <View className="mb-3">
-                <Text className="text-ink-muted text-xs mb-1">Notes</Text>
-                <Text className="text-ink text-sm leading-5">{project.notes}</Text>
-              </View>
-            ) : null}
-
-            {/* Read-only summary of advanced sub-entities (managed on web). */}
-            {(project.implementationPlan?.phases?.length || project.risks?.length || project.resources?.length || project.performanceMetrics?.length || project.teamCheckIns?.length || project.alignments?.length) ? (
-              <View className="mt-1 mb-2 p-3 rounded-2xl bg-midnight-light border border-hairline">
-                <Text className="text-ink-muted text-xs mb-2">Advanced (view-only here)</Text>
-                <View className="flex-row flex-wrap gap-x-4 gap-y-1">
-                  {project.implementationPlan?.phases?.length ? <MetaRow icon={<Layers size={12} color="#818cf8" />} text={`${project.implementationPlan.phases.length} phases`} /> : null}
-                  {project.risks?.length ? <MetaRow icon={<TriangleAlert size={12} color="#fb923c" />} text={`${project.risks.length} risks`} /> : null}
-                  {project.resources?.length ? <MetaRow icon={<Wallet size={12} color="#34d399" />} text={`${project.resources.length} resources`} /> : null}
-                  {project.performanceMetrics?.length ? <MetaRow icon={<ChartColumn size={12} color="#22d3ee" />} text={`${project.performanceMetrics.length} metrics`} /> : null}
-                  {project.teamCheckIns?.length ? <MetaRow icon={<MessageSquare size={12} color={T.muted} />} text={`${project.teamCheckIns.length} check-ins`} /> : null}
-                  {project.alignments?.length ? <MetaRow icon={<Compass size={12} color="#c084fc" />} text={`${project.alignments.length} alignments`} /> : null}
-                </View>
-              </View>
-            ) : null}
-
-            <View className="h-3" />
-          </ScrollView>
-
-          <View className="flex-row gap-3 px-5 pt-3 pb-8 border-t border-hairline">
-            <Pressable onPress={onClose} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
-              <Text className="text-ink font-semibold">Close</Text>
-            </Pressable>
-            <Pressable onPress={() => onEdit(project)} className="flex-1 flex-row justify-center items-center py-3.5 rounded-full bg-accent active:bg-accent-hover">
-              <Pencil size={16} color="#fff" />
-              <Text className="text-white font-bold ml-2">Edit</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
-  if (!value) return null;
-  return (
-    <View className="flex-row items-start mb-2.5">
-      <View className="mt-0.5 mr-2">{icon}</View>
-      <Text className="text-ink-muted text-xs w-24">{label}</Text>
-      <Text className="text-ink text-sm flex-1">{value}</Text>
-    </View>
   );
 }

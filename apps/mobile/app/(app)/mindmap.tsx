@@ -728,7 +728,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
           <Spinner label="Loading mind maps…" />
         ) : maps.length === 0 ? (
           <EmptyState
-            icon={<Network size={42} color="#3B82F6" />}
+            icon={<Network size={34} color="#3B82F6" />}
             title="No mind maps yet"
             subtitle="Map out an idea or sketch a decision tree."
             ctaTitle="New mind map"
@@ -806,7 +806,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
   return (
     <Screen padded={false}>
       {/* toolbar */}
-      <View className="flex-row items-center justify-between px-3 py-2 border-b border-hairline bg-midnight-light">
+      <View className="flex-row items-center justify-between px-3 py-2 border-b border-line bg-midnight-light">
         <View className="flex-row items-center flex-1 mr-2">
           <Pressable onPress={closeEditor} hitSlop={8} className="mr-2 p-1 active:opacity-60">
             <ArrowLeft size={22} color={T.ink} />
@@ -914,7 +914,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
                     onPress={() => onEdgeTap(edge)}
                     hitSlop={8}
                     style={{ position: 'absolute', left: mx, top: my, transform: [{ translateX: -16 }, { translateY: -12 }] }}
-                    className="flex-row items-center justify-center rounded-full bg-midnight-lighter border border-hairline px-2 py-1 active:opacity-80"
+                    className="flex-row items-center justify-center rounded-full bg-midnight-lighter border border-line px-2 py-1 active:opacity-80"
                   >
                     {dt ? (
                       <Text className="text-ink text-[11px]" numberOfLines={1}>
@@ -970,7 +970,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
 
       {/* contextual action bar */}
       {selNode && tool === 'select' ? (
-        <View className="border-t border-hairline bg-midnight-light px-3 py-2">
+        <View className="border-t border-line bg-midnight-light px-3 py-2">
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <ActionButton icon={<Pencil size={16} color={T.ink} />} label="Edit" onPress={() => openNodeEditor(selNode)} />
             <ActionButton icon={<Plus size={16} color="#10B981" />} label="Add child" onPress={() => addNode(selNode.id)} />
@@ -985,7 +985,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
             {!selNode.isRoot ? (
               <ActionButton icon={<Trash2 size={16} color="#f87171" />} label="Delete" onPress={() => deleteNode(selNode.id)} />
             ) : null}
-            <View className="flex-row items-center ml-1 pl-2 border-l border-hairline">
+            <View className="flex-row items-center ml-1 pl-2 border-l border-line">
               {NODE_COLORS.map((color) => (
                 <Pressable
                   key={color}
@@ -1006,7 +1006,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
       ) : null}
 
       {/* help */}
-      <View className="px-3 py-2 border-t border-hairline bg-midnight-light">
+      <View className="px-3 py-2 border-t border-line bg-midnight-light">
         <Text className="text-ink-muted text-xs text-center">{HELP_TEXT}</Text>
       </View>
 
@@ -1018,7 +1018,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         onRequestClose={() => setEditingNode(null)}
       >
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setEditingNode(null)}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
             <Text className="text-ink text-lg font-bold mb-4">Edit node</Text>
             <Input
               placeholder="Node text"
@@ -1053,7 +1053,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
         onRequestClose={() => setEditingEdge(null)}
       >
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setEditingEdge(null)}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
             <Text className="text-ink text-lg font-bold mb-4">Connection label</Text>
             <Input
               placeholder="e.g. Yes, No, Maybe…"
@@ -1142,7 +1142,7 @@ function CreateMapModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
           <Text className="text-ink text-lg font-bold mb-4">New mind map</Text>
           <Input placeholder="Mind map title" value={title} onChangeText={onTitle} autoFocus className="mb-4" />
           <Text className="text-ink-muted text-xs mb-1.5 ml-1">Type</Text>
@@ -1193,7 +1193,7 @@ function AiModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={busy ? undefined : onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
           <View className="flex-row items-center mb-3">
             <Sparkles size={20} color="#a855f7" />
             <Text className="text-ink text-lg font-bold ml-2">AI mind map generator</Text>

@@ -157,7 +157,7 @@ export default function HabitsScreen() {
 
       {habits.length === 0 ? (
         <EmptyState
-          icon={<CalendarCheck size={40} color="#3B82F6" />}
+          icon={<CalendarCheck size={34} color="#3B82F6" />}
           title="No habits tracked yet"
           subtitle="Build momentum one day at a time."
           ctaTitle="Add a habit"
@@ -311,7 +311,7 @@ function HabitFormModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
           <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit habit' : 'New habit'}</Text>
           <Input placeholder="Read for 30 minutes" value={name} onChangeText={setName} autoFocus className="mb-3" />
           <TextArea placeholder="Optional notes about this habit…" value={description} onChangeText={setDescription} minHeight={70} className="mb-4" />

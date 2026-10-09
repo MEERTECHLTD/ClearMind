@@ -78,7 +78,7 @@ export default function MilestonesScreen() {
 
       {items.length === 0 ? (
         <EmptyState
-          icon={<MilestoneIcon size={40} color="#3B82F6" />}
+          icon={<MilestoneIcon size={34} color="#3B82F6" />}
           title="No milestones yet"
           subtitle="Add your first big win and visualize how far you have come."
           ctaTitle="Add a milestone"
@@ -199,7 +199,7 @@ function MilestoneFormModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
           <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit milestone' : 'New milestone'}</Text>
           <Input placeholder="Launched my first app" value={title} onChangeText={setTitle} autoFocus className="mb-3" />
           <TextArea placeholder="Details about this milestone…" value={description} onChangeText={setDescription} minHeight={80} className="mb-4" />

@@ -167,7 +167,7 @@ export default function NotesScreen() {
 
       {notes.length === 0 ? (
         <EmptyState
-          icon={<NotebookPen size={40} color={T.accent} />}
+          icon={<NotebookPen size={34} color={T.accent} />}
           title="Your vault is empty"
           subtitle="Write a note, link ideas with [[double brackets]] and tag them with #tags — they’ll grow into a graph."
           ctaTitle="New note"

@@ -577,7 +577,7 @@ export default function LearningVaultScreen() {
         />
         <Pressable
           onPress={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
-          className="flex-row items-center justify-center bg-midnight-light rounded-2xl px-4 border border-hairline active:opacity-80"
+          className="flex-row items-center justify-center bg-midnight-light rounded-2xl px-4 border border-line active:opacity-80"
         >
           <ArrowUpDown size={16} color={T.muted} />
           <Text className="text-ink-muted text-xs ml-1.5">{sortOrder === 'asc' ? 'Asc' : 'Desc'}</Text>
@@ -595,7 +595,7 @@ export default function LearningVaultScreen() {
                 key={f.id}
                 onPress={() => setFilterFolder(active ? 'all' : f.name)}
                 className={`flex-row items-center px-3 py-1.5 rounded-full mr-2 border ${
-                  active ? 'bg-accent/15 border-accent/50' : 'bg-midnight-light border-hairline'
+                  active ? 'bg-accent/15 border-accent/50' : 'bg-midnight-light border-line'
                 }`}
               >
                 <Folder size={14} color={f.color || T.muted} />
@@ -612,7 +612,7 @@ export default function LearningVaultScreen() {
 
       {/* Stats panel */}
       {showStats && (
-        <View className="mt-3 p-4 rounded-2xl bg-midnight-light border border-hairline">
+        <View className="mt-3 p-4 rounded-2xl bg-midnight-light border border-line">
           <View className="flex-row items-center mb-3">
             <ChartColumn size={16} color={T.muted} />
             <Text className="text-ink-muted text-sm font-semibold ml-2">Progress Analytics</Text>
@@ -658,7 +658,7 @@ export default function LearningVaultScreen() {
         ItemSeparatorComponent={() => <View className="h-3" />}
         ListEmptyComponent={
           <EmptyState
-            icon={<Bookmark size={40} color="#3B82F6" />}
+            icon={<Bookmark size={34} color="#3B82F6" />}
             title={resources.length === 0 ? 'No resources yet' : 'No matches'}
             subtitle={
               resources.length === 0
@@ -755,7 +755,7 @@ function ResourceCard({
       : { icon: <Play size={14} color={T.ink} />, label: 'Start' };
 
   return (
-    <View className="rounded-2xl bg-midnight-light border border-hairline overflow-hidden">
+    <View className="rounded-2xl bg-midnight-light border border-line overflow-hidden">
       {/* Thumbnail */}
       <Pressable onPress={onOpen} className="active:opacity-90">
         <View className="h-40 bg-midnight-lighter items-center justify-center">
@@ -848,7 +848,7 @@ function ResourceCard({
         </View>
 
         {/* Actions */}
-        <View className="flex-row items-center mt-3 pt-3 border-t border-hairline">
+        <View className="flex-row items-center mt-3 pt-3 border-t border-line">
           <Pressable
             onPress={onToggle}
             className="flex-1 flex-row items-center justify-center py-2 rounded-lg bg-midnight-lighter active:opacity-80 mr-2"
@@ -997,7 +997,7 @@ function ResourceFormModal({
         style={{ flex: 1 }}
         className="bg-black/60 justify-end"
       >
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '92%' }}>
+        <View className="bg-midnight rounded-t-3xl border-t border-line" style={{ maxHeight: '92%' }}>
           <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
             <Text className="text-ink text-lg font-bold">{initial ? 'Edit Resource' : 'Add Learning Resource'}</Text>
             <Pressable onPress={onCancel} hitSlop={8} className="p-1 active:opacity-60">
@@ -1097,7 +1097,7 @@ function ResourceFormModal({
             />
           </ScrollView>
 
-          <View className="flex-row px-5 pt-3 pb-8 border-t border-hairline">
+          <View className="flex-row px-5 pt-3 pb-8 border-t border-line">
             <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80 mr-3">
               <Text className="text-ink font-semibold">Cancel</Text>
             </Pressable>
@@ -1160,7 +1160,7 @@ function FolderModal({
         style={{ flex: 1 }}
         className="bg-black/60 justify-end"
       >
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '85%' }}>
+        <View className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8" style={{ maxHeight: '85%' }}>
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-ink text-lg font-bold">Folders</Text>
             <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
@@ -1201,7 +1201,7 @@ function FolderModal({
                 {folders.map((f) => (
                   <View
                     key={f.id}
-                    className="flex-row items-center justify-between bg-midnight-light rounded-xl px-3 py-2.5 mb-2 border border-hairline"
+                    className="flex-row items-center justify-between bg-midnight-light rounded-xl px-3 py-2.5 mb-2 border border-line"
                   >
                     <View className="flex-row items-center">
                       <Folder size={16} color={f.color || T.muted} />
@@ -1264,8 +1264,8 @@ function NotesModal({
         style={{ flex: 1 }}
         className="bg-black/60 justify-end"
       >
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '85%' }}>
-          <View className="flex-row items-center justify-between px-5 pt-5 pb-3 border-b border-hairline">
+        <View className="bg-midnight rounded-t-3xl border-t border-line" style={{ maxHeight: '85%' }}>
+          <View className="flex-row items-center justify-between px-5 pt-5 pb-3 border-b border-line">
             <View className="flex-1 mr-3">
               <Text className="text-ink text-lg font-bold">Notes</Text>
               {resource ? (
@@ -1310,7 +1310,7 @@ function NotesModal({
               </View>
             ) : (
               sortedNotes.map((note) => (
-                <View key={note.id} className="bg-midnight-light rounded-xl p-3 mb-2 border border-hairline">
+                <View key={note.id} className="bg-midnight-light rounded-xl p-3 mb-2 border border-line">
                   <View className="flex-row items-start justify-between">
                     <View className="flex-1 mr-2">
                       {note.timestamp !== undefined ? (

@@ -239,7 +239,7 @@ export default function CalendarScreen() {
 
         {selectedEvents.length === 0 ? (
           <EmptyState
-            icon={<CalendarIcon size={40} color="#3B82F6" />}
+            icon={<CalendarIcon size={34} color="#3B82F6" />}
             title="No events on this day"
             subtitle="Tap a date or use Add to plan something."
             ctaTitle="Add an event"
@@ -365,7 +365,7 @@ function EventFormModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" onPress={() => {}}>
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8" onPress={() => {}}>
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-ink text-lg font-bold">{initial ? 'Edit event' : 'New event'}</Text>
             <Pressable onPress={onCancel} hitSlop={8} className="p-1 active:opacity-60">
@@ -434,7 +434,7 @@ function EventFormModal({
             <Pressable
               onPress={() => setReminder((r) => !r)}
               className={`flex-row items-center self-start gap-2 px-3 py-2.5 rounded-2xl border mb-1 ${
-                reminder ? 'border-accent bg-accent/10' : 'border-hairline'
+                reminder ? 'border-accent bg-accent/10' : 'border-line'
               }`}
             >
               <Bell size={16} color={reminder ? '#3B82F6' : T.muted} />

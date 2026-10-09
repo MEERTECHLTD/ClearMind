@@ -19,7 +19,7 @@ export function DateField({
   return (
     <View>
       {label ? <Text className="text-ink-muted text-xs mb-1.5 ml-1">{label}</Text> : null}
-      <Pressable onPress={() => setShow(true)} className="flex-row items-center justify-between bg-midnight-light rounded-2xl px-4 py-3.5 border border-hairline active:opacity-80">
+      <Pressable onPress={() => setShow(true)} className="flex-row items-center justify-between bg-midnight-light rounded-2xl px-4 py-3.5 border border-line active:opacity-80">
         <Text className={value ? 'text-ink' : 'text-ink-muted'}>{value || placeholder}</Text>
         <View className="flex-row items-center">
           {clearable && value ? (
@@ -58,7 +58,7 @@ export function TimeField({
   return (
     <View>
       {label ? <Text className="text-ink-muted text-xs mb-1.5 ml-1">{label}</Text> : null}
-      <Pressable onPress={() => setShow(true)} className="flex-row items-center justify-between bg-midnight-light rounded-2xl px-4 py-3.5 border border-hairline active:opacity-80">
+      <Pressable onPress={() => setShow(true)} className="flex-row items-center justify-between bg-midnight-light rounded-2xl px-4 py-3.5 border border-line active:opacity-80">
         <Text className={value ? 'text-ink' : 'text-ink-muted'}>{value || placeholder}</Text>
         <View className="flex-row items-center">
           {clearable && value ? (

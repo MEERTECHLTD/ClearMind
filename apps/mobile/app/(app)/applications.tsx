@@ -430,7 +430,7 @@ export default function ApplicationsScreen() {
   const Controls = (
     <View className="px-4 pt-4 pb-2">
       {/* Search */}
-      <View className="flex-row items-center bg-midnight-light rounded-2xl px-3 mb-3 border border-hairline">
+      <View className="flex-row items-center bg-midnight-light rounded-2xl px-3 mb-3 border border-line">
         <Search size={16} color={T.muted} />
         <TextInput
           value={query}
@@ -522,7 +522,7 @@ export default function ApplicationsScreen() {
           ))}
           <Pressable
             onPress={() => setShowNewWorkspace(true)}
-            className="flex-row items-center rounded-full px-3 py-1.5 border border-dashed border-hairline active:opacity-70"
+            className="flex-row items-center rounded-full px-3 py-1.5 border border-dashed border-line active:opacity-70"
           >
             <Share2 size={12} color="#60a5fa" />
             <Text className="text-accent text-xs ml-1">Share / New</Text>
@@ -558,7 +558,7 @@ export default function ApplicationsScreen() {
 
       {items.length === 0 ? (
         <EmptyState
-          icon={<Briefcase size={40} color="#3B82F6" />}
+          icon={<Briefcase size={34} color="#3B82F6" />}
           title={activeWsId ? 'No applications here yet' : 'No applications yet'}
           subtitle={activeWsId ? 'Add the first application to this shared workspace.' : 'Add your first application to track jobs, grants, and scholarships.'}
           ctaTitle="New Application"
@@ -646,7 +646,7 @@ function WsChip({
   return (
     <Pressable
       onPress={onPress}
-      className={`flex-row items-center rounded-full px-3 py-1.5 border ${active ? 'bg-accent border-accent' : 'border-hairline'} active:opacity-80`}
+      className={`flex-row items-center rounded-full px-3 py-1.5 border ${active ? 'bg-accent border-accent' : 'border-line'} active:opacity-80`}
     >
       {icon}
       <Text className={`text-xs ml-1 ${active ? 'text-white font-semibold' : 'text-ink-muted'}`} numberOfLines={1} style={{ maxWidth: 150 }}>
@@ -843,7 +843,7 @@ function StatusPickerModal({
   return (
     <Modal visible={!!app} transparent animationType="fade" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight-light rounded-t-3xl border-t border-hairline pb-8 pt-2" onPress={() => {}}>
+        <Pressable className="bg-midnight-light rounded-t-3xl border-t border-line pb-8 pt-2" onPress={() => {}}>
           <Text className="text-ink-muted text-xs text-center py-2">Move to stage</Text>
           {APPLICATION_STATUSES.map((s) => {
             const sel = app?.status === s.value;
@@ -987,7 +987,7 @@ function ApplicationFormModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5" style={{ maxHeight: '92%' }} onPress={() => {}}>
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5" style={{ maxHeight: '92%' }} onPress={() => {}}>
             <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit Application' : 'New Application'}</Text>
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               {/* Identity first */}
@@ -1027,7 +1027,7 @@ function ApplicationFormModal({
 
               {/* Type-specific detail block */}
               {grant ? (
-                <View className="rounded-2xl border border-hairline p-3 mb-3" style={{ gap: 12 }}>
+                <View className="rounded-2xl border border-line p-3 mb-3" style={{ gap: 12 }}>
                   <Text className="text-ink-muted text-xs uppercase">{type === 'grant' ? 'Grant details' : 'Scholarship details'}</Text>
                   {funderShown ? (
                     <Input label="Funder / Awarding Body" placeholder="e.g. NSF, Gates Foundation" value={funder} onChangeText={setFunder} />
@@ -1103,7 +1103,7 @@ function ApplicationFormModal({
                       hitSlop={6}
                       className="active:opacity-70"
                     >
-                      {r.done ? <Check size={20} color="#34d399" /> : <View className="w-5 h-5 rounded border border-hairline" />}
+                      {r.done ? <Check size={20} color="#34d399" /> : <View className="w-5 h-5 rounded border border-line" />}
                     </Pressable>
                     <View className="flex-1">
                       <Input placeholder="e.g. CV, cover letter…" value={r.label} onChangeText={(v) => setRequirements(requirements.map((x, j) => (j === i ? { ...x, label: v } : x)))} />
@@ -1217,7 +1217,7 @@ function NewWorkspaceModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '92%' }} onPress={() => {}}>
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8" style={{ maxHeight: '92%' }} onPress={() => {}}>
             <View className="flex-row items-center mb-4">
               <Share2 size={18} color="#60a5fa" />
               <Text className="text-ink text-lg font-bold ml-2">Share a workspace</Text>
@@ -1270,7 +1270,7 @@ function NewWorkspaceModal({
                   They'll see this workspace next time they open ClearMind signed in with that email.
                 </Text>
                 <Pressable onPress={() => setSeed(!seed)} className="flex-row items-center mb-4 active:opacity-70">
-                  <View className={`w-5 h-5 rounded mr-2 items-center justify-center ${seed ? 'bg-accent' : 'border border-hairline'}`}>
+                  <View className={`w-5 h-5 rounded mr-2 items-center justify-center ${seed ? 'bg-accent' : 'border border-line'}`}>
                     {seed ? <Check size={14} color="#fff" /> : null}
                   </View>
                   <Text className="text-ink text-sm">
@@ -1351,7 +1351,7 @@ function MembersModal({
     <Modal visible={!!workspace} transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '90%' }} onPress={() => {}}>
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8" style={{ maxHeight: '90%' }} onPress={() => {}}>
             {workspace ? (
               <>
                 <View className="flex-row items-center mb-1">

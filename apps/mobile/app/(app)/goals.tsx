@@ -59,7 +59,7 @@ export default function GoalsScreen() {
 
       {goals.length === 0 ? (
         <EmptyState
-          icon={<Target size={40} color="#3B82F6" />}
+          icon={<Target size={34} color="#3B82F6" />}
           title="No goals yet"
           subtitle="Set a goal and watch your progress grow."
           ctaTitle="Set a goal"
@@ -165,7 +165,7 @@ function GoalFormModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
           <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit goal' : 'New goal'}</Text>
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Input placeholder="What do you want to achieve?" value={title} onChangeText={setTitle} autoFocus className="mb-3" />

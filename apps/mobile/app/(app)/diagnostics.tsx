@@ -81,7 +81,7 @@ export default function DiagnosticsScreen() {
         <Text className="text-ink-muted text-xs font-semibold mt-6 mb-2 ml-1">FEATURE FLAGS (STAGED ACTIVATION)</Text>
         <Card>
           {(Object.keys(FLAG_LABELS) as FlagKey[]).map((k, i) => (
-            <View key={k} className={`flex-row items-center justify-between py-2.5 ${i > 0 ? 'border-t border-hairline' : ''}`}>
+            <View key={k} className={`flex-row items-center justify-between py-2.5 ${i > 0 ? 'border-t border-line' : ''}`}>
               <Text className="text-ink text-sm flex-1 mr-3">{FLAG_LABELS[k]}</Text>
               <Switch
                 value={flags[k]}
@@ -119,7 +119,7 @@ export default function DiagnosticsScreen() {
             </View>
           ) : (
             logs.slice(0, 40).map((l, i) => (
-              <View key={i} className={`py-2 ${i > 0 ? 'border-t border-hairline' : ''}`}>
+              <View key={i} className={`py-2 ${i > 0 ? 'border-t border-line' : ''}`}>
                 <Text className={`text-xs font-semibold ${l.level === 'error' ? 'text-red-400' : l.level === 'warn' ? 'text-amber-400' : 'text-ink-muted'}`}>
                   {l.level.toUpperCase()} · {new Date(l.ts).toLocaleTimeString()}
                 </Text>

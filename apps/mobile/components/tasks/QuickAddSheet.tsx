@@ -20,6 +20,9 @@ export interface QuickAddDefaults {
   parentId?: string | null;
   labelIds?: string[];
   priority?: TaskPriority;
+  /** Pre-filled text — used by tools that turn something into a task (rant, log, application, mind-map node…). */
+  title?: string;
+  description?: string;
 }
 
 type Picker = null | 'date' | 'priority' | 'project' | 'labels';
@@ -79,7 +82,7 @@ export function QuickAddSheet({
   if (visible !== wasVisible) {
     setWasVisible(visible);
     if (visible) {
-      setText(''); setDescription(''); setShowDesc(false); setIgnore([]); setSchedule(null);
+      setText(defaults.title ?? ''); setDescription(defaults.description ?? ''); setShowDesc(!!defaults.description); setIgnore([]); setSchedule(null);
       setPriority(null); setProjectId(undefined); setLabelIds(null); setAdded(null);
     }
   }
@@ -135,7 +138,7 @@ export function QuickAddSheet({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       const where = resolved.projectId ? projectById.get(resolved.projectId)?.title ?? newProjectName ?? 'project' : 'Inbox';
       setAdded(`Added “${parsed.title}” to ${defaults.parentId ? 'subtasks' : where}`);
-      setText(''); setDescription(''); setShowDesc(false); setIgnore([]); setSchedule(null);
+      setText(defaults.title ?? ''); setDescription(defaults.description ?? ''); setShowDesc(!!defaults.description); setIgnore([]); setSchedule(null);
       setPriority(null); setProjectId(undefined); setLabelIds(null);
       input.current?.focus();
     } finally {

@@ -104,7 +104,7 @@ export default function DailyLogScreen() {
 
       {entries.length === 0 ? (
         <EmptyState
-          icon={<NotebookPen size={40} color="#3B82F6" />}
+          icon={<NotebookPen size={34} color="#3B82F6" />}
           title="No logs yet"
           subtitle="Document your failures and small wins."
           ctaTitle="Write your first entry"
@@ -200,7 +200,7 @@ function LogFormModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
           <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit entry' : 'New log entry'}</Text>
 
           <Text className="text-ink-muted text-xs mb-1.5 ml-1">Date</Text>

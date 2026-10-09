@@ -665,7 +665,7 @@ export default function IrisScreen() {
       <Screen padded={false}>
         <AppHeader title="Iris" subtitle="Your AI co-pilot for the journey" />
         <EmptyState
-          icon={<Sparkles size={40} color="#a855f7" />}
+          icon={<Sparkles size={34} color="#a855f7" />}
           title="AI not configured"
           subtitle="Add your Gemini API key (EXPO_PUBLIC_GEMINI_API_KEY) to chat with Iris and let her act on your ClearMind workspace."
         />
@@ -728,8 +728,8 @@ export default function IrisScreen() {
         />
       )}
 
-      <View className="flex-row items-end px-3 py-3 border-t border-hairline bg-midnight">
-        <View className="flex-1 bg-midnight-light border border-hairline rounded-2xl px-4 py-1 mr-2">
+      <View className="flex-row items-end px-3 py-3 border-t border-line bg-midnight">
+        <View className="flex-1 bg-midnight-light border border-line rounded-2xl px-4 py-1 mr-2">
           <TextInput
             value={input}
             onChangeText={setInput}
@@ -770,7 +770,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       )}
       <View
         className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-          isUser ? 'bg-accent rounded-tr-sm' : 'bg-midnight-light border border-hairline rounded-tl-sm'
+          isUser ? 'bg-accent rounded-tr-sm' : 'bg-midnight-light border border-line rounded-tl-sm'
         }`}
       >
         <Text className={`text-[15px] leading-relaxed ${isUser ? 'text-white' : 'text-ink'}`}>{message.text}</Text>
@@ -791,7 +791,7 @@ function TypingIndicator() {
       <View className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-500/40 items-center justify-center mr-2">
         <Bot size={16} color="#c084fc" />
       </View>
-      <View className="bg-midnight-light border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 flex-row items-center">
+      <View className="bg-midnight-light border border-line rounded-2xl rounded-tl-sm px-4 py-3 flex-row items-center">
         <ActivityIndicator color={T.muted} size="small" />
         <Text className="text-ink-muted text-sm ml-2">Iris is thinking…</Text>
       </View>

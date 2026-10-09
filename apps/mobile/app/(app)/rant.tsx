@@ -225,7 +225,7 @@ export default function RantScreen() {
         ListEmptyComponent={
           <View className="px-4">
             <EmptyState
-              icon={<Flame size={40} color="#f87171" />}
+              icon={<Flame size={34} color="#f87171" />}
               title="No rants yet"
               subtitle="Nothing on your chest yet. When something breaks you, this is the place."
             />
@@ -272,7 +272,7 @@ function AdviceModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View className="flex-1 bg-black/60 justify-end">
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8 max-h-[85%]">
+        <View className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8 max-h-[85%]">
           <View className="flex-row items-center mb-4">
             <View className="w-8 h-8 rounded-full bg-accent items-center justify-center mr-2">
               <Bot size={18} color="#fff" />
@@ -285,7 +285,7 @@ function AdviceModal({
 
           <ScrollView showsVerticalScrollIndicator={false}>
             {concern ? (
-              <View className="bg-midnight-light border border-hairline rounded-2xl p-3.5 mb-4">
+              <View className="bg-midnight-light border border-line rounded-2xl p-3.5 mb-4">
                 <Text className="text-ink-muted text-xs mb-1">Your concern</Text>
                 <Text className="text-ink-muted text-sm italic">"{concern}"</Text>
               </View>

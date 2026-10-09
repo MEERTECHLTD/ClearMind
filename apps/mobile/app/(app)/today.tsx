@@ -15,6 +15,7 @@ import { STORES } from '../../services/db';
 import { useToast } from '../../components/ui';
 import { useDayTick } from '../../hooks/useDayTick';
 import { T } from '../../lib/theme';
+import { AcrossClearMind } from '../../components/today/AcrossClearMind';
 
 /** Today — the daily command center. */
 export default function TodayScreen() {
@@ -63,6 +64,7 @@ export default function TodayScreen() {
   const pct = Math.min(1, day.goal ? day.completed / day.goal : 0);
   const tomorrow = toISODate(addDays(now, 1));
   const header = (
+    <View>
     <Pressable onPress={() => router.push('/(app)/productivity')} className="mx-4 mt-1 mb-1 p-3 rounded-2xl bg-midnight-light border border-line flex-row items-center" accessibilityRole="button" accessibilityLabel={`${day.completed} of ${day.goal} tasks done today, ${streak} day streak`}>
       <View className="flex-1">
         <Text className="text-ink text-sm font-semibold">{day.met ? 'Daily goal reached 🎉' : `${day.completed}/${day.goal} done today`}</Text>
@@ -73,6 +75,8 @@ export default function TodayScreen() {
         <Text className="text-ink font-bold ml-1">{streak}</Text>
       </View>
     </Pressable>
+    <AcrossClearMind today={today} projects={ui.projects} />
+    </View>
   );
 
   const count = overdue.length + due.length;

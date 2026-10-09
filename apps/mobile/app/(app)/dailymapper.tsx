@@ -487,7 +487,7 @@ export default function DailyMapperScreen() {
         ListEmptyComponent={
           <View className="px-2 pt-6">
             <EmptyState
-              icon={<Clock size={44} color="#3B82F6" />}
+              icon={<Clock size={34} color="#3B82F6" />}
               title="No time blocks for this day"
               subtitle="Plan your day in focused time blocks — tap a preset below or the + button."
             />
@@ -496,7 +496,7 @@ export default function DailyMapperScreen() {
                 <Pressable
                   key={`${p.start}-${p.end}`}
                   onPress={() => openAdd(p)}
-                  className="bg-midnight-light border border-hairline rounded-full px-3 py-2 active:opacity-70"
+                  className="bg-midnight-light border border-line rounded-full px-3 py-2 active:opacity-70"
                 >
                   <Text className="text-ink-muted text-xs">
                     {formatTime(p.start)} – {formatTime(p.end)}
@@ -698,7 +698,7 @@ function EntryFormModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '90%' }}>
+          <Pressable className="bg-midnight rounded-t-3xl border-t border-line" style={{ maxHeight: '90%' }}>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingBottom: 28 }}>
               <Text className="text-ink text-lg font-bold mb-4">
                 {editing ? 'Edit time block' : 'New time block'}
@@ -779,11 +779,11 @@ function EntryFormModal({
               {/* Make permanent */}
               <Pressable
                 onPress={() => set('makePermanent', !form.makePermanent)}
-                className="flex-row items-center bg-midnight-light border border-hairline rounded-2xl px-4 py-3 active:opacity-80"
+                className="flex-row items-center bg-midnight-light border border-line rounded-2xl px-4 py-3 active:opacity-80"
               >
                 <View
                   className={`w-5 h-5 rounded-md mr-3 items-center justify-center border ${
-                    form.makePermanent ? 'bg-accent border-accent' : 'border-hairline'
+                    form.makePermanent ? 'bg-accent border-accent' : 'border-line'
                   }`}
                 >
                   {form.makePermanent ? <Star size={13} color="#fff" /> : null}
@@ -856,7 +856,7 @@ function DatePickModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line px-5 pt-5 pb-8">
           <Text className="text-ink text-lg font-bold mb-4">{title}</Text>
           <DateField label="Date" value={date} clearable={false} onChange={(v) => setDate(v || date)} />
           <View className="flex-row mt-6" style={{ gap: 12 }}>
@@ -900,7 +900,7 @@ function TemplatesModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/60 justify-end" onPress={onClose}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '85%' }}>
+        <Pressable className="bg-midnight rounded-t-3xl border-t border-line" style={{ maxHeight: '85%' }}>
           <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
             <View className="flex-row items-center">
               <Star size={18} color="#f59e0b" />
@@ -936,7 +936,7 @@ function TemplatesModal({
                     {list.map((t) => (
                       <View
                         key={t.id}
-                        className="flex-row items-center bg-midnight-light border border-hairline rounded-2xl px-3 py-3 mb-2"
+                        className="flex-row items-center bg-midnight-light border border-line rounded-2xl px-3 py-3 mb-2"
                       >
                         <View
                           className="w-1.5 h-9 rounded-full mr-3"
@@ -961,7 +961,7 @@ function TemplatesModal({
             )}
           </ScrollView>
 
-          <View className="px-5 pb-8 pt-2 border-t border-hairline">
+          <View className="px-5 pb-8 pt-2 border-t border-line">
             <Pressable
               onPress={onClose}
               className="items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80"

@@ -167,7 +167,7 @@ function NoteScreen({ id, startEditing, goTo, goBack }: { id: string; startEditi
     return (
       <Screen padded={false}>
         <Header onBack={goBack} />
-        <EmptyState icon={<FileQuestion size={40} color={T.faint} />} title="Note not found" subtitle="It may have been deleted or not synced to this device yet." ctaTitle="All notes" onCta={() => router.replace('/(app)/notes')} />
+        <EmptyState icon={<FileQuestion size={34} color={T.faint} />} title="Note not found" subtitle="It may have been deleted or not synced to this device yet." ctaTitle="All notes" onCta={() => router.replace('/(app)/notes')} />
       </Screen>
     );
   }

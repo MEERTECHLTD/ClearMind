@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Flame, Trophy, Target, TrendingUp, TrendingDown, Settings2, CircleCheck } from 'lucide-react-native';
 import { productivitySummary, intervalSummary, LEVELS, resolvePreferences, type Interval } from '@clearmind/shared/domain';
 import { WEEKDAY_SHORT, parseISODate, MONTH_SHORT } from '@clearmind/shared/tasks';
 import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { useCollection } from '../../hooks/useCollection';
 import { STORES } from '../../services/db';
-import { Screen, Spinner } from '../../components/ui';
+import { Screen, Spinner, PageHeader, SegmentedControl } from '../../components/ui';
+import { LifeInsights } from '../../components/insights/LifeInsights';
 import { Segments } from '../../components/settings/ui';
 import { OfflineBanner, IconButton } from '../../components/tasks/TaskScreen';
 import { projectColor } from '../../services/taskActions';
@@ -39,6 +40,8 @@ function Bar({ value, max, highlight, label, sub }: { value: number; max: number
 
 export default function ProductivityScreen() {
   const router = useRouter();
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<'tasks' | 'life'>(tabParam === 'life' ? 'life' : 'tasks');
   const ui = useTaskUI();
   const { items: completions, loading } = useCollection<Completion>(STORES.COMPLETIONS);
   const { items: prefItems } = useCollection<Preferences>(STORES.PREFERENCES);
@@ -61,11 +64,19 @@ export default function ProductivityScreen() {
 
   return (
     <Screen padded={false}>
-      <View className="flex-row items-center px-4 pt-2 pb-2">
-        <Text className="text-ink text-[26px] font-extrabold flex-1" accessibilityRole="header">Productivity</Text>
-        <IconButton label="Productivity settings" onPress={() => router.push('/(app)/settings/productivity')}><Settings2 size={22} color={T.ink} /></IconButton>
-      </View>
+      <PageHeader
+        title="Progress"
+        subtitle={tab === 'tasks' ? 'Task momentum, goals and streaks' : 'Insights across all of ClearMind'}
+        right={<IconButton label="Productivity settings" onPress={() => router.push('/(app)/settings/productivity')}><Settings2 size={22} color={T.ink} /></IconButton>}
+      />
       <OfflineBanner />
+      <SegmentedControl<'tasks' | 'life'>
+        segments={[{ label: 'Tasks', value: 'tasks' }, { label: 'Life', value: 'life' }]}
+        value={tab}
+        onChange={setTab}
+        className="mx-4 mb-1"
+      />
+      {tab === 'life' ? <LifeInsights /> : (
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <Card>
           <View className="flex-row items-center">
@@ -155,6 +166,7 @@ export default function ProductivityScreen() {
         </Pressable>
         <Text className="text-ink-muted text-xs text-center mt-6 mx-8">Momentum: P1 4 · P2 3 · P3 2 · P4 1 points, +1 when on time, +5 per daily goal and +20 per weekly goal met, plus your streak.</Text>
       </ScrollView>
+      )}
     </Screen>
   );
 }
