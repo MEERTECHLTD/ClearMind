@@ -106,7 +106,8 @@ const TopBar: React.FC<TopBarProps> = ({
   }, [searchQuery]);
 
   const handleSearchResultClick = (result: SearchResult) => {
-    onNavigate(result.type === 'task' ? 'tasks' : result.type === 'project' ? 'projects' : 'notes');
+    // Open the exact item: the task's detail, the project page (Tasks | Plan), or the note.
+    window.location.hash = result.type === 'task' ? `today?task=${encodeURIComponent(result.id)}` : result.type === 'project' ? `project/${encodeURIComponent(result.id)}` : `notes/${encodeURIComponent(result.id)}`;
     setSearchQuery('');
     setIsSearchOpen(false);
   };
@@ -133,7 +134,7 @@ const TopBar: React.FC<TopBarProps> = ({
   }, []);
 
   const handleNotificationClick = () => {
-      onNavigate('tasks');
+      onNavigate('today');
       setIsNotificationsOpen(false);
   };
 

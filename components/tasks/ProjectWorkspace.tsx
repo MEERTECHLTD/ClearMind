@@ -9,7 +9,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Hash, ChevronLeft, ChevronRight, ChevronDown, MoreHorizontal, Pencil, Trash2, Archive, ArchiveRestore, FolderPlus,
-  Plus, Star, Search as SearchIcon, X, Rows3, Columns3, ArrowUpDown, ArrowUp, ArrowDown, MoveRight, CircleCheck, Check,
+  Plus, Star, ClipboardList, Search as SearchIcon, X, Rows3, Columns3, ArrowUpDown, ArrowUp, ArrowDown, MoveRight, CircleCheck, Check,
 } from 'lucide-react';
 import type { Completion, Preferences, Project, Section, Task } from '../../types';
 import { projectTasks, orderedProjects, compareTasks, compareByOrder, priorityOf, formatDueDate } from '../../shared/tasks';
@@ -26,6 +26,14 @@ import {
   setSectionCollapsed, setProjectView, toggleProjectFavorite, moveToSection,
 } from './actions';
 import { ProjectForm, go } from './TaskViews';
+import { Segmented } from '../views/PageShell';
+import { useHashTab } from '../views/useHashTab';
+import { ProjectPlanPanel } from '../projects/PlanView';
+import { hasPlan, formatDate } from '../../utils/planModel';
+
+/** Tasks | Plan — the planner and the task list are the same Project record. */
+const PROJECT_TABS = ['tasks', 'plan'] as const;
+type ProjectTab = (typeof PROJECT_TABS)[number];
 
 type Sort = 'manual' | 'due' | 'priority' | 'name';
 const SORT_LABEL: Record<Sort, string> = { manual: 'Manual order', due: 'Due date', priority: 'Priority', name: 'Alphabetical' };
@@ -178,6 +186,7 @@ export function ProjectWorkspace({ id }: { id: string }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const project = projectMap.get(id);
+  const [tab, setTab] = useHashTab<ProjectTab>(PROJECT_TABS, 'tasks');
 
   useEffect(() => {
     setSortState(readPref<Sort>(`cm.project.${id}.sort`, 'manual', ['manual', 'due', 'priority', 'name']));
@@ -392,7 +401,7 @@ export function ProjectWorkspace({ id }: { id: string }) {
 
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden bg-white dark:bg-[#05050A]">
-      <div className={`${view === 'board' ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-4 sm:px-8 pt-6 pb-24`}>
+      <div className={`${view === 'board' && tab === 'tasks' ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-4 sm:px-8 pt-6 pb-24`}>
         {/* Title row */}
         <header className="flex items-center gap-1.5 mb-3">
           <button onClick={() => history.back()} className={`p-1 -ml-1 rounded-md ${cx.hover} ${cx.muted}`} aria-label="Back"><ChevronLeft size={20} /></button>
@@ -411,6 +420,18 @@ export function ProjectWorkspace({ id }: { id: string }) {
           <button onClick={(e) => setMenu({ kind: 'project', el: e.currentTarget })} className={`p-1.5 rounded-md ${cx.hover} ${cx.muted}`} aria-label="Project options"><MoreHorizontal size={18} /></button>
         </header>
 
+        <div className="mb-4">
+          <Segmented<ProjectTab> label="Project view" value={tab} onChange={setTab} options={[{ value: 'tasks', label: 'Tasks' }, { value: 'plan', label: 'Plan' }]} />
+        </div>
+
+        {tab === 'plan' ? <ProjectPlanPanel project={project} /> : (<>
+        {hasPlan(project) ? (
+          <button onClick={() => setTab('plan')} className={`w-full flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border ${cx.border} ${cx.hover} text-left text-sm`} aria-label="Open project plan">
+            <ClipboardList size={15} className={cx.muted} />
+            <span className={`flex-1 truncate ${cx.text}`}>{[project.status, project.healthStatus, project.deadline ? `due ${formatDate(project.deadline)}` : null, `${project.progress ?? 0}% planned`].filter(Boolean).join(' · ')}</span>
+            <ChevronRight size={15} className={cx.faint} />
+          </button>
+        ) : null}
         <Tracker project={project} sections={sections} />
 
         {/* Toolbar: search · view · sort */}
@@ -470,11 +491,13 @@ export function ProjectWorkspace({ id }: { id: string }) {
         ) : null}
         {searching && !open.length && !(showDone && done.length) ? <Empty icon={<SearchIcon size={30} className={cx.muted} />} title="No matching tasks" subtitle={`Nothing in ${project.title} matches “${query.trim()}”.`} /> : null}
         {!searching && !hasAnything ? <Empty icon={<CircleCheck size={32} style={{ color }} />} title="No tasks here yet" subtitle="Add a task, or add a section to organise work." /> : null}
+        </>)}
       </div>
 
       {/* Menus */}
       <Popover anchor={menu?.kind === 'project' ? menu.el : null} open={menu?.kind === 'project'} onClose={closeMenu} width={230}>
         <MenuItem icon={<Pencil size={15} />} label="Edit project" onClick={() => { closeMenu(); setForm('edit'); }} />
+        <MenuItem icon={<ClipboardList size={15} />} label={tab === 'plan' ? 'Show tasks' : 'Show plan'} onClick={() => { closeMenu(); setTab(tab === 'plan' ? 'tasks' : 'plan'); }} />
         <MenuItem icon={<FolderPlus size={15} />} label="Add sub-project" onClick={() => { closeMenu(); setForm('child'); }} />
         <MenuItem icon={<Rows3 size={15} />} label="Add section" onClick={() => { closeMenu(); setAddingSection(true); }} />
         <MenuItem icon={<Star size={15} />} label={project.favorite ? 'Remove from favourites' : 'Add to favourites'} onClick={() => { closeMenu(); toggleProjectFavorite(project); }} />
