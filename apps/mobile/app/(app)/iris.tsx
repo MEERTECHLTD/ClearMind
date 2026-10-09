@@ -12,6 +12,8 @@ import type {
   DailyMapperTemplate, UserProfile, ProjectCategory,
 } from '@clearmind/shared';
 import { dbService, STORES } from '../../services/db';
+import { createTask, toggleTask, deleteTask, createProject, updateProject, domainState } from '../../services/taskActions';
+import { logWarn } from '../../lib/logger';
 import { newId } from '../../lib/id';
 import {
   generateIrisResponse, parseActionCommands, isApiConfigured,
@@ -146,10 +148,6 @@ function formatTime(value: Date | string): string {
   }
 }
 
-const getNextTaskNumber = async (): Promise<number> => {
-  const allTasks = await dbService.getAll<Task>(STORES.TASKS);
-  return allTasks.reduce((max, t) => Math.max(max, t.taskNumber || 0), 0) + 1;
-};
 
 // Execute every action Iris requested. Ported from web IrisView.executeActions,
 // using newId() for ids and dbService.put/delete/hardDelete for persistence.
@@ -157,21 +155,15 @@ async function executeActions(actions: ParsedActions): Promise<ActionsSummary> {
   const summary = emptySummary();
   const now = () => new Date().toISOString();
 
+  // Tasks go through the shared domain layer (same as Quick Add): numbering,
+  // default reminders, recurrence, activity and field-level sync.
   for (const task of actions.tasks) {
-    const taskNumber = await getNextTaskNumber();
-    const newTask: Task = {
-      id: newId(),
-      title: task.title,
-      completed: false,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      dueTime: task.dueTime,
-      description: task.description,
-      taskNumber,
-      notified: false,
-    };
-    await dbService.put(STORES.TASKS, newTask);
-    summary.tasksCreated.push(task.title);
+    try {
+      await createTask({ title: task.title, description: task.description, dueDate: task.dueDate || null, dueTime: task.dueTime || null, priority: task.priority });
+      summary.tasksCreated.push(task.title);
+    } catch (e) {
+      logWarn(`Iris could not create task "${task.title}": ${String(e)}`);
+    }
   }
 
   for (const note of actions.notes) {
@@ -214,20 +206,21 @@ async function executeActions(actions: ParsedActions): Promise<ActionsSummary> {
     summary.goalsCreated.push(goal.title);
   }
 
+  // Projects: one record for tasks + plan, created like Browse/Projects do.
   for (const project of actions.projects) {
-    const newProject: Project = {
-      id: newId(),
-      title: project.title,
-      description: project.description,
-      status: project.status || 'In Progress',
-      progress: 0,
-      priority: project.priority || 'Medium',
-      deadline: project.deadline,
-      tags: project.tags || [],
-      category: project.category as ProjectCategory,
-    };
-    await dbService.put(STORES.PROJECTS, newProject);
-    summary.projectsCreated.push(project.title);
+    try {
+      const created = createProject({ title: project.title, description: project.description || null });
+      updateProject(created, {
+        status: project.status || 'In Progress',
+        priority: project.priority || 'Medium',
+        deadline: project.deadline,
+        tags: project.tags || [],
+        category: project.category as ProjectCategory,
+      });
+      summary.projectsCreated.push(project.title);
+    } catch (e) {
+      logWarn(`Iris could not create project "${project.title}": ${String(e)}`);
+    }
   }
 
   for (const milestone of actions.milestones) {
@@ -381,19 +374,21 @@ async function executeActions(actions: ParsedActions): Promise<ActionsSummary> {
     }
   }
 
-  const allTasks = await dbService.getAll<Task>(STORES.TASKS);
+  // Complete / delete via the domain ops too, so recurring tasks roll forward,
+  // completions count toward Progress, and deletes cascade to sub-tasks.
+  const liveTasks = () => domainState().tasks.filter((t) => !t.deleted);
   for (const taskTitle of actions.completedTasks) {
-    const task = allTasks.find((t) => t.title.toLowerCase() === taskTitle.toLowerCase() && !t.completed);
+    const task = liveTasks().find((t) => t.title.toLowerCase() === taskTitle.toLowerCase() && !t.completed);
     if (task) {
-      await dbService.put(STORES.TASKS, { ...task, completed: true });
+      await toggleTask(task);
       summary.tasksCompleted.push(task.title);
     }
   }
 
   for (const taskTitle of actions.deletedTasks) {
-    const task = allTasks.find((t) => t.title.toLowerCase() === taskTitle.toLowerCase());
+    const task = liveTasks().find((t) => t.title.toLowerCase() === taskTitle.toLowerCase());
     if (task) {
-      await dbService.delete(STORES.TASKS, task.id);
+      await deleteTask(task);
       summary.tasksDeleted.push(task.title);
     }
   }
