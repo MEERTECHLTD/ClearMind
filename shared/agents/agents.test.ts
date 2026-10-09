@@ -93,6 +93,24 @@ describe('tokens & auth', () => {
     expect(await call(full, 'tasks_create', { title: 'x', due_date: 'tomorrow' })).toMatchObject({ ok: false, error: { code: 'invalid' } });
     expect(await call(full, 'nope_tool')).toMatchObject({ ok: false, error: { code: 'not_found' } });
   });
+  it('rejects expired tokens (OAuth access tokens carry expiresAt)', async () => {
+    const t = await issue('Connector', ['tasks:read'], { expiresAt: new Date(Date.now() - 1000).toISOString() });
+    await expect(authenticate(repo, t, sha256, 'mcp')).rejects.toThrow(/expired/);
+    const live = await issue('Connector2', ['tasks:read'], { expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    await expect(authenticate(repo, live, sha256, 'mcp')).resolves.toMatchObject({ uid: UID });
+  });
+  it('validates argument types at the boundary and blocks prototype keys', async () => {
+    expect(await call(full, 'tasks_create', { title: { nested: true } })).toMatchObject({ ok: false, error: { code: 'invalid', message: expect.stringMatching(/title must be string/) } });
+    expect(await call(full, 'tasks_create', JSON.parse('{"title":"x","__proto__":{"admin":true}}'))).toMatchObject({ ok: false, error: { code: 'invalid' } });
+    expect(await call(full, 'tasks_create', { title: 'x', priority: 'P1' })).toMatchObject({ ok: true });
+  });
+  it('a token for one user can never address another user\'s data', async () => {
+    // The uid comes from the token itself and the lookup key is sha256(whole token):
+    // swapping the uid inside a valid token yields an unknown hash.
+    const t = await issue('Mine', ['tasks:read']);
+    const forged = t.replace(UID, 'OtherUser123OtherUser1');
+    await expect(authenticate(repo, forged, sha256, 'mcp')).rejects.toThrow(/Unknown token/);
+  });
 });
 
 describe('example agent workflows', () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
   base64url, verifyPkce, isAllowedRedirect, redirectMatches, parseScopes, validateRegistration, hostLabel,
-  protectedResourceMetadata, authorizationServerMetadata, redirectWith, DEFAULT_CONNECTOR_SCOPES,
+  protectedResourceMetadata, authorizationServerMetadata, redirectWith, DEFAULT_CONNECTOR_SCOPES, impersonatesKnownClient, CLIENT_ID_RE,
 } from './oauth';
 
 const shaBytes = async (s: string) => new Uint8Array(createHash('sha256').update(s).digest());
@@ -43,5 +43,23 @@ describe('oauth helpers', () => {
     const as = authorizationServerMetadata('https://clearmind.meertech.tech');
     expect(as).toMatchObject({ authorization_endpoint: 'https://clearmind.meertech.tech/oauth/authorize', code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] });
     expect(redirectWith('https://claude.ai/cb?x=1', { code: 'abc', state: 's t', empty: '' })).toBe('https://claude.ai/cb?x=1&code=abc&state=s+t');
+  });
+  it('blocks browser-internal / script redirect schemes and credentials in redirect URIs', () => {
+    for (const u of ['vbscript:x', 'blob:https://a.b/x', 'about:blank', 'data:text/html,x', 'file:///etc/passwd', 'https://user:pw@claude.ai/cb', 'chrome-extension://abc/cb', 'intent://x#Intent;end']) {
+      expect(isAllowedRedirect(u)).toBe(false);
+    }
+    expect(isAllowedRedirect('com.example.app:/oauth2redirect')).toBe(true);
+  });
+  it('resists look-alike client names and domains', () => {
+    expect(hostLabel('https://evilclaude.ai/cb')).toBe('evilclaude.ai');
+    expect(hostLabel('https://www.claude.ai/cb')).toBe('Claude');
+    expect(impersonatesKnownClient('Claude', ['https://claude.ai/api/mcp/auth_callback'])).toBe(false);
+    expect(impersonatesKnownClient('ChatGPT', ['https://chatgpt.com.evil.example/cb'])).toBe(true);
+    expect(impersonatesKnownClient('Claude Code', ['http://localhost:33418/callback'])).toBe(false);
+    const v = validateRegistration({ client_name: 'Claude\u202e', redirect_uris: ['https://evil.example/cb'], client_uri: 'javascript:alert(1)' }) as any;
+    expect(v.client).toEqual({ client_name: 'Claude (via evil.example)', redirect_uris: ['https://evil.example/cb'] });
+    expect(validateRegistration(null as any)).toMatchObject({ ok: false });
+    expect(CLIENT_ID_RE.test('cmc_' + 'a'.repeat(24))).toBe(true);
+    expect(CLIENT_ID_RE.test('cmc_../x')).toBe(false);
   });
 });

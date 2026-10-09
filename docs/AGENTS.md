@@ -81,7 +81,8 @@ https://clearmind.meertech.tech/api/mcp
 - The MCP endpoint answers unauthenticated requests with `401` and `WWW-Authenticate: Bearer resource_metadata=…`.
 - The client discovers `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, then registers itself (Dynamic Client Registration, public client).
 - It sends you to `/oauth/authorize` (consent) and exchanges the code with **PKCE S256** at `/api/oauth/token`.
-- The access token it receives is an ordinary scoped agent token. It shows up under *Connected agents* with the client's name, is audited, and can be revoked there; revoking also stops refreshes. Refresh tokens rotate on every use.
+- The access token it receives is an ordinary scoped agent token. It shows up under *Connected agents* with the client's name, is audited, and can be revoked there; revoking also stops refreshes. Access tokens expire after 24 hours (`expires_in`); clients refresh automatically. Refresh tokens rotate on every use and expire after 90 days unused.
+- Registration, consent, token and revoke requests are rate limited per IP (`429` + `Retry-After`).
 
 **For clients without OAuth**, a token can go in the URL instead: `https://clearmind.meertech.tech/api/mcp?key=cm_…`. URLs end up in logs and history, so prefer OAuth or the `Authorization` header.
 
@@ -158,6 +159,8 @@ clearmind import ~/Obsidian/RanaWallet --into Projects/RanaWallet   # whole vaul
   2. Only a second call carrying that token applies the change.
   3. Agents are instructed to show you the preview first.
 - **Bulk limit:** 200 items per call.
+- **Input validation:** arguments are type-checked against each tool's JSON Schema at the boundary (numeric strings and `"P1"`-style enums are coerced; unknown types, `__proto__`/`constructor` keys and oversized values are rejected with `invalid`).
+- **Failed authentication:** after 30 bad tokens from one IP in 10 minutes, MCP and REST answer `429` for the rest of the window.
 - **Idempotency:** pass `idempotency_key` to `tasks_create` (and captures). A retried request then returns the same task instead of a duplicate.
 - **Audit log:** every call is recorded under `users/{uid}/agentAudit`, with agent, tool, ok/error and a summary. It is visible in **Settings → Integrations**, and Activity shows agent changes with an "agent" badge.
 - **Attribution:** records written by agents carry `source` (`mcp`, `api` or `cli`) and `agent` (the token name).
