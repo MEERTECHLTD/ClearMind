@@ -2,7 +2,7 @@
 import { createRequire as __cr } from "module"; const require = __cr(import.meta.url);
 
 // api-src/oauth.ts
-import { createHash, randomBytes } from "node:crypto";
+import { createHash as createHash2, randomBytes } from "node:crypto";
 import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
 
 // server/firestoreRepo.ts
@@ -93,14 +93,27 @@ function adminProjectId() {
 // api-src/idToken.ts
 import { createPublicKey, createVerify } from "node:crypto";
 var CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com";
+var FETCH_TIMEOUT_MS = 4e3;
 var cache = null;
-async function certs() {
-  if (cache && cache.until > Date.now()) return cache.certs;
-  const r = await fetch(CERTS_URL);
-  if (!r.ok) throw new Error(`cert fetch ${r.status}`);
-  const maxAge = Number(/max-age=(\d+)/.exec(r.headers.get("cache-control") ?? "")?.[1] ?? 3600);
-  cache = { certs: await r.json(), until: Date.now() + maxAge * 1e3 };
-  return cache.certs;
+async function fetchCerts() {
+  let last;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(CERTS_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!r.ok) throw new Error(`cert fetch ${r.status}`);
+      const maxAge = Number(/max-age=(\d+)/.exec(r.headers.get("cache-control") ?? "")?.[1] ?? 3600);
+      cache = { certs: await r.json(), until: Date.now() + maxAge * 1e3 };
+      return cache.certs;
+    } catch (e) {
+      last = e;
+      if (attempt === 0) await new Promise((res) => setTimeout(res, 200));
+    }
+  }
+  throw last instanceof Error ? last : new Error("cert fetch failed");
+}
+async function certFor(kid) {
+  if (cache && cache.until > Date.now() && cache.certs[kid]) return cache.certs[kid];
+  return (await fetchCerts())[kid];
 }
 var b64json = (s) => JSON.parse(Buffer.from(s, "base64url").toString("utf8"));
 async function verifyFirebaseIdToken(token, projectId, now = Date.now()) {
@@ -110,7 +123,7 @@ async function verifyFirebaseIdToken(token, projectId, now = Date.now()) {
   const header = b64json(h);
   const claims = b64json(p);
   if (header.alg !== "RS256" || !header.kid) throw new Error("bad header");
-  const pem = (await certs())[header.kid];
+  const pem = await certFor(String(header.kid));
   if (!pem) throw new Error("unknown key id");
   const ok = createVerify("RSA-SHA256").update(`${h}.${p}`).verify(createPublicKey(pem), Buffer.from(sig, "base64url"));
   if (!ok) throw new Error("bad signature");
@@ -120,7 +133,7 @@ async function verifyFirebaseIdToken(token, projectId, now = Date.now()) {
   if (typeof claims.iat !== "number" || claims.iat > t + 300) throw new Error("issued in the future");
   if (typeof claims.auth_time === "number" && claims.auth_time > t + 300) throw new Error("bad auth_time");
   if (!claims.sub || typeof claims.sub !== "string" || claims.sub.length > 128) throw new Error("bad subject");
-  return { uid: claims.sub, email: claims.email };
+  return { uid: claims.sub, email: claims.email, emailVerified: claims.email_verified === true };
 }
 
 // shared/agents/tokens.ts
@@ -165,6 +178,9 @@ var DEFAULT_RATE_LIMIT = 60;
 
 // shared/agents/oauth.ts
 var OAUTH_CODE_TTL_MS = 5 * 60 * 1e3;
+var OAUTH_ACCESS_TTL_MS = 24 * 60 * 60 * 1e3;
+var OAUTH_REFRESH_TTL_MS = 90 * 24 * 60 * 60 * 1e3;
+var CLIENT_ID_RE = /^cmc_[A-Za-z0-9]{24}$/;
 var ALL_SCOPES = SCOPES.map((s) => s.scope);
 var DEFAULT_CONNECTOR_SCOPES = SCOPE_PRESETS.find((p) => p.id === "standard").scopes;
 function base64url(bytes) {
@@ -183,11 +199,12 @@ function isAllowedRedirect(uri) {
   } catch {
     return false;
   }
-  if (u.hash) return false;
+  if (u.hash || uri.length > 2e3 || u.username || u.password) return false;
   if (u.protocol === "https:") return true;
   if (u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "[::1]")) return true;
-  return /^[a-z][a-z0-9+.-]*:$/.test(u.protocol) && !["javascript:", "data:", "file:", "http:"].includes(u.protocol);
+  return /^[a-z][a-z0-9+.-]*:$/.test(u.protocol) && !BLOCKED_SCHEMES.includes(u.protocol);
 }
+var BLOCKED_SCHEMES = ["javascript:", "vbscript:", "data:", "file:", "http:", "blob:", "about:", "filesystem:", "ws:", "wss:", "ftp:", "mailto:", "tel:", "sms:", "chrome:", "chrome-extension:", "moz-extension:", "view-source:", "intent:"];
 function redirectMatches(registered, uri) {
   if (registered.includes(uri)) return true;
   try {
@@ -211,21 +228,48 @@ function parseScopes(scope) {
   return known.length ? [...new Set(known)] : DEFAULT_CONNECTOR_SCOPES;
 }
 function validateRegistration(body) {
-  const uris = Array.isArray(body?.redirect_uris) ? body.redirect_uris.filter((x) => typeof x === "string") : [];
+  if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "invalid_client_metadata", description: "Body must be a JSON object" };
+  const uris = Array.isArray(body.redirect_uris) ? body.redirect_uris.filter((x) => typeof x === "string") : [];
   if (!uris.length) return { ok: false, error: "invalid_redirect_uri", description: "redirect_uris is required" };
-  const bad = uris.find((u) => !isAllowedRedirect(u));
-  if (bad) return { ok: false, error: "invalid_redirect_uri", description: `Redirect URI not allowed: ${bad}` };
   if (uris.length > 10) return { ok: false, error: "invalid_client_metadata", description: "Too many redirect_uris" };
+  if (uris.some((u) => !isAllowedRedirect(u))) return { ok: false, error: "invalid_redirect_uri", description: "A redirect URI is not allowed (https, loopback http, or a native-app scheme; no fragments)" };
   const method = body.token_endpoint_auth_method ?? "none";
   if (method !== "none") return { ok: false, error: "invalid_client_metadata", description: 'Only public clients (token_endpoint_auth_method "none" with PKCE) are supported' };
-  const name = String(body.client_name ?? "").trim().slice(0, 80) || hostLabel(uris[0]);
-  return { ok: true, client: { client_name: name, redirect_uris: uris, ...typeof body.client_uri === "string" ? { client_uri: body.client_uri } : {} } };
+  const raw = String(body.client_name ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, 80);
+  const name = !raw ? hostLabel(uris[0]) : impersonatesKnownClient(raw, uris) ? `${raw} (via ${hostOf(uris[0])})` : raw;
+  const clientUri = typeof body.client_uri === "string" && /^https:\/\/[^\s]{1,500}$/.test(body.client_uri) ? body.client_uri : void 0;
+  return { ok: true, client: { client_name: name, redirect_uris: uris, ...clientUri ? { client_uri: clientUri } : {} } };
+}
+var KNOWN_CLIENTS = [
+  { pattern: /claude|anthropic/i, domains: ["claude.ai", "anthropic.com", "claude.com"] },
+  { pattern: /chatgpt|openai/i, domains: ["chatgpt.com", "openai.com"] }
+];
+var hostOf = (uri) => {
+  try {
+    return new URL(uri).host || new URL(uri).protocol.replace(/:$/, "");
+  } catch {
+    return "unknown";
+  }
+};
+var onDomain = (host, domain) => host === domain || host.endsWith(`.${domain}`);
+function impersonatesKnownClient(name, uris) {
+  return KNOWN_CLIENTS.some((k) => k.pattern.test(name) && uris.some((u) => {
+    let h = "";
+    try {
+      const x = new URL(u);
+      h = x.hostname;
+      if (x.protocol === "http:") return false;
+    } catch {
+      return true;
+    }
+    return !k.domains.some((d) => onDomain(h, d));
+  }));
 }
 function hostLabel(uri) {
   try {
     const h = new URL(uri).hostname.replace(/^www\./, "");
-    if (h.endsWith("claude.ai") || h.endsWith("anthropic.com")) return "Claude";
-    if (h.endsWith("chatgpt.com") || h.endsWith("openai.com")) return "ChatGPT";
+    if (["claude.ai", "anthropic.com", "claude.com"].some((d) => onDomain(h, d))) return "Claude";
+    if (["chatgpt.com", "openai.com"].some((d) => onDomain(h, d))) return "ChatGPT";
     return h || "MCP client";
   } catch {
     return "MCP client";
@@ -265,80 +309,272 @@ function redirectWith(uri, params) {
 }
 
 // api-src/http.ts
-async function readJson(req) {
-  if (req.body !== void 0) return typeof req.body === "string" ? JSON.parse(req.body || "null") : req.body;
+import { randomUUID } from "node:crypto";
+var HttpError = class extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+};
+var MAX_JSON_BYTES = 1e6;
+var MAX_FORM_BYTES = 64 * 1024;
+async function readRaw(req, limit) {
   const chunks = [];
   let size = 0;
   for await (const c of req) {
     size += c.length;
-    if (size > 1e6) throw new Error("payload too large");
+    if (size > limit) throw new HttpError(413, "payload_too_large", `Request body exceeds ${limit} bytes.`);
     chunks.push(c);
   }
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : null;
+  return Buffer.concat(chunks).toString("utf8");
+}
+function parseJson(raw) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "invalid_json", "Request body is not valid JSON.");
+  }
+}
+async function readJson(req) {
+  if (req.body !== void 0) {
+    if (typeof req.body === "string") {
+      if (req.body.length > MAX_JSON_BYTES) throw new HttpError(413, "payload_too_large", `Request body exceeds ${MAX_JSON_BYTES} bytes.`);
+      return parseJson(req.body);
+    }
+    return req.body;
+  }
+  return parseJson(await readRaw(req, MAX_JSON_BYTES));
+}
+async function readForm(req) {
+  let obj;
+  if (req.body && typeof req.body === "object") obj = req.body;
+  else {
+    const raw = typeof req.body === "string" ? req.body : await readRaw(req, MAX_FORM_BYTES);
+    if (raw.length > MAX_FORM_BYTES) throw new HttpError(413, "payload_too_large", "Request body too large.");
+    const type = String(req.headers["content-type"] ?? "");
+    if (type.includes("application/json")) {
+      try {
+        obj = JSON.parse(raw || "{}");
+      } catch {
+        obj = {};
+      }
+    } else obj = Object.fromEntries(new URLSearchParams(raw));
+  }
+  const out = /* @__PURE__ */ Object.create(null);
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    for (const [k, v] of Object.entries(obj)) if (typeof v === "string" || typeof v === "number") out[k] = String(v);
+  }
+  return out;
 }
 function sendJson(res, status, body) {
   res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.end(JSON.stringify(body));
 }
 function originOf(req) {
+  const pinned = process.env.PUBLIC_ORIGIN?.replace(/\/+$/, "");
+  if (pinned) return pinned;
   const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "clearmind.meertech.tech";
   const proto = req.headers["x-forwarded-proto"] ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto.split(",")[0]}://${host.split(",")[0]}`;
+  return `${proto.split(",")[0].trim()}://${host.split(",")[0].trim()}`;
 }
+function clientIp(req) {
+  const real = req.headers["x-real-ip"];
+  if (typeof real === "string" && real) return real.trim();
+  const xff = req.headers["x-forwarded-for"];
+  const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
+  return first || req.socket?.remoteAddress || "unknown";
+}
+var REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+function requestIdFor(req, res) {
+  const inbound = req.headers["x-request-id"];
+  const v = Array.isArray(inbound) ? inbound[0] : inbound;
+  const id = v && REQUEST_ID.test(v) ? v : randomUUID();
+  res.setHeader("X-Request-Id", id);
+  return id;
+}
+function redact(s) {
+  return String(s).replace(/\bcm[arc]?_[A-Za-z0-9_]{8,}/g, "[redacted-token]").replace(/\bBearer\s+[^\s"']+/gi, "Bearer [redacted]").replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*/g, "[redacted-jwt]").replace(/\bAIza[0-9A-Za-z_-]{20,}/g, "[redacted-key]").replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[redacted-key]").replace(/([?&](?:key|token|code|refresh_token|id_token|code_verifier)=)[^&\s]+/gi, "$1[redacted]");
+}
+function log(level, msg, fields = {}) {
+  const clean = {};
+  for (const [k, v] of Object.entries(fields)) clean[k] = typeof v === "string" ? redact(v) : v;
+  const line = JSON.stringify({ level, msg: redact(msg), time: (/* @__PURE__ */ new Date()).toISOString(), ...clean });
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
+var pathOf = (req) => String(req.url ?? "/").split("?")[0].slice(0, 200);
+function withRequest(fn, handler, fallback) {
+  return async (req, res) => {
+    const started = Date.now();
+    const requestId = requestIdFor(req, res);
+    try {
+      await handler(req, res, { requestId });
+    } catch (e) {
+      log("error", "unhandled", { fn, requestId, error: e?.name ?? "Error", detail: String(e?.message ?? "").slice(0, 300) });
+      if (!res.headersSent) sendJson(res, 500, fallback(requestId));
+    } finally {
+      log("info", "request", { fn, requestId, method: req.method, path: pathOf(req), status: res.statusCode, durationMs: Date.now() - started });
+    }
+  };
+}
+function corsPublic(res, headers, methods = "GET, POST, OPTIONS") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", methods);
+  res.setHeader("Access-Control-Allow-Headers", headers);
+  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate, X-Request-Id, Retry-After");
+}
+
+// server/rateLimit.ts
+import { createHash } from "node:crypto";
+var windowStart = (now, windowMs) => Math.floor(now / windowMs) * windowMs;
+var hashKey = (s) => createHash("sha256").update(s).digest("hex").slice(0, 40);
+var MemoryLimitStore = class {
+  constructor(maxKeys = 1e4) {
+    this.maxKeys = maxKeys;
+    this.m = /* @__PURE__ */ new Map();
+  }
+  async hit(key, windowMs, now) {
+    const start = windowStart(now, windowMs);
+    const cur = this.m.get(key);
+    const next = cur && cur.start === start ? { start, count: cur.count + 1 } : { start, count: 1 };
+    if (!cur && this.m.size >= this.maxKeys) this.m.delete(this.m.keys().next().value);
+    this.m.set(key, next);
+    return next.count;
+  }
+  async peek(key, windowMs, now) {
+    const cur = this.m.get(key);
+    return cur && cur.start === windowStart(now, windowMs) ? cur.count : 0;
+  }
+  /** Remember a count learned from the global store (so this instance short-circuits too). */
+  raise(key, windowMs, now, count) {
+    const start = windowStart(now, windowMs);
+    const cur = this.m.get(key);
+    if (!cur || cur.start !== start || cur.count < count) this.m.set(key, { start, count });
+  }
+};
+var FirestoreLimitStore = class {
+  constructor(db2, collection = "rateLimits") {
+    this.db = db2;
+    this.collection = collection;
+  }
+  async hit(key, windowMs, now) {
+    const start = windowStart(now, windowMs);
+    const ref = this.db().doc(`${this.collection}/${hashKey(key)}`);
+    return this.db().runTransaction(async (tx) => {
+      const s = await tx.get(ref);
+      const d = s.exists ? s.data() : null;
+      const count = d && d.start === start ? (d.count ?? 0) + 1 : 1;
+      tx.set(ref, { start, count, expireAt: new Date(start + windowMs * 2) });
+      return count;
+    });
+  }
+  async peek(key, windowMs, now) {
+    const s = await this.db().doc(`${this.collection}/${hashKey(key)}`).get();
+    const d = s.exists ? s.data() : null;
+    return d && d.start === windowStart(now, windowMs) ? d.count ?? 0 : 0;
+  }
+};
+function createLimiter(opts = {}) {
+  const memory = opts.memory ?? new MemoryLimitStore();
+  const global = opts.global ?? null;
+  const result = (rule, count, now) => ({
+    ok: count <= rule.limit,
+    count,
+    limit: rule.limit,
+    retryAfterSec: Math.max(1, Math.ceil((windowStart(now, rule.windowMs) + rule.windowMs - now) / 1e3))
+  });
+  return {
+    async check(rule, subject, now = Date.now()) {
+      const key = `${rule.name}:${subject}`;
+      const local = await memory.hit(key, rule.windowMs, now);
+      if (local > rule.limit) return result(rule, local, now);
+      if (!global) return result(rule, local, now);
+      try {
+        const count = await global.hit(key, rule.windowMs, now);
+        memory.raise(key, rule.windowMs, now, count);
+        return result(rule, count, now);
+      } catch (e) {
+        opts.onError?.(e);
+        return result(rule, local, now);
+      }
+    },
+    async blocked(rule, subject, now = Date.now()) {
+      const key = `${rule.name}:${subject}`;
+      const local = await memory.peek(key, rule.windowMs, now);
+      return { ...result(rule, local, now), ok: local < rule.limit };
+    }
+  };
+}
+var LIMITS = {
+  oauthRegister: { name: "oauth-register", limit: 30, windowMs: 60 * 60 * 1e3 },
+  oauthToken: { name: "oauth-token", limit: 300, windowMs: 10 * 60 * 1e3 },
+  oauthApprove: { name: "oauth-approve", limit: 30, windowMs: 10 * 60 * 1e3 },
+  authFailures: { name: "auth-fail", limit: 30, windowMs: 10 * 60 * 1e3 },
+  aiPerMinute: { name: "ai-min", limit: 15, windowMs: 60 * 1e3 },
+  aiPerDay: { name: "ai-day", limit: 300, windowMs: 24 * 60 * 60 * 1e3 }
+};
 
 // api-src/oauth.ts
 var db = null;
 var fdb = () => db ??= getFirestore2(adminApp());
-var sha = (s) => createHash("sha256").update(s).digest("hex");
-var shaBytes = async (s) => new Uint8Array(createHash("sha256").update(s).digest());
+var sha = (s) => createHash2("sha256").update(s).digest("hex");
+var shaBytes = async (s) => new Uint8Array(createHash2("sha256").update(s).digest());
 var rand = (n) => secretFromBytes(randomBytes(n), n);
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version");
-}
+var limiter = createLimiter({
+  global: new FirestoreLimitStore(fdb),
+  onError: (e) => log("warn", "rate limiter unavailable (fail open)", { fn: "oauth", error: e?.name ?? "Error" })
+});
 var oauthError = (res, status, error, description) => sendJson(res, status, { error, error_description: description });
-async function readForm(req) {
-  if (req.body && typeof req.body === "object") return req.body;
-  const raw = typeof req.body === "string" ? req.body : await new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-  const type = String(req.headers["content-type"] ?? "");
-  if (type.includes("application/json")) {
-    try {
-      return JSON.parse(raw || "{}");
-    } catch {
-      return {};
-    }
-  }
-  return Object.fromEntries(new URLSearchParams(raw));
+async function limited(req, res, rule) {
+  const r = await limiter.check(rule, clientIp(req));
+  if (r.ok) return false;
+  res.setHeader("Retry-After", String(r.retryAfterSec));
+  log("warn", "rate limited", { fn: "oauth", rule: rule.name });
+  oauthError(res, 429, "slow_down", "Too many requests. Try again later.");
+  return true;
 }
+var str = (v, max) => typeof v === "string" && v.length <= max ? v : "";
 async function mintAccessToken(uid, scopes, clientId, clientName) {
   const token = makeToken(uid, rand(40));
   const hash = sha(token);
+  const now = Date.now();
   await fdb().doc(`users/${uid}/agentTokens/${hash}`).set({
     id: hash,
     name: clientName,
     scopes,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    createdAt: new Date(now).toISOString(),
     prefix: tokenPrefix(token),
     rateLimit: DEFAULT_RATE_LIMIT,
     revoked: false,
     via: "oauth",
-    clientId
+    clientId,
+    expiresAt: new Date(now + OAUTH_ACCESS_TTL_MS).toISOString()
   });
   const refresh = `cmr_${rand(48)}`;
-  await fdb().doc(`oauthRefresh/${sha(refresh)}`).set({ uid, clientId, clientName, scopes, accessHash: hash, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
-  return { access_token: token, token_type: "Bearer", refresh_token: refresh, scope: scopes.join(" ") };
+  await fdb().doc(`oauthRefresh/${sha(refresh)}`).set({
+    uid,
+    clientId,
+    clientName,
+    scopes,
+    accessHash: hash,
+    createdAt: new Date(now).toISOString(),
+    expiresAt: now + OAUTH_REFRESH_TTL_MS
+  });
+  return { access_token: token, token_type: "Bearer", expires_in: Math.floor(OAUTH_ACCESS_TTL_MS / 1e3), refresh_token: refresh, scope: scopes.join(" ") };
 }
-async function handler(req, res) {
-  cors(res);
+async function getClient(clientId) {
+  if (!CLIENT_ID_RE.test(clientId)) return null;
+  const c = await fdb().doc(`oauthClients/${clientId}`).get();
+  return c.exists ? c.data() : null;
+}
+async function handle(req, res) {
+  corsPublic(res, "Content-Type, Authorization, MCP-Protocol-Version, X-Request-Id");
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     return res.end();
@@ -350,6 +586,7 @@ async function handler(req, res) {
     if (route === "prm" && req.method === "GET") return sendJson(res, 200, protectedResourceMetadata(origin));
     if (route === "as" && req.method === "GET") return sendJson(res, 200, authorizationServerMetadata(origin));
     if (route === "register" && req.method === "POST") {
+      if (await limited(req, res, LIMITS.oauthRegister)) return;
       const v = validateRegistration(await readJson(req));
       if ("error" in v) return oauthError(res, 400, v.error, v.description);
       const clientId = `cmc_${rand(24)}`;
@@ -365,46 +602,51 @@ async function handler(req, res) {
       });
     }
     if (route === "client" && req.method === "GET") {
-      const clientId = url.searchParams.get("client_id") ?? "";
       const redirect = url.searchParams.get("redirect_uri") ?? "";
-      const c = clientId ? await fdb().doc(`oauthClients/${clientId}`).get() : null;
-      if (!c?.exists) return oauthError(res, 404, "invalid_client", "Unknown client");
-      const data = c.data();
+      const data = await getClient(url.searchParams.get("client_id") ?? "");
+      if (!data) return oauthError(res, 404, "invalid_client", "Unknown client");
       if (!redirectMatches(data.redirect_uris ?? [], redirect)) return oauthError(res, 400, "invalid_request", "redirect_uri does not match the registered client");
-      return sendJson(res, 200, { client_name: data.client_name, redirect_host: new URL(redirect).host });
+      const u = new URL(redirect);
+      return sendJson(res, 200, { client_name: data.client_name, redirect_host: u.host || u.protocol.replace(/:$/, "") });
     }
     if (route === "approve" && req.method === "POST") {
+      if (await limited(req, res, LIMITS.oauthApprove)) return;
       const b = await readJson(req);
-      const c = await fdb().doc(`oauthClients/${String(b?.client_id ?? "")}`).get();
-      if (!c.exists) return oauthError(res, 400, "invalid_client", "Unknown client");
-      const client = c.data();
-      if (!redirectMatches(client.redirect_uris ?? [], String(b.redirect_uri ?? ""))) return oauthError(res, 400, "invalid_request", "redirect_uri mismatch");
-      if (b.deny) return sendJson(res, 200, { redirect: redirectWith(b.redirect_uri, { error: "access_denied", state: b.state }) });
+      if (!b || typeof b !== "object" || Array.isArray(b)) return oauthError(res, 400, "invalid_request", "JSON object body required");
+      const clientId = str(b.client_id, 64);
+      const redirectUri = str(b.redirect_uri, 2e3);
+      const state = str(b.state, 2048) || void 0;
+      const client = await getClient(clientId);
+      if (!client) return oauthError(res, 400, "invalid_client", "Unknown client");
+      if (!redirectMatches(client.redirect_uris ?? [], redirectUri)) return oauthError(res, 400, "invalid_request", "redirect_uri mismatch");
+      if (b.deny) return sendJson(res, 200, { redirect: redirectWith(redirectUri, { error: "access_denied", state }) });
       if (b.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(String(b.code_challenge ?? ""))) return oauthError(res, 400, "invalid_request", "PKCE S256 code_challenge is required");
       let uid;
       try {
-        uid = (await verifyFirebaseIdToken(String(b.id_token ?? ""), adminProjectId())).uid;
+        uid = (await verifyFirebaseIdToken(str(b.id_token, 8192), adminProjectId())).uid;
       } catch {
         return oauthError(res, 401, "login_required", "Sign in to ClearMind again");
       }
-      const scopes = parseScopes(Array.isArray(b.scopes) ? b.scopes.join(" ") : b.scope);
+      const scopes = parseScopes(Array.isArray(b.scopes) ? b.scopes.filter((x) => typeof x === "string").join(" ") : str(b.scope, 1e3));
       const code = `cma_${rand(40)}`;
       await fdb().doc(`oauthCodes/${sha(code)}`).set({
         uid,
-        clientId: b.client_id,
+        clientId,
         clientName: client.client_name,
-        redirectUri: b.redirect_uri,
+        redirectUri,
         codeChallenge: b.code_challenge,
         scopes,
-        resource: b.resource ?? null,
+        resource: str(b.resource, 500) || null,
         expiresAt: Date.now() + OAUTH_CODE_TTL_MS,
         used: false
       });
-      return sendJson(res, 200, { redirect: redirectWith(b.redirect_uri, { code, state: b.state, iss: origin }) });
+      return sendJson(res, 200, { redirect: redirectWith(redirectUri, { code, state, iss: origin }) });
     }
     if (route === "token" && req.method === "POST") {
+      if (await limited(req, res, LIMITS.oauthToken)) return;
       const f = await readForm(req);
       if (f.grant_type === "authorization_code") {
+        if (!f.client_id) return oauthError(res, 400, "invalid_request", "client_id is required");
         const ref = fdb().doc(`oauthCodes/${sha(String(f.code ?? ""))}`);
         const claim = await fdb().runTransaction(async (tx) => {
           const s = await tx.get(ref);
@@ -414,7 +656,7 @@ async function handler(req, res) {
           return d;
         });
         if (!claim || claim.used || claim.expiresAt < Date.now()) return oauthError(res, 400, "invalid_grant", "Authorization code is invalid or expired");
-        if (f.client_id && f.client_id !== claim.clientId) return oauthError(res, 400, "invalid_grant", "client_id mismatch");
+        if (f.client_id !== claim.clientId) return oauthError(res, 400, "invalid_grant", "client_id mismatch");
         if (f.redirect_uri && f.redirect_uri !== claim.redirectUri) return oauthError(res, 400, "invalid_grant", "redirect_uri mismatch");
         if (!await verifyPkce(String(f.code_verifier ?? ""), claim.codeChallenge, shaBytes)) return oauthError(res, 400, "invalid_grant", "PKCE verification failed");
         await ref.delete().catch(() => void 0);
@@ -422,45 +664,53 @@ async function handler(req, res) {
       }
       if (f.grant_type === "refresh_token") {
         const ref = fdb().doc(`oauthRefresh/${sha(String(f.refresh_token ?? ""))}`);
-        const s = await ref.get();
-        if (!s.exists) return oauthError(res, 400, "invalid_grant", "Refresh token is invalid");
-        const d = s.data();
+        const d = await fdb().runTransaction(async (tx) => {
+          const s = await tx.get(ref);
+          if (!s.exists) return null;
+          tx.delete(ref);
+          return s.data();
+        });
+        if (!d) return oauthError(res, 400, "invalid_grant", "Refresh token is invalid");
+        if (typeof d.expiresAt === "number" && d.expiresAt < Date.now()) return oauthError(res, 400, "invalid_grant", "Refresh token expired");
         if (f.client_id && f.client_id !== d.clientId) return oauthError(res, 400, "invalid_grant", "client_id mismatch");
         const old = fdb().doc(`users/${d.uid}/agentTokens/${d.accessHash}`);
         const oldSnap = await old.get();
-        if (!oldSnap.exists || oldSnap.data()?.revoked) {
-          await ref.delete();
-          return oauthError(res, 400, "invalid_grant", "Access was revoked");
-        }
-        await old.set({ revoked: true, revokedAt: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true });
-        await ref.delete();
+        if (!oldSnap.exists || oldSnap.data()?.revoked) return oauthError(res, 400, "invalid_grant", "Access was revoked");
+        await old.delete();
         return sendJson(res, 200, await mintAccessToken(d.uid, d.scopes, d.clientId, d.clientName));
       }
       return oauthError(res, 400, "unsupported_grant_type", "Use authorization_code or refresh_token");
     }
     if (route === "revoke" && req.method === "POST") {
+      if (await limited(req, res, LIMITS.oauthToken)) return;
       const f = await readForm(req);
       const t = String(f.token ?? "");
       const parsed = parseToken(t);
-      if (parsed) await fdb().doc(`users/${parsed.uid}/agentTokens/${sha(t)}`).set({ revoked: true, revokedAt: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true }).catch(() => void 0);
-      else if (t.startsWith("cmr_")) {
+      const revokedAt = (/* @__PURE__ */ new Date()).toISOString();
+      if (parsed) {
+        const ref = fdb().doc(`users/${parsed.uid}/agentTokens/${sha(t)}`);
+        const s = await ref.get().catch(() => null);
+        if (s?.exists) await ref.set({ revoked: true, revokedAt }, { merge: true }).catch(() => void 0);
+      } else if (t.startsWith("cmr_")) {
         const ref = fdb().doc(`oauthRefresh/${sha(t)}`);
         const s = await ref.get();
         if (s.exists) {
           const d = s.data();
-          await fdb().doc(`users/${d.uid}/agentTokens/${d.accessHash}`).set({ revoked: true, revokedAt: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true });
+          await fdb().doc(`users/${d.uid}/agentTokens/${d.accessHash}`).set({ revoked: true, revokedAt }, { merge: true });
           await ref.delete();
         }
       }
       res.statusCode = 200;
       return res.end();
     }
-    return oauthError(res, 404, "not_found", `Unknown OAuth route "${route}"`);
+    return oauthError(res, 404, "not_found", "Unknown OAuth route");
   } catch (e) {
-    console.error("oauth error", route, e?.message);
+    if (e instanceof HttpError) return oauthError(res, e.status, "invalid_request", e.message);
+    log("error", "oauth error", { fn: "oauth", route, error: e?.name ?? "Error", detail: String(e?.message ?? "").slice(0, 300) });
     return oauthError(res, 500, "server_error", "Internal error");
   }
 }
+var oauth_default = withRequest("oauth", handle, () => ({ error: "server_error", error_description: "Internal error" }));
 export {
-  handler as default
+  oauth_default as default
 };

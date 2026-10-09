@@ -10,6 +10,11 @@ rules_version = '2';
 // someone just by adding their email to memberEmails — no uid lookup needed. Every
 // member has full read/write on the applications (no viewer/editor roles).
 //
+// Server-only collections (oauthClients, oauthCodes, oauthRefresh, rateLimits,
+// _health) are written by the Vercel functions with firebase-admin, which
+// bypasses rules. No rule matches them, so every client read/write is denied.
+//
+// Tests:   npm run test:rules   (Firestore emulator; tests/rules/)
 // Deploy:  firebase deploy --only firestore:rules
 
 service cloud.firestore {
@@ -46,6 +51,7 @@ service cloud.firestore {
       // can join" capability — the workspace id is an unguessable token.
       allow update: if request.auth != null
         && request.auth.token.email != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberEmails', 'updatedAt'])
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.ownerEmail == resource.data.ownerEmail
         && request.resource.data.name == resource.data.name
