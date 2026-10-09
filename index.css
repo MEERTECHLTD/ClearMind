@@ -1,0 +1,83 @@
+/* Web app stylesheet: the global styles that used to live inline in index.html,
+   then Tailwind (compiled at build time, tailwind.config.js). The order matches
+   the old Play CDN setup, which appended its generated CSS after the inline
+   <style>, so utilities still win over these rules on equal specificity. */
+
+:root {
+  --bg-main: #f3f4f6;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f9fafb;
+  --text-main: #111827;
+  --text-muted: #6b7280;
+  --border-color: #e5e7eb;
+}
+
+.dark {
+  --bg-main: #05050A;
+  --bg-card: #0F1219;
+  --bg-card-hover: #1A1F2E;
+  --text-main: #e2e8f0;
+  --text-muted: #9ca3af;
+  --border-color: #1f2937;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* Mobile viewport height fix - accounts for browser chrome */
+:root {
+  --app-height: 100vh;
+}
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
+}
+.h-app-screen {
+  height: 100vh;
+  height: var(--app-height);
+}
+
+/* Mobile Touch Scrolling */
+html, body {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+}
+
+/* Enable smooth scrolling on all scrollable containers */
+[class*="overflow-y-auto"],
+[class*="overflow-auto"],
+[class*="overflow-x-auto"] {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Prevent pull-to-refresh on mobile */
+body {
+  overscroll-behavior-y: contain;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-card);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-card-hover);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3B82F6;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

@@ -1,6 +1,8 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from 'tailwindcss';
+import { serviceWorkerPlugin } from './service-worker/vitePlugin';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd(), '');
@@ -11,7 +13,26 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
-      plugins: [react()],
+      plugins: [react(), serviceWorkerPlugin()],
+      css: {
+        // Build-time Tailwind (replaces the Play CDN). Configured inline rather
+        // than via a root postcss.config.js so nothing under apps/mobile picks it up.
+        postcss: { plugins: [tailwindcss({ config: path.resolve(__dirname, 'tailwind.config.js') })] },
+      },
+      build: {
+        rollupOptions: {
+          output: {
+            // Stable vendor chunks: app-code deploys don't change their hashes, so
+            // returning visitors keep them cached (and fewer chunk URLs churn).
+            manualChunks(id) {
+              if (!id.includes('node_modules')) return undefined;
+              if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react';
+              if (/node_modules\/(@firebase|firebase|idb)\//.test(id)) return 'vendor-firebase';
+              return undefined;
+            },
+          },
+        },
+      },
       define: {
         'process.env.API_KEY': JSON.stringify(geminiApiKey),
         'process.env.GEMINI_API_KEY': JSON.stringify(geminiApiKey)
@@ -29,7 +50,7 @@ export default defineConfig(({ mode }) => {
       test: {
         globals: true,
         environment: 'node',
-        include: ['services/**/*.test.{ts,js}', 'components/vault/**/*.test.ts', 'shared/**/*.test.{ts,js}', 'server/**/*.test.{ts,js}', 'apps/mobile/components/notes/**/*.test.ts', 'apps/mobile/services/**/*.test.ts'],
+        include: ['services/**/*.test.{ts,js}', 'utils/**/*.test.ts', 'components/vault/**/*.test.ts', 'shared/**/*.test.{ts,js}', 'server/**/*.test.{ts,js}', 'apps/mobile/components/notes/**/*.test.ts', 'apps/mobile/services/**/*.test.ts'],
       }
     };
 });

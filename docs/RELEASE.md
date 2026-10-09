@@ -22,6 +22,8 @@ Web deploys on merge to `main`:
 
 If `shared/`, `server/`, `api-src/` or `cli/` changed, run `npm run build:agent` before committing so `api/*.js` is current.
 
+Caching, the service-worker update flow, PWA install, and the "stale bundle" runbook are in [WEB_CACHING_AND_PWA.md](WEB_CACHING_AND_PWA.md). `clearmind.expo.app` ignores `vercel.json` (no 404 for missing assets, no security headers). See section 5 there.
+
 ## Android
 
 ```bash

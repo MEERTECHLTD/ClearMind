@@ -1,5 +1,6 @@
 import { dbService, STORES } from './db';
 import { Task, Application, CalendarEvent } from '../types';
+import { registerServiceWorker as registerAppServiceWorker } from './pwa';
 import {
   applicationDeadline,
   DEFAULT_REMINDER_LEAD_DAYS,
@@ -84,14 +85,8 @@ export const registerServiceWorker = async (): Promise<ServiceWorkerRegistration
     return null;
   }
 
-  try {
-    const registration = await navigator.serviceWorker.register('/sw.js');
-    console.log('Service Worker registered:', registration);
-    return registration;
-  } catch (error) {
-    console.error('Service Worker registration failed:', error);
-    return null;
-  }
+  // One registration for the whole app (production builds only): services/pwa.
+  return registerAppServiceWorker();
 };
 
 // Show a notification using the Notification API (foreground)
@@ -106,7 +101,9 @@ export const showNotification = async (
 
   try {
     // Try to use service worker notification for better mobile support
-    const registration = await navigator.serviceWorker.ready;
+    // getRegistration() resolves immediately (ready never settles without a worker, e.g. in dev).
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.active) throw new Error('no active service worker');
     // Extended notification options for service worker (supports more options)
     const swOptions: NotificationOptions & { vibrate?: number[]; requireInteraction?: boolean } = {
       icon: '/clearmindlogo.png',

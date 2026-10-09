@@ -207,7 +207,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
           {/* Logo & Header */}
           <div className="text-center mb-10">
             <div className="w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6 bg-white dark:bg-slate-800 shadow-xl overflow-hidden border border-slate-200 dark:border-slate-700">
-              <img src="/clearmindlogo.png" alt="ClearMind" className="w-20 h-20 object-contain" />
+              <img src="/clearmindlogo-256.png" alt="ClearMind" className="w-20 h-20 object-contain" />
             </div>
             <h1 className="text-4xl font-bold text-slate-800 dark:text-white mb-3">
               Welcome to ClearMind

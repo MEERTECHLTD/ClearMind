@@ -39,26 +39,24 @@
     
     <!-- PWA Meta Tags -->
     <link rel="manifest" href="/manifest.json" />
-    <link rel="icon" type="image/png" href="/clearmindlogo.png" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/clearmindlogo.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/clearmindlogo.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/clearmindlogo.png" />
-    <meta name="theme-color" content="#6366f1" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#3B82F6" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png" />
+    <!-- Safari "Add to Dock" (macOS Sonoma+) and iOS "Add to Home Screen" use this -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#05050A" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ClearMind" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="application-name" content="ClearMind" />
-    <meta name="msapplication-TileColor" content="#6366f1" />
+    <meta name="msapplication-TileColor" content="#05050A" />
     <meta name="msapplication-TileImage" content="/icon-144.png" />
     <meta name="format-detection" content="telephone=no" />
     
     <!-- Preconnect for Performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preconnect" href="https://esm.sh" />
-    <link rel="preconnect" href="https://cdn.tailwindcss.com" />
     <link rel="dns-prefetch" href="https://generativelanguage.googleapis.com" />
     
     <!-- Structured Data (JSON-LD) -->
@@ -97,120 +95,9 @@
     }
     </script>
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            colors: {
-              midnight: 'var(--bg-main)',
-              'midnight-light': 'var(--bg-card)',
-              'midnight-lighter': 'var(--bg-card-hover)',
-              accent: '#3B82F6', 
-              'accent-hover': '#2563EB',
-            },
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-            },
-            animation: {
-              'spin-slow': 'spin 3s linear infinite',
-            }
-          },
-        },
-      }
-    </script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <!-- Inter: preloaded here, applied by index.tsx (no inline onload handler, so it works under CSP). -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
     <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" /></noscript>
-    <style>
-      :root {
-        --bg-main: #f3f4f6;
-        --bg-card: #ffffff;
-        --bg-card-hover: #f9fafb;
-        --text-main: #111827;
-        --text-muted: #6b7280;
-        --border-color: #e5e7eb;
-      }
-
-      .dark {
-        --bg-main: #05050A;
-        --bg-card: #0F1219;
-        --bg-card-hover: #1A1F2E;
-        --text-main: #e2e8f0;
-        --text-muted: #9ca3af;
-        --border-color: #1f2937;
-      }
-
-      body {
-        font-family: 'Inter', sans-serif;
-        background-color: var(--bg-main);
-        color: var(--text-main);
-        transition: background-color 0.3s, color 0.3s;
-      }
-
-      /* Mobile viewport height fix - accounts for browser chrome */
-      :root {
-        --app-height: 100vh;
-      }
-      @supports (height: 100dvh) {
-        :root {
-          --app-height: 100dvh;
-        }
-      }
-      .h-app-screen {
-        height: 100vh;
-        height: var(--app-height);
-      }
-      
-      /* Mobile Touch Scrolling */
-      html, body {
-        -webkit-overflow-scrolling: touch;
-        touch-action: pan-x pan-y;
-        overscroll-behavior: contain;
-      }
-      
-      /* Enable smooth scrolling on all scrollable containers */
-      [class*="overflow-y-auto"],
-      [class*="overflow-auto"],
-      [class*="overflow-x-auto"] {
-        -webkit-overflow-scrolling: touch;
-        scroll-behavior: smooth;
-      }
-      
-      /* Prevent pull-to-refresh on mobile */
-      body {
-        overscroll-behavior-y: contain;
-      }
-      
-      /* Custom Scrollbar */
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: var(--bg-card); 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: var(--bg-card-hover); 
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #3B82F6; 
-      }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "recharts": "https://esm.sh/recharts@^3.6.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "xlsx": "https://esm.sh/xlsx@^0.18.5"
-  }
-}
-</script>
 </head>
   <body>
     <div id="root"></div>

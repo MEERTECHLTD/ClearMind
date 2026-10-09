@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import { TaskProvider } from './components/tasks/TaskContext';
@@ -24,30 +24,35 @@ import {
   showNotification
 } from './services/notificationService';
 import { startWebReminders } from './services/webReminders';
+import { registerServiceWorker, initInstall, useInstall, promptInstall, ANDROID_APP_URL, type InstallMode } from './services/pwa';
+import { lazyWithRetry } from './utils/lazyWithRetry';
+import { ViewErrorBoundary } from './components/ViewErrorBoundary';
+import { UpdatePrompt, InstallInstructions } from './components/PwaPrompts';
 
-// Lazy load all view components for code splitting
-const ProjectsView = lazy(() => import('./components/views/ProjectsView'));
-const DashboardView = lazy(() => import('./components/views/DashboardView'));
-const IrisView = lazy(() => import('./components/views/IrisView'));
-const RantCorner = lazy(() => import('./components/views/RantCorner'));
-const VaultView = lazy(() => import('./components/views/VaultView'));
-const HabitsView = lazy(() => import('./components/views/HabitsView'));
-const GoalsView = lazy(() => import('./components/views/GoalsView'));
-const MilestonesView = lazy(() => import('./components/views/MilestonesView'));
-const DailyLogView = lazy(() => import('./components/views/DailyLogView'));
-const AnalyticsView = lazy(() => import('./components/views/AnalyticsView'));
-const SettingsHub = lazy(() => import('./components/settings/SettingsHub'));
-const OnboardingView = lazy(() => import('./components/views/OnboardingView'));
-const MindMapView = lazy(() => import('./components/views/MindMapView'));
-const CalendarView = lazy(() => import('./components/views/CalendarView'));
-const DailyMapperView = lazy(() => import('./components/views/DailyMapperView'));
-const AuthView = lazy(() => import('./components/views/AuthView'));
-const ApplicationsView = lazy(() => import('./components/views/ApplicationsView'));
-const ApplicationReviewerView = lazy(() => import('./components/views/ApplicationReviewerView'));
-const LearningVaultView = lazy(() => import('./components/views/LearningVaultView'));
-const ProductivityView = lazy(() => import('./components/views/ProductivityView'));
-const ActivityView = lazy(() => import('./components/views/ActivityView'));
-const TemplatesView = lazy(() => import('./components/views/TemplatesView'));
+// Lazy load all view components for code splitting. lazyWithRetry recovers from
+// chunks that vanished in a deploy (retry, then one guarded reload).
+const ProjectsView = lazyWithRetry(() => import('./components/views/ProjectsView'));
+const DashboardView = lazyWithRetry(() => import('./components/views/DashboardView'));
+const IrisView = lazyWithRetry(() => import('./components/views/IrisView'));
+const RantCorner = lazyWithRetry(() => import('./components/views/RantCorner'));
+const VaultView = lazyWithRetry(() => import('./components/views/VaultView'));
+const HabitsView = lazyWithRetry(() => import('./components/views/HabitsView'));
+const GoalsView = lazyWithRetry(() => import('./components/views/GoalsView'));
+const MilestonesView = lazyWithRetry(() => import('./components/views/MilestonesView'));
+const DailyLogView = lazyWithRetry(() => import('./components/views/DailyLogView'));
+const AnalyticsView = lazyWithRetry(() => import('./components/views/AnalyticsView'));
+const SettingsHub = lazyWithRetry(() => import('./components/settings/SettingsHub'));
+const OnboardingView = lazyWithRetry(() => import('./components/views/OnboardingView'));
+const MindMapView = lazyWithRetry(() => import('./components/views/MindMapView'));
+const CalendarView = lazyWithRetry(() => import('./components/views/CalendarView'));
+const DailyMapperView = lazyWithRetry(() => import('./components/views/DailyMapperView'));
+const AuthView = lazyWithRetry(() => import('./components/views/AuthView'));
+const ApplicationsView = lazyWithRetry(() => import('./components/views/ApplicationsView'));
+const ApplicationReviewerView = lazyWithRetry(() => import('./components/views/ApplicationReviewerView'));
+const LearningVaultView = lazyWithRetry(() => import('./components/views/LearningVaultView'));
+const ProductivityView = lazyWithRetry(() => import('./components/views/ProductivityView'));
+const ActivityView = lazyWithRetry(() => import('./components/views/ActivityView'));
+const TemplatesView = lazyWithRetry(() => import('./components/views/TemplatesView'));
 
 
 // Loading fallback component
@@ -95,18 +100,9 @@ const App: React.FC = () => {
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
 
-  // PWA State
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isAppInstalled, setIsAppInstalled] = useState(() => {
-    // Check if already installed via localStorage or standalone mode
-    if (typeof window !== 'undefined') {
-      const installed = localStorage.getItem('pwa-installed') === 'true';
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
-                           (window.navigator as any).standalone === true;
-      return installed || isStandalone;
-    }
-    return false;
-  });
+  // PWA install: what the top bar's install button does on this browser.
+  const install = useInstall();
+  const [installHelp, setInstallHelp] = useState<InstallMode | null>(null);
 
   // Real-time sync cleanup ref
   const syncCleanupRef = React.useRef<(() => void) | null>(null);
@@ -133,19 +129,11 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Service Worker Registration
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(
-          (registration) => {
-            console.log('ServiceWorker registration successful with scope: ', registration.scope);
-          },
-          (err) => {
-            console.log('ServiceWorker registration failed: ', err);
-          }
-        );
-      });
-    }
+    // Service worker (production builds only) + "new version" prompt, and the
+    // install-button state. The old registration waited for window 'load',
+    // which has usually already fired by the time this effect runs.
+    void registerServiceWorker();
+    initInstall();
 
     // Auth Check - Check both local and Firebase
     const checkUser = async () => {
@@ -209,36 +197,6 @@ const App: React.FC = () => {
 
     // Theme: Light / Dark / System (synced preference, cached locally).
     setIsDarkMode(applyTheme(cachedThemePref()));
-
-    // PWA Install Event
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      // Only show if not already installed
-      if (localStorage.getItem('pwa-installed') !== 'true') {
-        setDeferredPrompt(e);
-      }
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    // Track when app is installed
-    const handleAppInstalled = () => {
-      console.log('PWA was installed');
-      localStorage.setItem('pwa-installed', 'true');
-      setIsAppInstalled(true);
-      setDeferredPrompt(null);
-    };
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    // Check if running in standalone mode (already installed)
-    const mediaQuery = window.matchMedia('(display-mode: standalone)');
-    const handleDisplayModeChange = (e: MediaQueryListEvent) => {
-      if (e.matches) {
-        localStorage.setItem('pwa-installed', 'true');
-        setIsAppInstalled(true);
-        setDeferredPrompt(null);
-      }
-    };
-    mediaQuery.addEventListener('change', handleDisplayModeChange);
 
     // Notification Logic Loop - Enhanced with service worker support
     const checkNotifications = async () => {
@@ -305,8 +263,6 @@ const App: React.FC = () => {
     const initialCheckTimeout = setTimeout(checkNotifications, 5000);
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
       clearInterval(notificationInterval);
       clearTimeout(initialCheckTimeout);
       stopNotificationScheduler();
@@ -329,12 +285,22 @@ const App: React.FC = () => {
   }, [prefsSnap.items]);
   useEffect(() => onThemeChange(setIsDarkMode), []);
 
-  // Download the signed Android APK (replaces the PWA install prompt).
-  const ANDROID_APK_URL =
-    'https://github.com/MEERTECHLTD/ClearMind/releases/download/mobile-v0.0.23/clearmind-23.apk';
+  // Install button: native PWA prompt on Chromium/Edge, Add-to-Dock / Home
+  // Screen steps on Safari, and the Play Store app on Android.
   const handleInstallApp = useCallback(() => {
-    window.open(ANDROID_APK_URL, '_blank', 'noopener,noreferrer');
-  }, []);
+    switch (install.mode) {
+      case 'prompt':
+        void promptInstall();
+        break;
+      case 'android-app':
+        window.open(ANDROID_APP_URL, '_blank', 'noopener,noreferrer');
+        break;
+      case 'safari-mac':
+      case 'ios':
+        setInstallHelp(install.mode);
+        break;
+    }
+  }, [install.mode]);
 
   /** Sign out without asking (used after account deletion, where cancelling makes no sense). */
   const signOutNow = useCallback(async () => {
@@ -505,7 +471,7 @@ const App: React.FC = () => {
       <div className="h-screen bg-gradient-to-br from-slate-100 via-gray-200 to-slate-300 dark:from-slate-900 dark:via-gray-900 dark:to-slate-800 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-800 shadow-lg flex items-center justify-center overflow-hidden">
-            <img src="/clearmindlogo.png" alt="ClearMind" className="w-12 h-12 object-contain" />
+            <img src="/clearmindlogo-256.png" alt="ClearMind" className="w-12 h-12 object-contain" />
           </div>
           <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
         </div>
@@ -516,6 +482,8 @@ const App: React.FC = () => {
   // Show AuthView (Welcome/Choose screen) when no user is logged in
   if (!userProfile) {
     return (
+      <ViewErrorBoundary resetKey="auth">
+      <UpdatePrompt />
       <Suspense fallback={<ViewLoader />}>
         <AuthView 
           onAuthSuccess={handleAuthSuccess} 
@@ -532,6 +500,7 @@ const App: React.FC = () => {
           }} 
         />
       </Suspense>
+      </ViewErrorBoundary>
     );
   }
 
@@ -562,17 +531,24 @@ const App: React.FC = () => {
           toggleTheme={toggleTheme} 
           isDarkMode={isDarkMode}
           onInstallApp={handleInstallApp}
-          canInstall={true}
+          canInstall={install.mode !== 'none'}
+          installLabel={install.mode === 'android-app' ? 'Get the App' : 'Install App'}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onLogout={handleLogout}
           onNavigate={handleViewChange}
         />
         <div className="flex-1 relative overflow-auto touch-pan-y min-h-0">
-          <Suspense fallback={<ViewLoader />}>
-            {viewContent}
-          </Suspense>
+          {/* The boundary resets on route change, so a view that failed to load
+              (e.g. a chunk removed by a deploy) recovers when you navigate. */}
+          <ViewErrorBoundary resetKey={`${currentView}/${viewParam ?? ''}`}>
+            <Suspense fallback={<ViewLoader />}>
+              {viewContent}
+            </Suspense>
+          </ViewErrorBoundary>
         </div>
       </main>
+      <UpdatePrompt />
+      <InstallInstructions mode={installHelp} onClose={() => setInstallHelp(null)} />
     </div>
     </TaskProvider>
   );
