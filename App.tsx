@@ -28,29 +28,27 @@ import { registerServiceWorker, initInstall, useInstall, promptInstall, ANDROID_
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { ViewErrorBoundary } from './components/ViewErrorBoundary';
 import { UpdatePrompt, InstallInstructions } from './components/PwaPrompts';
+import { redirectFor } from './utils/routes';
 
 // Lazy load all view components for code splitting. lazyWithRetry recovers from
 // chunks that vanished in a deploy (retry, then one guarded reload).
 const ProjectsView = lazyWithRetry(() => import('./components/views/ProjectsView'));
-const DashboardView = lazyWithRetry(() => import('./components/views/DashboardView'));
 const IrisView = lazyWithRetry(() => import('./components/views/IrisView'));
-const RantCorner = lazyWithRetry(() => import('./components/views/RantCorner'));
+const JournalView = lazyWithRetry(() => import('./components/views/JournalView'));
 const VaultView = lazyWithRetry(() => import('./components/views/VaultView'));
 const HabitsView = lazyWithRetry(() => import('./components/views/HabitsView'));
 const GoalsView = lazyWithRetry(() => import('./components/views/GoalsView'));
 const MilestonesView = lazyWithRetry(() => import('./components/views/MilestonesView'));
-const DailyLogView = lazyWithRetry(() => import('./components/views/DailyLogView'));
-const AnalyticsView = lazyWithRetry(() => import('./components/views/AnalyticsView'));
+const InsightsView = lazyWithRetry(() => import('./components/views/InsightsView'));
 const SettingsHub = lazyWithRetry(() => import('./components/settings/SettingsHub'));
 const OnboardingView = lazyWithRetry(() => import('./components/views/OnboardingView'));
 const MindMapView = lazyWithRetry(() => import('./components/views/MindMapView'));
 const CalendarView = lazyWithRetry(() => import('./components/views/CalendarView'));
 const DailyMapperView = lazyWithRetry(() => import('./components/views/DailyMapperView'));
 const AuthView = lazyWithRetry(() => import('./components/views/AuthView'));
-const ApplicationsView = lazyWithRetry(() => import('./components/views/ApplicationsView'));
-const ApplicationReviewerView = lazyWithRetry(() => import('./components/views/ApplicationReviewerView'));
+// Applications tracker + AI Reviewer, as tabs of one destination.
+const ApplicationsWorkspace = lazyWithRetry(() => import('./components/views/ApplicationsWorkspace'));
 const LearningVaultView = lazyWithRetry(() => import('./components/views/LearningVaultView'));
-const ProductivityView = lazyWithRetry(() => import('./components/views/ProductivityView'));
 const ActivityView = lazyWithRetry(() => import('./components/views/ActivityView'));
 const TemplatesView = lazyWithRetry(() => import('./components/views/TemplatesView'));
 
@@ -65,20 +63,28 @@ const ViewLoader = () => (
   </div>
 );
 
-// Hash routes: '#today', '#project/<id>'. The old '#tasks' list now opens Today.
+// Hash routes: '#today', '#project/<id>', '#insights?tab=life'. Folded-in
+// destinations (#dashboard, #productivity, #analytics, #dailylog, #rant,
+// #reviewer, #tasks) redirect to their new home — see utils/routes.ts.
 const VALID_VIEWS: ViewState[] = [
-  'dashboard', 'projects', 'tasks', 'notes', 'habits',
-  'goals', 'milestones', 'iris', 'rant', 'dailylog',
-  'analytics', 'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'reviewer', 'learningvault',
+  'projects', 'notes', 'habits',
+  'goals', 'milestones', 'iris',
+  'settings', 'mindmap', 'calendar', 'dailymapper', 'applications', 'learningvault',
   'inbox', 'today', 'upcoming', 'search', 'filters', 'completed', 'project', 'label', 'filter',
-  'productivity', 'activity', 'templates',
+  'activity', 'templates', 'insights', 'journal',
 ];
 const parseHash = (): { view: ViewState; param?: string } => {
+  const redirect = redirectFor(window.location.hash);
+  if (redirect) {
+    // Replace (not push) so Back skips the old route instead of bouncing on it.
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}#${redirect}`);
+  }
   // Optional "?…" after the route carries view options (e.g. #today?task=<id>).
-  const [head, ...rest] = decodeURIComponent(window.location.hash.slice(1).split('?')[0]).split('/');
+  let path = window.location.hash.slice(1).split('?')[0];
+  try { path = decodeURIComponent(path); } catch { /* keep raw */ }
+  const [head, ...rest] = path.split('/');
   const view = head as ViewState;
   if (!VALID_VIEWS.includes(view)) return { view: 'today' };
-  if (view === 'tasks') return { view: 'today' };
   return { view, param: rest.join('/') || undefined };
 };
 const getViewFromHash = (): ViewState => parseHash().view;
@@ -321,7 +327,7 @@ const App: React.FC = () => {
     }
     await dbService.delete(STORES.PROFILE, 'current-user');
     setUserProfile(null);
-    setCurrentView('dashboard');
+    setCurrentView('today');
   }, []);
 
   const handleLogout = useCallback(async () => {
@@ -402,11 +408,8 @@ const App: React.FC = () => {
   // Memoized content rendering to prevent unnecessary re-renders
   const viewContent = useMemo(() => {
     switch (currentView) {
-      case 'dashboard':
-        return <DashboardView user={userProfile} onNavigate={handleViewChange} />;
       case 'projects':
         return <ProjectsView />;
-      case 'tasks':
       case 'today':
         return <TodayView />;
       case 'inbox':
@@ -425,16 +428,14 @@ const App: React.FC = () => {
         return <LabelView id={viewParam ?? ''} />;
       case 'filter':
         return <FilterView id={viewParam ?? ''} />;
-      case 'productivity':
-        return <ProductivityView />;
+      case 'insights':
+        return <InsightsView />;
       case 'activity':
         return <ActivityView projectId={viewParam} />;
       case 'templates':
         return <TemplatesView />;
       case 'applications':
-        return <ApplicationsView />;
-      case 'reviewer':
-        return <ApplicationReviewerView />;
+        return <ApplicationsWorkspace />;
       case 'learningvault':
         return <LearningVaultView />;
       case 'notes':
@@ -447,12 +448,8 @@ const App: React.FC = () => {
         return <MilestonesView />;
       case 'iris':
         return <IrisView />;
-      case 'rant':
-        return <RantCorner />;
-      case 'dailylog':
-        return <DailyLogView />;
-      case 'analytics':
-        return <AnalyticsView />;
+      case 'journal':
+        return <JournalView />;
       case 'settings':
         return <SettingsHub user={userProfile} onUpdateUser={setUserProfile} onLogout={handleLogout} onAccountDeleted={signOutNow} />;
       case 'mindmap':
@@ -464,7 +461,7 @@ const App: React.FC = () => {
       default:
         return <TodayView />;
     }
-  }, [currentView, viewParam, userProfile, handleLogout, handleViewChange]);
+  }, [currentView, viewParam, userProfile, handleLogout]);
 
   if (isCheckingAuth) {
     return (

@@ -9,7 +9,7 @@ test.describe('hash navigation', () => {
   test('lazy views render on first navigation', async ({ page }) => {
     await enterAsGuest(page);
     await expect(views.today(page)).toBeVisible();
-    for (const v of ['notes', 'habits', 'calendar', 'settings', 'dashboard', 'today'] as const) {
+    for (const v of ['notes', 'habits', 'calendar', 'settings', 'journal', 'insights', 'projects', 'today'] as const) {
       await go(page, v);
       await expect(views[v](page), `#${v} should render`).toBeVisible();
     }

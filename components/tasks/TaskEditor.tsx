@@ -15,6 +15,9 @@ export interface AddDefaults {
   parentId?: string | null;
   labelIds?: string[];
   priority?: TaskPriority;
+  /** Prefilled task name / description (e.g. "Turn into task" from a Journal entry). Parsed like typed text. */
+  title?: string;
+  description?: string;
 }
 
 type Picker = null | 'date' | 'priority' | 'project' | 'labels';
@@ -45,8 +48,8 @@ export function TaskEditor({
   defaults = {}, onClose, autoFocus = true, submitLabel = 'Add task', compact = false,
 }: { defaults?: AddDefaults; onClose: () => void; autoFocus?: boolean; submitLabel?: string; compact?: boolean }) {
   const { projects, labels, projectMap, labelMap } = useTaskData();
-  const [text, setText] = useState('');
-  const [desc, setDesc] = useState('');
+  const [text, setText] = useState(defaults.title ?? '');
+  const [desc, setDesc] = useState(defaults.description ?? '');
   const [ignore, setIgnore] = useState<string[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [priority, setPriority] = useState<TaskPriority | null>(null);

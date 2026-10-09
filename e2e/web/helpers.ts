@@ -30,5 +30,7 @@ export const views = {
   habits: (p: Page) => p.getByRole('heading', { name: 'Habit Tracker' }).first(),
   calendar: (p: Page) => p.getByRole('heading', { name: 'Calendar', exact: true }).first(),
   settings: (p: Page) => p.getByRole('heading', { name: 'Settings', exact: true }).first(),
-  dashboard: (p: Page) => p.getByRole('heading', { name: /Welcome back/ }).first(),
+  journal: (p: Page) => p.getByRole('heading', { name: 'Journal', exact: true }).first(),
+  insights: (p: Page) => p.getByRole('heading', { name: 'Insights', exact: true }).first(),
+  projects: (p: Page) => p.getByRole('heading', { name: 'Projects & plans', exact: true }).first(),
 };

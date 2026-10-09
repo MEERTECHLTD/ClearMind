@@ -744,4 +744,8 @@ export type ViewState =
   // Productivity, activity history and project templates (web).
   | 'productivity'
   | 'activity'
-  | 'templates';
+  | 'templates'
+  // Unified web destinations: Insights = Productivity (Tasks tab) + Analytics
+  // (Life tab); Journal = Daily log + Rants. The old routes redirect here.
+  | 'insights'
+  | 'journal';
