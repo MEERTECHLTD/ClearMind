@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { generateIrisResponse, UserContext, parseActionCommands, ParsedActions } from '../../services/geminiService';
 import { dbService, STORES } from '../../services/db';
+import { createTask, toggleTask, deleteTask, createProject, updateProject } from '../tasks/actions';
+import { getStore } from '../tasks/store';
 import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation, ProjectCategory, DailyMapperEntry, DailyMapperTemplate } from '../../types';
 import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare, FileText, Target, Calendar, Briefcase, Activity, Flag, BookOpen, Zap } from 'lucide-react';
 
@@ -100,12 +102,6 @@ const IrisView: React.FC = () => {
   // Helper to generate unique ID
   const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9);
 
-  // Helper to get next task number
-  const getNextTaskNumber = async (): Promise<number> => {
-    const allTasks = await dbService.getAll<Task>(STORES.TASKS);
-    const maxNumber = allTasks.reduce((max, task) => Math.max(max, task.taskNumber || 0), 0);
-    return maxNumber + 1;
-  };
 
   // Execute all actions from Iris's response
   const executeActions = async (actions: ParsedActions): Promise<ActionsSummary> => {
@@ -137,22 +133,22 @@ const IrisView: React.FC = () => {
       duplicatesRemoved: 0,
     };
 
+    // Tasks and projects go through the shared domain layer (same as Quick Add /
+    // the sidebar): numbering, default reminders, recurrence roll-forward,
+    // completion records, activity and cascade deletes.
+    await Promise.all([STORES.TASKS, STORES.PROJECTS, STORES.COMPLETIONS, STORES.PREFERENCES, STORES.SECTIONS, STORES.LABELS].map((n) => {
+      const st = getStore(n);
+      return st.getSnapshot().loaded ? undefined : st.load();
+    }));
+
     // Create Tasks
     for (const task of actions.tasks) {
-      const taskNumber = await getNextTaskNumber();
-      const newTask: Task = {
-        id: generateId(),
-        title: task.title,
-        completed: false,
-        priority: task.priority,
-        dueDate: task.dueDate,
-        dueTime: task.dueTime,
-        description: task.description,
-        taskNumber,
-        notified: false,
-      };
-      await dbService.put(STORES.TASKS, newTask);
-      summary.tasksCreated.push(task.title);
+      try {
+        createTask({ title: task.title, description: task.description, dueDate: task.dueDate || null, dueTime: task.dueTime || null, priority: task.priority });
+        summary.tasksCreated.push(task.title);
+      } catch (e) {
+        console.warn('Iris could not create task', task.title, e);
+      }
     }
 
     // Create Notes
@@ -198,21 +194,22 @@ const IrisView: React.FC = () => {
       summary.goalsCreated.push(goal.title);
     }
 
-    // Create Projects
+    // Create Projects (one record for tasks + plan)
     for (const project of actions.projects) {
-      const newProject: Project = {
-        id: generateId(),
-        title: project.title,
-        description: project.description,
-        status: project.status || 'In Progress',
-        progress: 0,
-        priority: project.priority || 'Medium',
-        deadline: project.deadline,
-        tags: project.tags || [],
-        category: project.category as ProjectCategory,
-      };
-      await dbService.put(STORES.PROJECTS, newProject);
-      summary.projectsCreated.push(project.title);
+      try {
+        const created = createProject({ title: project.title });
+        updateProject(created, {
+          description: project.description || '',
+          status: project.status || 'In Progress',
+          priority: project.priority || 'Medium',
+          deadline: project.deadline,
+          tags: project.tags || [],
+          category: project.category as ProjectCategory,
+        });
+        summary.projectsCreated.push(project.title);
+      } catch (e) {
+        console.warn('Iris could not create project', project.title, e);
+      }
     }
 
     // Create Milestones
@@ -381,21 +378,20 @@ const IrisView: React.FC = () => {
     }
 
     // Complete Tasks
-    const allTasks = await dbService.getAll<Task>(STORES.TASKS);
+    const liveTasks = () => getStore<Task>(STORES.TASKS).getSnapshot().items.filter((t) => !t.deleted);
     for (const taskTitle of actions.completedTasks) {
-      const task = allTasks.find(t => t.title.toLowerCase() === taskTitle.toLowerCase() && !t.completed);
+      const task = liveTasks().find(t => t.title.toLowerCase() === taskTitle.toLowerCase() && !t.completed);
       if (task) {
-        const updatedTask: Task = { ...task, completed: true };
-        await dbService.put(STORES.TASKS, updatedTask);
+        toggleTask(task);
         summary.tasksCompleted.push(task.title);
       }
     }
 
     // Delete Tasks
     for (const taskTitle of actions.deletedTasks) {
-      const task = allTasks.find(t => t.title.toLowerCase() === taskTitle.toLowerCase());
+      const task = liveTasks().find(t => t.title.toLowerCase() === taskTitle.toLowerCase());
       if (task) {
-        await dbService.delete(STORES.TASKS, task.id);
+        deleteTask(task);
         summary.tasksDeleted.push(task.title);
       }
     }
