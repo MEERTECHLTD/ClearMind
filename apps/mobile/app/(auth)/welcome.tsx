@@ -44,7 +44,7 @@ export default function Welcome() {
 
   return (
     <SafeAreaView className="flex-1 bg-midnight">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }} keyboardShouldPersistTaps="handled">
           <Text className="text-accent text-4xl font-extrabold text-center">ClearMind</Text>
           <Text className="text-ink-muted text-center mt-1 mb-8">

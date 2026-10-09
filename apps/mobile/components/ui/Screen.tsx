@@ -32,9 +32,11 @@ export function Screen({
 
   return (
     <SafeAreaView edges={edges} className="flex-1 bg-midnight">
+      {/* Edge-to-edge (Android 15+/targetSdk 36) disables adjustResize, so pad for
+          the keyboard on Android too — otherwise bottom inputs sit under it. */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {body}
       </KeyboardAvoidingView>
