@@ -47,3 +47,6 @@ credentials.json
 .env.*
 !.env.example
 .claude/worktrees/
+# Playwright
+test-results/
+playwright-report/

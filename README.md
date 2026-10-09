@@ -275,7 +275,7 @@ ClearMind/
 │   └── projectTemplates.ts   # Project template definitions
 ├── public/
 │   ├── manifest.json         # PWA manifest
-│   ├── sw.js                 # Service Worker
+│   ├── (sw.js)               # generated at build from service-worker/sw.js
 │   └── widgets/              # PWA widgets
 ├── App.tsx                   # Main application component
 ├── index.tsx                 # Entry point
