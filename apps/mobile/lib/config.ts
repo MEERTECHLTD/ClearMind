@@ -34,7 +34,5 @@ export const firebaseConfig = {
 export const isFirebaseConfigured = (): boolean =>
   !!(firebaseConfig.apiKey && firebaseConfig.projectId);
 
-export const geminiApiKey: string = pick(process.env.EXPO_PUBLIC_GEMINI_API_KEY, extra.geminiApiKey);
-
 // OAuth 2.0 Web client id (from google-services.json) for @react-native-google-signin.
 export const googleWebClientId: string = pick(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, extra.googleWebClientId);

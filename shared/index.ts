@@ -25,5 +25,5 @@ export * from './data/firestore';
 // Shared collaborative Applications workspaces (inject db; membership by email).
 export * from './data/workspaces';
 
-// Gemini AI core (inject apiKey). Pulls in @google/genai.
+// Gemini AI core (inject a proxy transport — shared/ai/transport.ts).
 export * from './ai/geminiCore';

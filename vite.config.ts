@@ -1,21 +1,16 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, process.cwd(), '');
-    // Use environment variable from loadEnv or fallback to process.env for production builds
-    const geminiApiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+export default defineConfig(() => {
     return {
       server: {
         port: 3000,
         host: '0.0.0.0',
       },
       plugins: [react()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(geminiApiKey),
-        'process.env.GEMINI_API_KEY': JSON.stringify(geminiApiKey)
-      },
+      // No `define` of GEMINI_API_KEY: AI goes through the server proxy, so no key
+      // is ever inlined into the public bundle (docs/SECURITY.md S1).
       resolve: {
         alias: {
           // Shared platform-agnostic core, resolved straight to TS source (see

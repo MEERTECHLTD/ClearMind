@@ -143,7 +143,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
       appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
     },
-    geminiApiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '',
     googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
   },
 });

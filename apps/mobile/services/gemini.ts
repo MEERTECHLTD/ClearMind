@@ -1,8 +1,8 @@
 /**
- * Mobile Gemini boundary — mirrors the web `geminiService` adapter exactly,
- * just reading the key from EXPO_PUBLIC_GEMINI_API_KEY instead of process.env via
- * Vite. All AI logic lives in @clearmind/shared/ai/geminiCore (DOM-free); the key
- * is injected. Same surface/signatures as web so the ported Iris/Rant/MindMap
+ * Mobile Gemini boundary — mirrors the web `geminiService` adapter. All AI logic
+ * lives in @clearmind/shared/ai/geminiCore (DOM-free); requests go through the
+ * authenticated server proxy with the user's Firebase ID token (guests included —
+ * anonymous auth), so no Gemini key ships in the APK (docs/SECURITY.md S2). Same surface/signatures as web so the ported Iris/Rant/MindMap
  * views call it identically. (DECISIONS.md D5.)
  */
 import {
@@ -19,20 +19,25 @@ export type {
   ParsedDailyMapperUpdate, ParsedActions, UserContext,
 } from '@clearmind/shared/ai/geminiCore';
 
-import { geminiApiKey as GEMINI_API_KEY } from '../lib/config';
+import { createProxyTransport } from '@clearmind/shared/ai/transport';
+import { auth, isFirebaseConfigured } from '../lib/firebase';
 
-export const isApiConfigured = (): boolean => !!GEMINI_API_KEY;
+const transport = createProxyTransport({
+  getIdToken: async () => (auth?.currentUser ? auth.currentUser.getIdToken() : null),
+});
+
+export const isApiConfigured = (): boolean => isFirebaseConfigured() && !!auth?.currentUser;
 
 export const generateResponse = (prompt: string): Promise<string> =>
-  coreGenerateResponse(GEMINI_API_KEY, prompt);
+  coreGenerateResponse(transport, prompt);
 
 export const generateIrisResponse = (
   history: { role: string; parts: { text: string }[] }[],
   message: string,
   userContext?: UserContext
-): Promise<string> => coreGenerateIrisResponse(GEMINI_API_KEY, history, message, userContext);
+): Promise<string> => coreGenerateIrisResponse(transport, history, message, userContext);
 
 export const generateIRISResponse = (
   history: { role: string; parts: { text: string }[] }[],
   message: string
-): Promise<string> => coreGenerateIRISResponse(GEMINI_API_KEY, history, message);
+): Promise<string> => coreGenerateIRISResponse(transport, history, message);

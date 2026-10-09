@@ -1,14 +1,12 @@
-import { GoogleGenAI } from "@google/genai";
+import { transportClient, AiProxyError, type GeminiTransport } from './transport';
 import { Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, DailyMapperEntry, DailyMapperTemplate } from '../types';
 
-// The API key is INJECTED by the platform adapter — the web boundary reads
-// process.env, mobile reads EXPO_PUBLIC_*. Shared core NEVER reads env. The
-// generate* functions below take the resolved apiKey as their first argument.
-// (See DECISIONS.md, D5. `isApiConfigured` lives at the platform boundary.)
-const getAI = (apiKey: string): GoogleGenAI | null => {
-  if (!apiKey) return null;
-  return new GoogleGenAI({ apiKey });
-};
+// The transport is INJECTED by the platform adapter: an authenticated call to
+// the server proxy (shared/ai/transport.ts). No API key ever ships in a client
+// (docs/SECURITY.md S1/S2). The generate* functions take it as their first
+// argument. (DECISIONS.md D5. `isApiConfigured` lives at the platform boundary.)
+export type { GeminiTransport } from './transport';
+const getAI = (transport: GeminiTransport | null) => (transport ? transportClient(transport) : null);
 
 // Clean AI response to remove asterisks, dashes, and markdown formatting
 const cleanResponse = (text: string): string => {
@@ -525,8 +523,9 @@ export const parseTaskCommands = (response: string): { cleanedResponse: string; 
 };
 
 // Simple response generator for general-purpose AI requests (e.g., Mind Maps)
-export const generateResponse = async (apiKey: string, prompt: string): Promise<string> => {
-  const ai = getAI(apiKey);
+export const generateResponse = async (
+  transport: GeminiTransport | null, prompt: string): Promise<string> => {
+  const ai = getAI(transport);
   
   if (!ai) {
     throw new Error("AI service is not available. Please try again later.");
@@ -546,7 +545,7 @@ export const generateResponse = async (apiKey: string, prompt: string): Promise<
     return response.text || "";
   } catch (error) {
     console.error("Error generating AI response:", error);
-    throw new Error("Failed to generate AI response. Please try again.");
+    throw new Error(error instanceof AiProxyError ? error.message : "Failed to generate AI response. Please try again.");
   }
 };
 
@@ -732,12 +731,12 @@ ${templateList}`);
 };
 
 export const generateIrisResponse = async (
-  apiKey: string,
+  transport: GeminiTransport | null,
   history: { role: string; parts: { text: string }[] }[],
   message: string,
   userContext?: UserContext
 ): Promise<string> => {
-  const ai = getAI(apiKey);
+  const ai = getAI(transport);
   
   if (!ai) {
     return "Iris is currently unavailable. The AI service is being configured. Please try again later.";
@@ -939,16 +938,16 @@ IMPORTANT CONTEXT RULES:
     return cleanResponse(response.text || "I'm thinking...");
   } catch (error) {
     console.error("Error communicating with Iris:", error);
-    return "Connection to the neural link failed. Try again.";
+    return error instanceof AiProxyError ? error.message : "Connection to the neural link failed. Try again.";
   }
 };
 
 export const generateIRISResponse = async (
-  apiKey: string,
+  transport: GeminiTransport | null,
   history: { role: string; parts: { text: string }[] }[],
   message: string
 ): Promise<string> => {
-  const ai = getAI(apiKey);
+  const ai = getAI(transport);
   
   if (!ai) {
     return "Iris is currently unavailable. The AI service is being configured. Please try again later.";
@@ -985,7 +984,7 @@ export const generateIRISResponse = async (
     return cleanResponse(response.text || "I'm thinking...");
   } catch (error) {
     console.error("Error communicating with IRIS:", error);
-    return "Connection to the neural link failed. Try again.";
+    return error instanceof AiProxyError ? error.message : "Connection to the neural link failed. Try again.";
   }
 };
 
@@ -1030,12 +1029,12 @@ const extractJson = (text: string): any | null => {
 };
 
 export const reviewApplication = async (
-  apiKey: string,
+  transport: GeminiTransport | null,
   url: string,
   applicantBackground?: string
 ): Promise<ApplicationReview> => {
-  const ai = getAI(apiKey);
-  if (!ai) throw new Error('AI is not configured. Add a Gemini API key to use the reviewer.');
+  const ai = getAI(transport);
+  if (!ai) throw new Error('Sign in to ClearMind to use the AI reviewer.');
 
   const today = new Date().toISOString().split('T')[0];
   const bg = applicantBackground?.trim();
