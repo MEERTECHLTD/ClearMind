@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Trash2, Edit3, Save, X, GitBranch, Network, MousePointer, Link2, ZoomIn, ZoomOut, Move, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Pencil, GitBranch, Network, MousePointer, Link2, ZoomIn, ZoomOut, Sparkles, Loader2, ChevronLeft, ListPlus } from 'lucide-react';
 import { MindMap, MindMapNode, MindMapEdge } from '../../types';
 import { dbService, STORES } from '../../services/db';
 import { generateResponse, isApiConfigured } from '../../services/geminiService';
+import {
+  cx, PageShell, Card, Segmented, Modal, ModalBody, ModalFooter, Field, IconBtn, Empty, inputCls,
+  useTaskToast, useCreateLinkedTask,
+} from '../ui-kit';
 
 const NODE_COLORS = [
   '#3B82F6', // Blue
@@ -36,6 +40,9 @@ const MindMapView: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   
+  const toast = useTaskToast();
+  const createLinkedTask = useCreateLinkedTask();
+
   const canvasRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const draggedNode = useRef<string | null>(null);
@@ -210,7 +217,7 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
       setAiPrompt('');
     } catch (error) {
       console.error('AI generation failed:', error);
-      alert('Failed to generate mind map. Please try again.');
+      toast('Failed to generate mind map. Please try again.');
     } finally {
       setIsGenerating(false);
     }
@@ -525,496 +532,433 @@ Create 5-10 nodes with a logical hierarchy. Keep text concise (2-4 words each).`
     await saveMap(updated);
   };
 
+  const closeAiModal = () => {
+    if (isGenerating) return;
+    setShowAiModal(false);
+    setAiPrompt('');
+  };
+
+  const closeEdgeEditor = () => {
+    setEditingEdge(null);
+    setEdgeLabelText('');
+  };
+
+  const createTaskFromNode = (nodeId: string) => {
+    const node = selectedMap?.nodes.find(n => n.id === nodeId);
+    if (node) createLinkedTask({ title: node.text });
+  };
+
+  const aiModal = (
+    <Modal open={showAiModal} onClose={closeAiModal} title="AI mind map generator">
+      <ModalBody>
+        <p className={`text-sm ${cx.muted}`}>Enter a topic and AI will generate a mind map for you.</p>
+        <Field label="Topic">
+          <input
+            type="text"
+            placeholder="e.g., Learn React, Plan vacation..."
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            className={inputCls}
+            autoFocus
+            disabled={isGenerating}
+            onKeyDown={(e) => e.key === 'Enter' && !isGenerating && generateWithAI()}
+          />
+        </Field>
+      </ModalBody>
+      <ModalFooter>
+        <button onClick={closeAiModal} className={cx.btnGhost} disabled={isGenerating}>Cancel</button>
+        <button
+          onClick={generateWithAI}
+          disabled={!aiPrompt.trim() || isGenerating}
+          className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}
+        >
+          {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+          {isGenerating ? 'Generating…' : 'Generate'}
+        </button>
+      </ModalFooter>
+    </Modal>
+  );
+
   // List view when no map selected
   if (!selectedMap) {
     return (
-      <div className="h-full overflow-auto p-4 md:p-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-white text-gray-900">Mind Maps</h1>
-            <p className="dark:text-gray-400 text-gray-600">Create mind maps and decision trees</p>
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto">
+      <PageShell
+        title="Mind Maps"
+        subtitle="Create mind maps and decision trees"
+        wide
+        actions={
+          <div className="flex items-center gap-2">
             {isApiConfigured() && (
-              <button
-                onClick={() => setShowAiModal(true)}
-                className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 px-3 sm:px-4 py-2 rounded-lg transition-colors flex-1 sm:flex-none"
-              >
+              <button onClick={() => setShowAiModal(true)} className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`} aria-label="AI generate" title="AI generate">
                 <Sparkles size={18} />
-                <span className="hidden xs:inline">AI Generate</span>
+                <span className="hidden sm:inline">AI generate</span>
               </button>
             )}
-            <button
-              onClick={() => setIsCreating(true)}
-              className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-lg transition-colors flex-1 sm:flex-none"
-            >
+            <button onClick={() => setIsCreating(true)} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`} aria-label="New map" title="New map">
               <Plus size={18} />
-              <span className="hidden xs:inline">New Map</span>
+              <span className="hidden sm:inline">New map</span>
             </button>
           </div>
-        </div>
-
+        }
+      >
         {isCreating && (
-          <div className="bg-midnight-light p-4 rounded-xl mb-6 border dark:border-gray-700 border-gray-300">
+          <Card className="mb-4">
             <div className="flex flex-col gap-4">
-              <input
-                type="text"
-                placeholder="Mind map title..."
-                value={newMapTitle}
-                onChange={(e) => setNewMapTitle(e.target.value)}
-                className="bg-midnight border dark:border-gray-600 border-gray-300 rounded-lg px-4 py-2 dark:text-white text-gray-900 dark:placeholder-gray-400 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                autoFocus
-              />
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    checked={newMapType === 'mindmap'}
-                    onChange={() => setNewMapType('mindmap')}
-                    className="text-blue-500"
-                  />
-                  <Network size={18} className="text-blue-400" />
-                  <span className="dark:text-gray-300 text-gray-700">Mind Map</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    checked={newMapType === 'decision-tree'}
-                    onChange={() => setNewMapType('decision-tree')}
-                    className="text-blue-500"
-                  />
-                  <GitBranch size={18} className="text-green-400" />
-                  <span className="dark:text-gray-300 text-gray-700">Decision Tree</span>
-                </label>
+              <Field label="Title">
+                <input
+                  type="text"
+                  placeholder="Mind map title..."
+                  value={newMapTitle}
+                  onChange={(e) => setNewMapTitle(e.target.value)}
+                  className={inputCls}
+                  autoFocus
+                />
+              </Field>
+              <div>
+                <span className={`block text-xs font-medium mb-1 ${cx.muted}`}>Type</span>
+                <Segmented
+                  label="Map type"
+                  value={newMapType}
+                  onChange={setNewMapType}
+                  options={[{ value: 'mindmap', label: 'Mind map' }, { value: 'decision-tree', label: 'Decision tree' }]}
+                />
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={createMindMap}
-                  className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
-                >
-                  Create
-                </button>
-                <button
-                  onClick={() => { setIsCreating(false); setNewMapTitle(''); }}
-                  className="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => { setIsCreating(false); setNewMapTitle(''); }} className={cx.btnGhost}>Cancel</button>
+                <button onClick={createMindMap} disabled={!newMapTitle.trim()} className={cx.btnPrimary}>Create</button>
               </div>
             </div>
-          </div>
+          </Card>
         )}
 
-        {/* AI Generation Modal - Mobile Responsive */}
-        {showAiModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
-            <div className="bg-midnight-light p-4 sm:p-6 rounded-xl border dark:border-gray-700 border-gray-300 w-full max-w-md mx-2">
-              <div className="flex items-center gap-2 mb-3 sm:mb-4">
-                <Sparkles size={20} className="text-purple-400 sm:hidden" />
-                <Sparkles size={24} className="text-purple-400 hidden sm:block" />
-                <h2 className="text-lg sm:text-xl font-bold dark:text-white text-gray-900">AI Mind Map Generator</h2>
-              </div>
-              <p className="dark:text-gray-400 text-gray-600 mb-3 sm:mb-4 text-xs sm:text-sm">
-                Enter a topic and AI will generate a mind map for you.
-              </p>
-              <input
-                type="text"
-                placeholder="e.g., Learn React, Plan vacation..."
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                className="w-full bg-midnight border dark:border-gray-600 border-gray-300 rounded-lg px-3 sm:px-4 py-2 sm:py-3 dark:text-white text-gray-900 dark:placeholder-gray-400 placeholder-gray-500 text-sm sm:text-base focus:outline-none focus:border-purple-500 mb-3 sm:mb-4"
-                autoFocus
-                disabled={isGenerating}
-                onKeyDown={(e) => e.key === 'Enter' && !isGenerating && generateWithAI()}
-              />
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => { setShowAiModal(false); setAiPrompt(''); }}
-                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors"
-                  disabled={isGenerating}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={generateWithAI}
-                  disabled={!aiPrompt.trim() || isGenerating}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      <span>Generating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={18} />
-                      <span>Generate</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {aiModal}
 
         {mindMaps.length === 0 && !isCreating ? (
-          <div className="text-center py-16 text-gray-500">
-            <Network size={48} className="mx-auto mb-4 opacity-50" />
-            <p>No mind maps yet. Create your first one!</p>
-          </div>
+          <Empty
+            icon={<Network size={30} className={cx.muted} />}
+            title="No mind maps yet"
+            subtitle="Map out an idea or a decision — create your first one."
+          />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {mindMaps.map((map) => (
               <div
                 key={map.id}
-                className="bg-midnight-light p-4 rounded-xl border dark:border-gray-700 border-gray-300 dark:hover:border-gray-600 hover:border-gray-400 cursor-pointer transition-colors group"
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${map.title}`}
+                className={`group rounded-xl border ${cx.border} ${cx.card} p-4 cursor-pointer transition-colors hover:border-gray-300 dark:hover:border-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40`}
                 onClick={() => setSelectedMap(map)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setSelectedMap(map); }}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {map.type === 'decision-tree' ? (
-                      <GitBranch size={20} className="text-green-400" />
-                    ) : (
-                      <Network size={20} className="text-blue-400" />
-                    )}
-                    <h3 className="font-semibold dark:text-white text-gray-900">{map.title}</h3>
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TypeIcon type={map.type} />
+                    <h3 className={`text-sm font-semibold truncate ${cx.text}`}>{map.title}</h3>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteMindMap(map.id); }}
-                    className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity -mt-1 -mr-1">
+                    <IconBtn label="Delete mind map" danger onClick={(e) => { e.stopPropagation(); deleteMindMap(map.id); }}>
+                      <Trash2 size={16} />
+                    </IconBtn>
+                  </div>
                 </div>
-                <p className="text-sm dark:text-gray-400 text-gray-600">
-                  {map.nodes.length} nodes • {map.edges.length} connections
+                <p className={`text-sm ${cx.muted}`}>
+                  {map.nodes.length} nodes · {map.edges.length} connections
                 </p>
-                <p className="text-xs dark:text-gray-500 text-gray-500 mt-2">
+                <p className={`text-xs mt-2 ${cx.faint}`}>
                   Updated {new Date(map.updatedAt).toLocaleDateString()}
                 </p>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </PageShell>
     );
   }
 
+  const selected = selectedNode ? selectedMap.nodes.find(n => n.id === selectedNode) : null;
+  const toolBtn = (active: boolean) =>
+    `p-1.5 rounded-md transition-colors ${active ? 'bg-white dark:bg-[#1A1F2B] text-gray-900 dark:text-gray-100 shadow-sm' : `${cx.muted} hover:text-gray-800 dark:hover:text-gray-200`}`;
+
   // Canvas view when map is selected
   return (
-    <div className="h-full flex flex-col bg-midnight">
-      {/* Toolbar - Mobile Responsive */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3 bg-midnight-light border-b border-gray-700">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <button
-            onClick={() => setSelectedMap(null)}
-            className="dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900 transition-colors p-1"
-          >
-            <X size={20} />
-          </button>
-          <div className="flex items-center gap-2 min-w-0">
-            {selectedMap.type === 'decision-tree' ? (
-              <GitBranch size={18} className="text-green-400 flex-shrink-0" />
-            ) : (
-              <Network size={18} className="text-blue-400 flex-shrink-0" />
-            )}
-            <h2 className="font-semibold dark:text-white text-gray-900 text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">{selectedMap.title}</h2>
-          </div>
+    <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-[#05050A]">
+      <header className="flex flex-wrap items-center gap-2 px-4 sm:px-8 pt-6 mb-4 shrink-0">
+        <button onClick={() => setSelectedMap(null)} className={`p-1 -ml-1 rounded-md ${cx.hover} ${cx.muted}`} aria-label="Back to mind maps" title="Back to mind maps">
+          <ChevronLeft size={20} />
+        </button>
+        <div className="flex-1 min-w-0">
+          <h1 className={`text-2xl font-bold truncate ${cx.text}`}>{selectedMap.title}</h1>
+          <p className={`text-sm mt-0.5 flex items-center gap-1.5 ${cx.muted}`}>
+            <TypeIcon type={selectedMap.type} size={14} />
+            {selectedMap.type === 'decision-tree' ? 'Decision tree' : 'Mind map'} · {selectedMap.nodes.length} nodes · {selectedMap.edges.length} connections
+          </p>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Tools */}
-          <div className="flex bg-midnight rounded-lg p-0.5 sm:p-1 gap-0.5 sm:gap-1">
+          <div role="radiogroup" aria-label="Canvas tool" className="inline-flex rounded-lg bg-gray-100 dark:bg-white/5 p-0.5 gap-0.5">
             <button
+              role="radio"
+              aria-checked={tool === 'select'}
               onClick={() => { setTool('select'); setConnectingFrom(null); }}
-              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'select' ? 'bg-blue-600 text-white' : 'dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900'}`}
-              title="Select & Move"
+              className={toolBtn(tool === 'select')}
+              title="Select & move"
+              aria-label="Select & move"
             >
               <MousePointer size={16} />
             </button>
             <button
+              role="radio"
+              aria-checked={tool === 'connect'}
               onClick={() => setTool('connect')}
-              className={`p-1.5 sm:p-2 rounded-lg transition-colors ${tool === 'connect' ? 'bg-blue-600 text-white' : 'dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900'}`}
-              title="Connect Nodes"
+              className={toolBtn(tool === 'connect')}
+              title="Connect nodes"
+              aria-label="Connect nodes"
             >
               <Link2 size={16} />
             </button>
           </div>
 
-          {/* Zoom - Hidden on very small screens */}
-          <div className="hidden xs:flex items-center gap-0.5 sm:gap-1 bg-midnight rounded-lg p-0.5 sm:p-1">
-            <button
-              onClick={() => setZoom(z => Math.max(0.25, z - 0.25))}
-              className="p-1.5 sm:p-2 dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900 transition-colors"
-            >
-              <ZoomOut size={16} />
-            </button>
-            <span className="dark:text-gray-400 text-gray-600 text-xs sm:text-sm w-8 sm:w-12 text-center">{Math.round(zoom * 100)}%</span>
-            <button
-              onClick={() => setZoom(z => Math.min(2, z + 0.25))}
-              className="p-1.5 sm:p-2 dark:text-gray-400 text-gray-600 dark:hover:text-white hover:text-gray-900 transition-colors"
-            >
-              <ZoomIn size={16} />
-            </button>
+          {/* Zoom */}
+          <div className="hidden xs:flex items-center rounded-lg bg-gray-100 dark:bg-white/5 p-0.5">
+            <IconBtn label="Zoom out" onClick={() => setZoom(z => Math.max(0.25, z - 0.25))}><ZoomOut size={16} /></IconBtn>
+            <span className={`text-xs w-10 text-center tabular-nums ${cx.muted}`}>{Math.round(zoom * 100)}%</span>
+            <IconBtn label="Zoom in" onClick={() => setZoom(z => Math.min(2, z + 0.25))}><ZoomIn size={16} /></IconBtn>
           </div>
+
+          {selected && (
+            <button onClick={() => createTaskFromNode(selected.id)} className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`} title="Create task from node" aria-label="Create task from node">
+              <ListPlus size={18} />
+              <span className="hidden md:inline">Create task</span>
+            </button>
+          )}
 
           {/* Add Node */}
-          <button
-            onClick={() => addNode(selectedNode || undefined)}
-            className="flex items-center gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm"
-          >
-            <Plus size={14} />
-            <span className="hidden sm:inline">Add Node</span>
-            <span className="sm:hidden">Add</span>
+          <button onClick={() => addNode(selectedNode || undefined)} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`} aria-label="Add node" title="Add node">
+            <Plus size={18} />
+            <span className="hidden sm:inline">Add node</span>
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Canvas */}
-      <div
-        ref={canvasRef}
-        className="flex-1 overflow-hidden relative cursor-grab active:cursor-grabbing touch-none"
-        onMouseDown={handleCanvasMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onTouchStart={handleCanvasTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        {connectingFrom && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-600 px-3 py-1 rounded-full text-sm z-10">
-            Click another node to connect
-          </div>
-        )}
-
-        <svg
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{
-            transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
-            transformOrigin: '0 0',
-          }}
-        >
-          {/* Grid pattern */}
-          <defs>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a2e" strokeWidth="1"/>
-            </pattern>
-          </defs>
-          <rect width="4000" height="4000" x="-2000" y="-2000" fill="url(#grid)" />
-
-          {/* Edges */}
-          {selectedMap.edges.map((edge) => {
-            const fromNode = selectedMap.nodes.find(n => n.id === edge.from);
-            const toNode = selectedMap.nodes.find(n => n.id === edge.to);
-            if (!fromNode || !toNode) return null;
-
-            const midX = (fromNode.x + toNode.x) / 2;
-            const midY = (fromNode.y + toNode.y) / 2;
-
-            return (
-              <g key={edge.id}>
-                <line
-                  x1={fromNode.x}
-                  y1={fromNode.y}
-                  x2={toNode.x}
-                  y2={toNode.y}
-                  stroke="#4B5563"
-                  strokeWidth="2"
-                  className="pointer-events-auto cursor-pointer hover:stroke-red-400"
-                  onClick={() => {
-                    if (selectedMap.type === 'decision-tree') {
-                      setEditingEdge(edge.id);
-                      setEdgeLabelText(edge.label || '');
-                    } else if (confirm('Delete this connection?')) {
-                      deleteEdge(edge.id);
-                    }
-                  }}
-                />
-                {/* Arrow */}
-                <polygon
-                  points="-6,-4 0,0 -6,4"
-                  fill="#4B5563"
-                  transform={`translate(${toNode.x}, ${toNode.y}) rotate(${Math.atan2(toNode.y - fromNode.y, toNode.x - fromNode.x) * 180 / Math.PI}) translate(-20, 0)`}
-                />
-                {/* Edge label */}
-                {edge.label && (
-                  <text
-                    x={midX}
-                    y={midY - 10}
-                    textAnchor="middle"
-                    className="fill-gray-400 text-xs pointer-events-auto cursor-pointer"
-                    onClick={() => {
-                      setEditingEdge(edge.id);
-                      setEdgeLabelText(edge.label || '');
-                    }}
-                  >
-                    {edge.label}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Nodes */}
+      <div className="flex-1 min-h-0 px-4 sm:px-8 pb-4 flex flex-col">
+        {/* Canvas */}
         <div
-          className="absolute inset-0"
-          style={{
-            transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
-            transformOrigin: '0 0',
-          }}
+          ref={canvasRef}
+          className={`flex-1 overflow-hidden relative cursor-grab active:cursor-grabbing touch-none rounded-xl border ${cx.border} bg-gray-50 dark:bg-[#0A0D14]`}
+          onMouseDown={handleCanvasMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleCanvasTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         >
-          {selectedMap.nodes.map((node) => (
-            <div
-              key={node.id}
-              className={`absolute flex flex-col items-center -translate-x-1/2 -translate-y-1/2 ${
-                selectedNode === node.id ? 'z-20' : 'z-10'
-              } ${connectingFrom === node.id ? 'ring-2 ring-blue-500' : ''}`}
-              style={{ left: node.x, top: node.y }}
-              onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-              onTouchStart={(e) => handleNodeTouchStart(e, node.id)}
-              onDoubleClick={() => {
-                setEditingNode(node.id);
-                setEditingNodeText(node.text);
-              }}
-            >
-              <div
-                className={`px-4 py-2 rounded-xl shadow-lg cursor-pointer select-none transition-transform ${
-                  selectedNode === node.id ? 'scale-110 ring-2 ring-white/50' : ''
-                } ${node.isRoot ? 'ring-2 ring-yellow-400' : ''}`}
-                style={{ backgroundColor: node.color }}
-              >
-                {editingNode === node.id ? (
-                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      value={editingNodeText}
-                      onChange={(e) => setEditingNodeText(e.target.value)}
-                      className="bg-transparent border-none outline-none text-white text-center min-w-[60px]"
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') updateNodeText();
-                        if (e.key === 'Escape') {
-                          setEditingNode(null);
-                          setEditingNodeText('');
-                        }
+          {connectingFrom && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-gray-900 text-white dark:bg-[#1A1F2E] border border-gray-700 px-3 py-1.5 rounded-lg text-sm shadow-lg z-30" role="status">
+              Click another node to connect
+            </div>
+          )}
+
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none text-gray-200 dark:text-white/5"
+            style={{
+              transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
+              transformOrigin: '0 0',
+            }}
+          >
+            {/* Grid pattern */}
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" strokeWidth="1"/>
+              </pattern>
+            </defs>
+            <rect width="4000" height="4000" x="-2000" y="-2000" fill="url(#grid)" />
+
+            {/* Edges */}
+            {selectedMap.edges.map((edge) => {
+              const fromNode = selectedMap.nodes.find(n => n.id === edge.from);
+              const toNode = selectedMap.nodes.find(n => n.id === edge.to);
+              if (!fromNode || !toNode) return null;
+
+              const midX = (fromNode.x + toNode.x) / 2;
+              const midY = (fromNode.y + toNode.y) / 2;
+
+              return (
+                <g key={edge.id}>
+                  <line
+                    x1={fromNode.x}
+                    y1={fromNode.y}
+                    x2={toNode.x}
+                    y2={toNode.y}
+                    stroke="#9CA3AF"
+                    strokeWidth="2"
+                    className="pointer-events-auto cursor-pointer hover:stroke-red-400"
+                    onClick={() => {
+                      if (selectedMap.type === 'decision-tree') {
+                        setEditingEdge(edge.id);
+                        setEdgeLabelText(edge.label || '');
+                      } else if (confirm('Delete this connection?')) {
+                        deleteEdge(edge.id);
+                      }
+                    }}
+                  />
+                  {/* Arrow */}
+                  <polygon
+                    points="-6,-4 0,0 -6,4"
+                    fill="#9CA3AF"
+                    transform={`translate(${toNode.x}, ${toNode.y}) rotate(${Math.atan2(toNode.y - fromNode.y, toNode.x - fromNode.x) * 180 / Math.PI}) translate(-20, 0)`}
+                  />
+                  {/* Edge label */}
+                  {edge.label && (
+                    <text
+                      x={midX}
+                      y={midY - 10}
+                      textAnchor="middle"
+                      className="fill-gray-500 dark:fill-gray-400 text-xs pointer-events-auto cursor-pointer"
+                      onClick={() => {
+                        setEditingEdge(edge.id);
+                        setEdgeLabelText(edge.label || '');
                       }}
-                      onBlur={updateNodeText}
-                    />
+                    >
+                      {edge.label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Nodes */}
+          <div
+            className="absolute inset-0"
+            style={{
+              transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
+              transformOrigin: '0 0',
+            }}
+          >
+            {selectedMap.nodes.map((node) => (
+              <div
+                key={node.id}
+                className={`absolute flex flex-col items-center -translate-x-1/2 -translate-y-1/2 ${
+                  selectedNode === node.id ? 'z-20' : 'z-10'
+                } ${connectingFrom === node.id ? 'ring-2 ring-blue-500 rounded-xl' : ''}`}
+                style={{ left: node.x, top: node.y }}
+                onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
+                onTouchStart={(e) => handleNodeTouchStart(e, node.id)}
+                onDoubleClick={() => {
+                  setEditingNode(node.id);
+                  setEditingNodeText(node.text);
+                }}
+              >
+                <div
+                  className={`px-4 py-2 rounded-xl shadow-md cursor-pointer select-none transition-transform ring-offset-2 ring-offset-gray-50 dark:ring-offset-[#0A0D14] ${
+                    selectedNode === node.id ? 'scale-110 ring-2 ring-blue-500/60' : ''
+                  } ${node.isRoot && selectedNode !== node.id ? 'ring-2 ring-amber-400' : ''}`}
+                  style={{ backgroundColor: node.color }}
+                >
+                  {editingNode === node.id ? (
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={editingNodeText}
+                        onChange={(e) => setEditingNodeText(e.target.value)}
+                        aria-label="Node text"
+                        className="bg-transparent border-none outline-none text-white text-center text-sm font-medium min-w-[60px]"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') updateNodeText();
+                          if (e.key === 'Escape') {
+                            setEditingNode(null);
+                            setEditingNodeText('');
+                          }
+                        }}
+                        onBlur={updateNodeText}
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-white text-sm font-medium whitespace-nowrap">{node.text}</span>
+                  )}
+                </div>
+
+                {/* Node Actions */}
+                {selectedNode === node.id && !editingNode && (
+                  <div className={`flex items-center gap-0.5 mt-2 rounded-lg p-0.5 border shadow-lg ${cx.card} ${cx.border}`}>
+                    <IconBtn label="Add child node" onClick={() => addNode(node.id)}><Plus size={16} /></IconBtn>
+                    <IconBtn label="Edit text" onClick={() => { setEditingNode(node.id); setEditingNodeText(node.text); }}><Pencil size={16} /></IconBtn>
+                    <IconBtn label="Create task from node" onClick={() => createTaskFromNode(node.id)}><ListPlus size={16} /></IconBtn>
+                    {!node.isRoot && (
+                      <IconBtn label="Delete node" danger onClick={() => deleteNode(node.id)}><Trash2 size={16} /></IconBtn>
+                    )}
+                    {/* Color picker */}
+                    <div className={`flex gap-1 ml-1 pl-1.5 pr-1 border-l ${cx.border}`}>
+                      {NODE_COLORS.slice(0, 4).map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => changeNodeColor(node.id, color)}
+                          className={`w-4 h-4 rounded-full hover:scale-125 transition-transform ${node.color === color ? 'ring-2 ring-offset-1 ring-gray-400 dark:ring-offset-[#0F1219]' : ''}`}
+                          style={{ backgroundColor: color }}
+                          aria-label={`Set node colour ${color}`}
+                          title={`Set node colour ${color}`}
+                        />
+                      ))}
+                    </div>
                   </div>
-                ) : (
-                  <span className="text-white font-medium whitespace-nowrap">{node.text}</span>
                 )}
               </div>
-
-              {/* Node Actions */}
-              {selectedNode === node.id && !editingNode && (
-                <div className="flex gap-1 mt-2 bg-midnight-light rounded-lg p-1">
-                  <button
-                    onClick={() => addNode(node.id)}
-                    className="p-1 text-gray-400 hover:text-green-400 transition-colors"
-                    title="Add child node"
-                  >
-                    <Plus size={14} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditingNode(node.id);
-                      setEditingNodeText(node.text);
-                    }}
-                    className="p-1 text-gray-400 hover:text-blue-400 transition-colors"
-                    title="Edit text"
-                  >
-                    <Edit3 size={14} />
-                  </button>
-                  {!node.isRoot && (
-                    <button
-                      onClick={() => deleteNode(node.id)}
-                      className="p-1 text-gray-400 hover:text-red-400 transition-colors"
-                      title="Delete node"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                  {/* Color picker */}
-                  <div className="flex gap-0.5 ml-1 pl-1 border-l border-gray-600">
-                    {NODE_COLORS.slice(0, 4).map((color) => (
-                      <button
-                        key={color}
-                        onClick={() => changeNodeColor(node.id, color)}
-                        className="w-4 h-4 rounded-full hover:scale-125 transition-transform"
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        {/* Edge Label Editor Modal - Mobile Responsive */}
-        {editingEdge && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30 p-3">
-            <div className="bg-midnight-light p-3 sm:p-4 rounded-xl border dark:border-gray-700 border-gray-300 w-full max-w-xs sm:max-w-sm mx-2">
-              <h3 className="dark:text-white text-gray-900 font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Edit Connection Label</h3>
-              <input
-                type="text"
-                value={edgeLabelText}
-                onChange={(e) => setEdgeLabelText(e.target.value)}
-                placeholder="e.g., Yes, No, Maybe..."
-                className="bg-midnight border dark:border-gray-600 border-gray-300 rounded-lg px-3 py-2 dark:text-white text-gray-900 dark:placeholder-gray-400 placeholder-gray-500 text-sm sm:text-base w-full mb-2 sm:mb-3 focus:outline-none focus:border-blue-500"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') updateEdgeLabel();
-                  if (e.key === 'Escape') {
-                    setEditingEdge(null);
-                    setEdgeLabelText('');
-                  }
-                }}
-              />
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => {
-                    setEditingEdge(null);
-                    setEdgeLabelText('');
-                  }}
-                  className="px-3 py-1 text-gray-400 hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    if (confirm('Delete this connection?')) {
-                      deleteEdge(editingEdge);
-                      setEditingEdge(null);
-                      setEdgeLabelText('');
-                    }
-                  }}
-                  className="px-3 py-1 text-red-400 hover:text-red-300 transition-colors"
-                >
-                  Delete
-                </button>
-                <button
-                  onClick={updateEdgeLabel}
-                  className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded-lg transition-colors"
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Help text */}
+        <p className={`pt-2 text-xs text-center ${cx.faint}`}>
+          <span className="hidden sm:inline">Double-click to edit · Drag to move · Alt+Drag to pan · Use Connect tool to link nodes</span>
+          <span className="sm:hidden">Double-tap to edit · Drag to move</span>
+        </p>
       </div>
 
-      {/* Help text - Mobile Responsive */}
-      <div className="p-2 bg-midnight-light border-t border-gray-700 text-xs text-gray-500 text-center">
-        <span className="hidden sm:inline">Double-click to edit • Drag to move • Alt+Drag to pan • Use Connect tool to link nodes</span>
-        <span className="sm:hidden">Double-tap to edit • Drag to move</span>
-      </div>
+      {/* Edge Label Editor */}
+      <Modal open={!!editingEdge} onClose={closeEdgeEditor} title="Edit connection label">
+        <ModalBody>
+          <Field label="Label">
+            <input
+              type="text"
+              value={edgeLabelText}
+              onChange={(e) => setEdgeLabelText(e.target.value)}
+              placeholder="e.g., Yes, No, Maybe..."
+              className={inputCls}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') updateEdgeLabel();
+              }}
+            />
+          </Field>
+        </ModalBody>
+        <ModalFooter>
+          <button
+            onClick={() => {
+              if (editingEdge && confirm('Delete this connection?')) {
+                deleteEdge(editingEdge);
+                closeEdgeEditor();
+              }
+            }}
+            className="mr-auto px-3 py-1.5 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+          >
+            Delete
+          </button>
+          <button onClick={closeEdgeEditor} className={cx.btnGhost}>Cancel</button>
+          <button onClick={updateEdgeLabel} className={cx.btnPrimary}>Save</button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 };
+
+function TypeIcon({ type, size = 16 }: { type: MindMap['type']; size?: number }) {
+  return type === 'decision-tree'
+    ? <GitBranch size={size} className="text-green-600 dark:text-green-400 shrink-0" aria-hidden />
+    : <Network size={size} className="text-blue-600 dark:text-blue-400 shrink-0" aria-hidden />;
+}
 
 export default MindMapView;
