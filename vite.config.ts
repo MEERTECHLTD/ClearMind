@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
       test: {
         globals: true,
         environment: 'node',
-        include: ['services/**/*.test.{ts,js}', 'components/vault/**/*.test.ts', 'shared/**/*.test.{ts,js}', 'server/**/*.test.{ts,js}', 'apps/mobile/components/notes/**/*.test.ts', 'apps/mobile/services/**/*.test.ts'],
+        include: ['services/**/*.test.{ts,js}', 'components/vault/**/*.test.ts', 'shared/**/*.test.{ts,js}', 'server/**/*.test.{ts,js}', 'apps/mobile/components/notes/**/*.test.ts', 'apps/mobile/services/**/*.test.ts', 'apps/mobile/components/projects/**/*.test.ts'],
       }
     };
 });
