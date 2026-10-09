@@ -275,11 +275,13 @@ export default function CalendarScreen() {
         </Card>
 
         {/* Selected day */}
-        <View className="flex-row items-center justify-between mt-5 mb-3 px-1">
-          <View className="flex-row items-center flex-1 pr-2">
+        {/* Day actions sit left-aligned under the date so the FAB (bottom-right) never covers them. */}
+        <View className="mt-5 mb-3 px-1">
+          <View className="flex-row items-center mb-2">
             <CalendarIcon size={18} color={T.accent} />
             <Text className="text-ink font-bold ml-2 flex-shrink" numberOfLines={1}>{longDate(selectedDate)}</Text>
           </View>
+          <View className="flex-row items-center">
           <Pressable
             onPress={() => ui.openQuickAdd({ dueDate: selectedKey })}
             hitSlop={8}
@@ -298,6 +300,7 @@ export default function CalendarScreen() {
           >
             <Text className="text-white text-xs font-semibold">+ Event</Text>
           </Pressable>
+          </View>
         </View>
 
         {dayIsEmpty ? (
