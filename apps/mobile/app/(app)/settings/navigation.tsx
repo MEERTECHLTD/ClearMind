@@ -5,13 +5,13 @@ import { usePreferences } from '../../../hooks/usePreferences';
 import { SettingsPage, Group, Row } from '../../../components/settings/ui';
 import { T } from '../../../lib/theme';
 
-const MAX = 5;
+const MAX = 6; // 5 destinations + Browse
 
 export default function NavigationSettings() {
   const { prefs, update } = usePreferences();
   const tabs = (prefs.navTabs ?? DEFAULT_PREFERENCES.navTabs).filter((t) => t !== 'browse');
   const set = (next: string[]) => update({ navTabs: [...next, 'browse'] });
-  const toggle = (id: string) => (tabs.includes(id) ? set(tabs.filter((t) => t !== id)) : tabs.length < MAX - 1 + 1 && tabs.length < MAX ? set([...tabs, id]) : undefined);
+  const toggle = (id: string) => (tabs.includes(id) ? set(tabs.filter((t) => t !== id)) : tabs.length < MAX - 1 ? set([...tabs, id]) : undefined);
   const move = (id: string, d: -1 | 1) => {
     const i = tabs.indexOf(id);
     const j = i + d;

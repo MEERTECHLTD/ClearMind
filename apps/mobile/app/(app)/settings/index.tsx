@@ -6,6 +6,7 @@ import {
 } from 'lucide-react-native';
 import { useAuth } from '../../../hooks/useAuth';
 import { useSyncStatus } from '../../../hooks/useSyncStatus';
+import { Avatar } from '../../../components/ui';
 import { SettingsPage, Group, Row } from '../../../components/settings/ui';
 import { confirmDialog } from '../../../components/ui';
 import { T } from '../../../lib/theme';
@@ -30,11 +31,7 @@ export default function SettingsHome() {
   return (
     <SettingsPage title="Settings">
       <Pressable onPress={() => go('/(app)/settings/account')} className="mx-4 mt-4 flex-row items-center p-4 rounded-2xl bg-midnight-light border border-line active:opacity-80" accessibilityRole="button" accessibilityLabel={`Account: ${name}`}>
-        {photo ? (
-          <Image source={{ uri: photo }} style={{ width: 56, height: 56, borderRadius: 28 }} accessibilityIgnoresInvertColors />
-        ) : (
-          <View className="w-14 h-14 rounded-full bg-accent items-center justify-center"><Text className="text-white text-xl font-extrabold">{name[0]?.toUpperCase()}</Text></View>
-        )}
+        <Avatar size={56} />
         <View className="flex-1 ml-4">
           <Text className="text-ink text-lg font-bold" numberOfLines={1}>{name}</Text>
           <Text className="text-ink-muted text-sm" numberOfLines={1}>{user?.email ?? (user?.isAnonymous ? 'Guest account' : '')}</Text>

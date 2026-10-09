@@ -23,6 +23,7 @@ import * as D from '../domain';
 import { todayView, upcomingView, inboxTasks, compareTasks, isOverdue, priorityFromLevel, toISODate, orderedProjects, projectTasks, parseQuickAdd } from '../tasks';
 import { nowInZone, dayInZone } from '../tasks/time';
 import { parseToken, DEFAULT_RATE_LIMIT } from './tokens';
+import { validateArgs, ArgError } from './validate';
 
 // ------------------------------------------------------------------ repository contract
 
@@ -54,13 +55,14 @@ export class AgentError extends Error {
 
 // ------------------------------------------------------------------ auth + rate limit
 
-export async function authenticate(repo: AgentRepo, token: string | undefined | null, sha256: (s: string) => Promise<string>, source: ChangeSource): Promise<AuthContext> {
+export async function authenticate(repo: AgentRepo, token: string | undefined | null, sha256: (s: string) => Promise<string>, source: ChangeSource, now = Date.now()): Promise<AuthContext> {
   const parsed = token ? parseToken(token.trim()) : null;
   if (!parsed) throw new AgentError('unauthorized', 'Missing or malformed ClearMind token. Create one in Settings → Integrations.');
   const hash = await sha256(token!.trim());
   const t = await repo.getToken(parsed.uid, hash);
   if (!t) throw new AgentError('unauthorized', 'Unknown token.');
   if (t.revoked) throw new AgentError('unauthorized', 'This token was revoked.');
+  if (t.expiresAt && !(Date.parse(t.expiresAt) > now)) throw new AgentError('unauthorized', 'This token has expired.');
   return { uid: parsed.uid, token: t, tokenHash: hash, source };
 }
 
@@ -903,10 +905,12 @@ export async function callTool(repo: AgentRepo, auth: AuthContext, name: string,
     if (missing.length) throw new AgentError('forbidden', `This token is missing scope(s): ${missing.join(', ')}.`);
     rateLimit(auth, now.getTime());
     if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new AgentError('invalid', 'Arguments must be an object.');
-    for (const r of tool.input.required ?? []) if (args[r] === undefined || args[r] === '') throw new AgentError('invalid', `Missing required argument: ${r}.`);
+    let clean: Args;
+    try { clean = validateArgs(tool.input, args); } catch (e) { if (e instanceof ArgError) throw new AgentError('invalid', e.message); throw e; }
+    for (const r of tool.input.required ?? []) if (clean[r] === undefined || clean[r] === null || clean[r] === '') throw new AgentError('invalid', `Missing required argument: ${r}.`);
     const state = await repo.loadState(auth.uid);
     const ctx: D.Ctx = { source: auth.source, agent: auth.token.name, timezone: state.preferences?.timezone ?? null, now };
-    const out = await tool.run({ state, args, ctx, auth, repo, now });
+    const out = await tool.run({ state, args: clean, ctx, auth, repo, now });
     if (out.edits?.length) {
       await repo.commit(auth.uid, out.edits, { clientId: opts.clientId ?? `${auth.source}-${auth.tokenHash.slice(0, 8)}`, mutationId: `${auth.source}:${auth.tokenHash.slice(0, 8)}:${now.getTime()}` });
     }

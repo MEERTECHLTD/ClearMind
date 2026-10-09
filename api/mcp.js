@@ -2,6 +2,7 @@
 import { createRequire as __cr } from "module"; const require = __cr(import.meta.url);
 
 // api-src/mcp.ts
+import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 // shared/notes/parse.ts
@@ -973,7 +974,7 @@ function parseQuickAdd(input, ctx = {}) {
     tokens.push({ type, start, end, text: input.slice(start, end) });
     work = work.slice(0, start) + " ".repeat(end - start) + work.slice(end);
   };
-  const take = (type, pattern, handler2) => {
+  const take = (type, pattern, handler) => {
     const re = new RegExp(B + "(" + pattern + ")" + E, "gi");
     let m;
     while (m = re.exec(work)) {
@@ -981,7 +982,7 @@ function parseQuickAdd(input, ctx = {}) {
       const end = start + m[2].length;
       if (ignore.has(input.slice(start, end).toLowerCase())) continue;
       const inner = m.slice(2);
-      if (handler2(inner)) {
+      if (handler(inner)) {
         consume(type, start, end);
         return true;
       }
@@ -997,8 +998,8 @@ function parseQuickAdd(input, ctx = {}) {
     result.recurrence = rule;
     return true;
   };
-  const rec = (pattern, handler2) => take("recurrence", pattern + AC, (m) => {
-    const r = handler2(m);
+  const rec = (pattern, handler) => take("recurrence", pattern + AC, (m) => {
+    const r = handler(m);
     if (!r) return false;
     return setRec({ ...r, anchor: anchorOf(m) });
   });
@@ -2303,6 +2304,87 @@ function parseToken(token) {
 }
 var DEFAULT_RATE_LIMIT = 60;
 
+// shared/agents/validate.ts
+var ARG_LIMITS = { maxString: 2e5, maxArray: 1e3, maxDepth: 8 };
+var FORBIDDEN_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+var ArgError = class extends Error {
+};
+function checkKeys(v, path, depth) {
+  if (depth > ARG_LIMITS.maxDepth) throw new ArgError(`${path || "arguments"} is nested too deeply.`);
+  if (Array.isArray(v)) {
+    if (v.length > ARG_LIMITS.maxArray) throw new ArgError(`${path} has more than ${ARG_LIMITS.maxArray} items.`);
+    v.forEach((x, i) => checkKeys(x, `${path}[${i}]`, depth + 1));
+  } else if (v && typeof v === "object") {
+    for (const k of Object.keys(v)) {
+      if (FORBIDDEN_KEYS.has(k)) throw new ArgError(`Property name "${k}" is not allowed.`);
+      checkKeys(v[k], path ? `${path}.${k}` : k, depth + 1);
+    }
+  } else if (typeof v === "string" && v.length > ARG_LIMITS.maxString) {
+    throw new ArgError(`${path} is longer than ${ARG_LIMITS.maxString} characters.`);
+  }
+}
+function coerce(v, s, path) {
+  if (v === null || v === void 0) return v;
+  const types = Array.isArray(s.type) ? s.type : s.type ? [s.type] : [];
+  let out = v;
+  if (types.length && !types.some((t) => matches(out, t))) {
+    out = tryCoerce(v, types);
+    if (out === void 0) throw new ArgError(`${path} must be ${types.join(" or ")}.`);
+  }
+  if (s.enum && !s.enum.includes(out)) {
+    const lower = typeof out === "string" ? out.toLowerCase() : out;
+    const hit = s.enum.find((e) => e === lower) ?? (/^[1-4]$/.test(String(out)) ? s.enum.find((e) => e === `p${out}`) : void 0);
+    if (hit === void 0) throw new ArgError(`${path} must be one of: ${s.enum.join(", ")}.`);
+    out = hit;
+  }
+  if (Array.isArray(out) && s.items) return out.map((x, i) => coerce(x, s.items, `${path}[${i}]`));
+  if (out && typeof out === "object" && !Array.isArray(out) && s.properties) return coerceObject(out, s.properties, path);
+  return out;
+}
+function matches(v, t) {
+  switch (t) {
+    case "string":
+      return typeof v === "string";
+    case "number":
+      return typeof v === "number" && Number.isFinite(v);
+    case "integer":
+      return typeof v === "number" && Number.isInteger(v);
+    case "boolean":
+      return typeof v === "boolean";
+    case "array":
+      return Array.isArray(v);
+    case "object":
+      return !!v && typeof v === "object" && !Array.isArray(v);
+    case "null":
+      return v === null;
+    default:
+      return true;
+  }
+}
+function tryCoerce(v, types) {
+  for (const t of types) {
+    if ((t === "number" || t === "integer") && typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim())) {
+      const n = Number(v);
+      if (t === "number" || Number.isInteger(n)) return n;
+    }
+    if (t === "boolean" && (v === "true" || v === "false")) return v === "true";
+    if (t === "string" && typeof v === "number" && Number.isFinite(v)) return String(v);
+    if (t === "array" && (typeof v === "string" || typeof v === "number")) return [v];
+  }
+  return void 0;
+}
+function coerceObject(obj, props, path) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    out[k] = Object.prototype.hasOwnProperty.call(props, k) ? coerce(v, props[k], path ? `${path}.${k}` : k) : v;
+  }
+  return out;
+}
+function validateArgs(input, args) {
+  checkKeys(args, "", 0);
+  return coerceObject(args, input.properties ?? {}, "");
+}
+
 // shared/agents/tools.ts
 var AgentError = class extends Error {
   constructor(code, message, data) {
@@ -2311,13 +2393,14 @@ var AgentError = class extends Error {
     this.data = data;
   }
 };
-async function authenticate(repo2, token, sha2562, source) {
+async function authenticate(repo2, token, sha2562, source, now = Date.now()) {
   const parsed = token ? parseToken(token.trim()) : null;
   if (!parsed) throw new AgentError("unauthorized", "Missing or malformed ClearMind token. Create one in Settings \u2192 Integrations.");
   const hash = await sha2562(token.trim());
   const t = await repo2.getToken(parsed.uid, hash);
   if (!t) throw new AgentError("unauthorized", "Unknown token.");
   if (t.revoked) throw new AgentError("unauthorized", "This token was revoked.");
+  if (t.expiresAt && !(Date.parse(t.expiresAt) > now)) throw new AgentError("unauthorized", "This token has expired.");
   return { uid: parsed.uid, token: t, tokenHash: hash, source };
 }
 var windows = /* @__PURE__ */ new Map();
@@ -3288,10 +3371,17 @@ async function callTool(repo2, auth, name, args, opts) {
     if (missing.length) throw new AgentError("forbidden", `This token is missing scope(s): ${missing.join(", ")}.`);
     rateLimit(auth, now.getTime());
     if (args === null || typeof args !== "object" || Array.isArray(args)) throw new AgentError("invalid", "Arguments must be an object.");
-    for (const r of tool.input.required ?? []) if (args[r] === void 0 || args[r] === "") throw new AgentError("invalid", `Missing required argument: ${r}.`);
+    let clean;
+    try {
+      clean = validateArgs(tool.input, args);
+    } catch (e) {
+      if (e instanceof ArgError) throw new AgentError("invalid", e.message);
+      throw e;
+    }
+    for (const r of tool.input.required ?? []) if (clean[r] === void 0 || clean[r] === null || clean[r] === "") throw new AgentError("invalid", `Missing required argument: ${r}.`);
     const state = await repo2.loadState(auth.uid);
     const ctx = { source: auth.source, agent: auth.token.name, timezone: state.preferences?.timezone ?? null, now };
-    const out = await tool.run({ state, args, ctx, auth, repo: repo2, now });
+    const out = await tool.run({ state, args: clean, ctx, auth, repo: repo2, now });
     if (out.edits?.length) {
       await repo2.commit(auth.uid, out.edits, { clientId: opts.clientId ?? `${auth.source}-${auth.tokenHash.slice(0, 8)}`, mutationId: `${auth.source}:${auth.tokenHash.slice(0, 8)}:${now.getTime()}` });
     }
@@ -3593,38 +3683,209 @@ function createMcpServer(repo2, auth) {
   return server;
 }
 
+// server/rateLimit.ts
+import { createHash as createHash2 } from "node:crypto";
+var windowStart = (now, windowMs) => Math.floor(now / windowMs) * windowMs;
+var hashKey = (s) => createHash2("sha256").update(s).digest("hex").slice(0, 40);
+var MemoryLimitStore = class {
+  constructor(maxKeys = 1e4) {
+    this.maxKeys = maxKeys;
+    this.m = /* @__PURE__ */ new Map();
+  }
+  async hit(key, windowMs, now) {
+    const start = windowStart(now, windowMs);
+    const cur = this.m.get(key);
+    const next = cur && cur.start === start ? { start, count: cur.count + 1 } : { start, count: 1 };
+    if (!cur && this.m.size >= this.maxKeys) this.m.delete(this.m.keys().next().value);
+    this.m.set(key, next);
+    return next.count;
+  }
+  async peek(key, windowMs, now) {
+    const cur = this.m.get(key);
+    return cur && cur.start === windowStart(now, windowMs) ? cur.count : 0;
+  }
+  /** Remember a count learned from the global store (so this instance short-circuits too). */
+  raise(key, windowMs, now, count) {
+    const start = windowStart(now, windowMs);
+    const cur = this.m.get(key);
+    if (!cur || cur.start !== start || cur.count < count) this.m.set(key, { start, count });
+  }
+};
+var FirestoreLimitStore = class {
+  constructor(db, collection = "rateLimits") {
+    this.db = db;
+    this.collection = collection;
+  }
+  async hit(key, windowMs, now) {
+    const start = windowStart(now, windowMs);
+    const ref = this.db().doc(`${this.collection}/${hashKey(key)}`);
+    return this.db().runTransaction(async (tx) => {
+      const s = await tx.get(ref);
+      const d = s.exists ? s.data() : null;
+      const count = d && d.start === start ? (d.count ?? 0) + 1 : 1;
+      tx.set(ref, { start, count, expireAt: new Date(start + windowMs * 2) });
+      return count;
+    });
+  }
+  async peek(key, windowMs, now) {
+    const s = await this.db().doc(`${this.collection}/${hashKey(key)}`).get();
+    const d = s.exists ? s.data() : null;
+    return d && d.start === windowStart(now, windowMs) ? d.count ?? 0 : 0;
+  }
+};
+function createLimiter(opts = {}) {
+  const memory = opts.memory ?? new MemoryLimitStore();
+  const global = opts.global ?? null;
+  const result = (rule, count, now) => ({
+    ok: count <= rule.limit,
+    count,
+    limit: rule.limit,
+    retryAfterSec: Math.max(1, Math.ceil((windowStart(now, rule.windowMs) + rule.windowMs - now) / 1e3))
+  });
+  return {
+    async check(rule, subject, now = Date.now()) {
+      const key = `${rule.name}:${subject}`;
+      const local = await memory.hit(key, rule.windowMs, now);
+      if (local > rule.limit) return result(rule, local, now);
+      if (!global) return result(rule, local, now);
+      try {
+        const count = await global.hit(key, rule.windowMs, now);
+        memory.raise(key, rule.windowMs, now, count);
+        return result(rule, count, now);
+      } catch (e) {
+        opts.onError?.(e);
+        return result(rule, local, now);
+      }
+    },
+    async blocked(rule, subject, now = Date.now()) {
+      const key = `${rule.name}:${subject}`;
+      const local = await memory.peek(key, rule.windowMs, now);
+      return { ...result(rule, local, now), ok: local < rule.limit };
+    }
+  };
+}
+var LIMITS = {
+  oauthRegister: { name: "oauth-register", limit: 30, windowMs: 60 * 60 * 1e3 },
+  oauthToken: { name: "oauth-token", limit: 300, windowMs: 10 * 60 * 1e3 },
+  oauthApprove: { name: "oauth-approve", limit: 30, windowMs: 10 * 60 * 1e3 },
+  authFailures: { name: "auth-fail", limit: 30, windowMs: 10 * 60 * 1e3 },
+  aiPerMinute: { name: "ai-min", limit: 15, windowMs: 60 * 1e3 },
+  aiPerDay: { name: "ai-day", limit: 300, windowMs: 24 * 60 * 60 * 1e3 }
+};
+
 // api-src/http.ts
+import { randomUUID } from "node:crypto";
+var HttpError = class extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+};
 function bearer(req) {
   const h = req.headers.authorization ?? "";
   const m = /^Bearer\s+(.+)$/i.exec(Array.isArray(h) ? h[0] : h);
   return m ? m[1].trim() : null;
 }
-async function readJson(req) {
-  if (req.body !== void 0) return typeof req.body === "string" ? JSON.parse(req.body || "null") : req.body;
+var MAX_JSON_BYTES = 1e6;
+var MAX_FORM_BYTES = 64 * 1024;
+async function readRaw(req, limit) {
   const chunks = [];
   let size = 0;
   for await (const c of req) {
     size += c.length;
-    if (size > 1e6) throw new Error("payload too large");
+    if (size > limit) throw new HttpError(413, "payload_too_large", `Request body exceeds ${limit} bytes.`);
     chunks.push(c);
   }
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : null;
+  return Buffer.concat(chunks).toString("utf8");
+}
+function parseJson(raw) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "invalid_json", "Request body is not valid JSON.");
+  }
+}
+async function readJson(req) {
+  if (req.body !== void 0) {
+    if (typeof req.body === "string") {
+      if (req.body.length > MAX_JSON_BYTES) throw new HttpError(413, "payload_too_large", `Request body exceeds ${MAX_JSON_BYTES} bytes.`);
+      return parseJson(req.body);
+    }
+    return req.body;
+  }
+  return parseJson(await readRaw(req, MAX_JSON_BYTES));
 }
 function sendJson(res, status, body) {
   res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.end(JSON.stringify(body));
 }
 function originOf(req) {
+  const pinned = process.env.PUBLIC_ORIGIN?.replace(/\/+$/, "");
+  if (pinned) return pinned;
   const host = req.headers["x-forwarded-host"] ?? req.headers.host ?? "clearmind.meertech.tech";
   const proto = req.headers["x-forwarded-proto"] ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto.split(",")[0]}://${host.split(",")[0]}`;
+  return `${proto.split(",")[0].trim()}://${host.split(",")[0].trim()}`;
+}
+function clientIp(req) {
+  const real = req.headers["x-real-ip"];
+  if (typeof real === "string" && real) return real.trim();
+  const xff = req.headers["x-forwarded-for"];
+  const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
+  return first || req.socket?.remoteAddress || "unknown";
+}
+var REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+function requestIdFor(req, res) {
+  const inbound = req.headers["x-request-id"];
+  const v = Array.isArray(inbound) ? inbound[0] : inbound;
+  const id = v && REQUEST_ID.test(v) ? v : randomUUID();
+  res.setHeader("X-Request-Id", id);
+  return id;
+}
+function redact(s) {
+  return String(s).replace(/\bcm[arc]?_[A-Za-z0-9_]{8,}/g, "[redacted-token]").replace(/\bBearer\s+[^\s"']+/gi, "Bearer [redacted]").replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*/g, "[redacted-jwt]").replace(/\bAIza[0-9A-Za-z_-]{20,}/g, "[redacted-key]").replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[redacted-key]").replace(/([?&](?:key|token|code|refresh_token|id_token|code_verifier)=)[^&\s]+/gi, "$1[redacted]");
+}
+function log(level, msg, fields = {}) {
+  const clean = {};
+  for (const [k, v] of Object.entries(fields)) clean[k] = typeof v === "string" ? redact(v) : v;
+  const line = JSON.stringify({ level, msg: redact(msg), time: (/* @__PURE__ */ new Date()).toISOString(), ...clean });
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
+var pathOf = (req) => String(req.url ?? "/").split("?")[0].slice(0, 200);
+function withRequest(fn, handler, fallback) {
+  return async (req, res) => {
+    const started = Date.now();
+    const requestId = requestIdFor(req, res);
+    try {
+      await handler(req, res, { requestId });
+    } catch (e) {
+      log("error", "unhandled", { fn, requestId, error: e?.name ?? "Error", detail: String(e?.message ?? "").slice(0, 300) });
+      if (!res.headersSent) sendJson(res, 500, fallback(requestId));
+    } finally {
+      log("info", "request", { fn, requestId, method: req.method, path: pathOf(req), status: res.statusCode, durationMs: Date.now() - started });
+    }
+  };
+}
+function corsPublic(res, headers, methods = "GET, POST, OPTIONS") {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", methods);
+  res.setHeader("Access-Control-Allow-Headers", headers);
+  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate, X-Request-Id, Retry-After");
 }
 
 // api-src/mcp.ts
 var repo = null;
+var limiter = createLimiter({
+  global: new FirestoreLimitStore(() => getFirestore2(adminApp())),
+  onError: (e) => log("warn", "rate limiter unavailable (fail open)", { fn: "mcp", error: e?.name ?? "Error" })
+});
+var rpcError = (code, message) => ({ jsonrpc: "2.0", error: { code, message }, id: null });
 function credential(req) {
   const b = bearer(req);
   if (b) return b;
@@ -3637,12 +3898,14 @@ function credential(req) {
 function unauthorized(req, res, message, hadToken) {
   const origin = originOf(req);
   res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"${hadToken ? ', error="invalid_token"' : ""}`);
-  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
-  return sendJson(res, 401, { jsonrpc: "2.0", error: { code: -32001, message }, id: null });
+  return sendJson(res, 401, rpcError(-32001, message));
 }
-async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id");
+function tooMany(res, retryAfterSec) {
+  res.setHeader("Retry-After", String(retryAfterSec));
+  return sendJson(res, 429, rpcError(-32002, "Too many failed authentication attempts. Try again later."));
+}
+async function handle(req, res, { requestId }) {
+  corsPublic(res, "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, X-Request-Id", "GET, POST, DELETE, OPTIONS");
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     return res.end();
@@ -3650,9 +3913,12 @@ async function handler(req, res) {
   const token = credential(req);
   if (!token) return unauthorized(req, res, "Sign in required. Connect with OAuth, or create a token in ClearMind \u2192 Settings \u2192 Integrations.", false);
   if (req.method === "GET" || req.method === "DELETE") {
-    return sendJson(res, 405, { jsonrpc: "2.0", error: { code: -32e3, message: "Use POST (stateless Streamable HTTP)." }, id: null });
+    return sendJson(res, 405, rpcError(-32e3, "Use POST (stateless Streamable HTTP)."));
   }
+  const ip = clientIp(req);
   try {
+    const pre = await limiter.blocked(LIMITS.authFailures, ip);
+    if (!pre.ok) return tooMany(res, pre.retryAfterSec);
     repo ??= new FirestoreAgentRepo();
     const auth = await authenticate(repo, token, sha256, "mcp");
     const body = await readJson(req);
@@ -3665,13 +3931,18 @@ async function handler(req, res) {
     await server.connect(transport);
     await transport.handleRequest(req, res, body);
   } catch (e) {
+    if (res.headersSent) return;
     if (e instanceof AgentError && e.code === "unauthorized") {
-      if (!res.headersSent) unauthorized(req, res, e.message, true);
-      return;
+      const r = await limiter.check(LIMITS.authFailures, ip);
+      if (!r.ok) return tooMany(res, r.retryAfterSec);
+      return unauthorized(req, res, e.message, true);
     }
-    if (!res.headersSent) sendJson(res, 500, { jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null });
+    if (e instanceof HttpError) return sendJson(res, e.status, rpcError(e.status === 413 ? -32600 : -32700, e.message));
+    log("error", "mcp error", { fn: "mcp", requestId, error: e?.name ?? "Error", detail: String(e?.message ?? "").slice(0, 300) });
+    sendJson(res, 500, rpcError(-32603, "Internal error"));
   }
 }
+var mcp_default = withRequest("mcp", handle, () => rpcError(-32603, "Internal error"));
 export {
-  handler as default
+  mcp_default as default
 };

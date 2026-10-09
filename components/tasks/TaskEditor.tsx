@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { CalendarDays, Flag, Tag, Hash, Inbox, Repeat, X, Bell, Timer } from 'lucide-react';
+import { CalendarDays, Flag, Tag, Hash, Inbox, Repeat, X, Bell, Timer, Mic, MicOff } from 'lucide-react';
+import { useWebVoice } from './useWebVoice';
 import type { TaskPriority } from '../../types';
 import { parseQuickAdd, formatDueDate, formatTime, describeRecurrence } from '../../shared/tasks';
 import { SchedulePicker, PriorityPicker, ProjectPicker, LabelPicker, relativeReminderLabel, describeDuration, type Schedule } from './pickers';
@@ -15,6 +16,9 @@ export interface AddDefaults {
   parentId?: string | null;
   labelIds?: string[];
   priority?: TaskPriority;
+  /** Prefilled task name / description (e.g. "Turn into task" from a Journal entry). Parsed like typed text. */
+  title?: string;
+  description?: string;
 }
 
 type Picker = null | 'date' | 'priority' | 'project' | 'labels';
@@ -45,8 +49,8 @@ export function TaskEditor({
   defaults = {}, onClose, autoFocus = true, submitLabel = 'Add task', compact = false,
 }: { defaults?: AddDefaults; onClose: () => void; autoFocus?: boolean; submitLabel?: string; compact?: boolean }) {
   const { projects, labels, projectMap, labelMap } = useTaskData();
-  const [text, setText] = useState('');
-  const [desc, setDesc] = useState('');
+  const [text, setText] = useState(defaults.title ?? '');
+  const [desc, setDesc] = useState(defaults.description ?? '');
   const [ignore, setIgnore] = useState<string[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
@@ -55,6 +59,16 @@ export function TaskEditor({
   const [picker, setPicker] = useState<Picker>(null);
   const refs = { date: useRef<HTMLButtonElement>(null), priority: useRef<HTMLButtonElement>(null), project: useRef<HTMLButtonElement>(null), labels: useRef<HTMLButtonElement>(null) };
   const input = useRef<HTMLInputElement>(null);
+  // Voice: text before the mic was clicked + the live transcript.
+  const voiceBase = useRef('');
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voice = useWebVoice((t) => setText(voiceBase.current ? `${voiceBase.current} ${t}` : t), setVoiceError);
+  const toggleVoice = () => {
+    setVoiceError(null);
+    if (voice.listening) { voice.stop(); return; }
+    voiceBase.current = text.trim();
+    voice.start();
+  };
 
   const projectRefs = useMemo(() => projects.filter((p) => !p.archived).map((p) => ({ id: p.id, title: p.title })), [projects]);
   const parsed = useMemo(() => parseQuickAdd(text, { projects: projectRefs, labels, ignore }), [text, projectRefs, labels, ignore]);
@@ -110,6 +124,7 @@ export function TaskEditor({
       onKeyDown={(e) => { if (e.key === 'Escape' && !picker) { e.stopPropagation(); onClose(); } }}
     >
       <div className="px-3 pt-2.5">
+        <div className="flex items-center gap-2">
         <input
           ref={input}
           autoFocus={autoFocus}
@@ -117,9 +132,23 @@ export function TaskEditor({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
           placeholder={defaults.parentId ? 'Sub-task name' : 'Task name — try “Pay rent every month p1 #Home @bills”'}
-          className={`w-full bg-transparent outline-none text-[15px] font-medium ${cx.text} placeholder:text-gray-400 placeholder:font-normal`}
+          className={`flex-1 min-w-0 bg-transparent outline-none text-[15px] font-medium ${cx.text} placeholder:text-gray-400 placeholder:font-normal`}
           aria-label="Task name"
         />
+        {voice.supported ? (
+          <button
+            type="button"
+            onClick={toggleVoice}
+            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${voice.listening ? 'bg-red-500 text-white animate-pulse' : `${cx.muted} ${cx.hover}`}`}
+            aria-label={voice.listening ? 'Stop voice input' : 'Add by voice'}
+            aria-pressed={voice.listening}
+            title={voice.listening ? 'Stop listening' : 'Add by voice'}
+          >
+            {voice.listening ? <MicOff size={15} /> : <Mic size={15} />}
+          </button>
+        ) : null}
+        </div>
+        {voice.listening ? <p className="text-[11px] mt-0.5 text-red-500" aria-live="polite">Listening… try “remind me to call Sam tomorrow at 5pm”</p> : voiceError ? <p className="text-[11px] mt-0.5 text-red-500" aria-live="polite">{voiceError}</p> : null}
         <input
           value={desc}
           onChange={(e) => setDesc(e.target.value)}

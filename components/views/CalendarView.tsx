@@ -1,19 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CalendarEvent } from '../../types';
+import { CalendarEvent, Task } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Plus, 
-  X, 
-  Save, 
-  Clock, 
-  MapPin, 
-  Trash2, 
-  Edit2,
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Clock,
+  MapPin,
+  Trash2,
+  Pencil,
   Calendar as CalendarIcon,
-  Bell
+  CalendarPlus,
+  Bell,
+  Check,
 } from 'lucide-react';
+import { toISODate, compareTasks } from '../../shared/tasks';
+import { useTaskData } from '../tasks/TaskContext';
+import { TaskList } from '../tasks/TaskList';
+import { FullPage, Modal, ModalBody, ModalFooter, Field, IconBtn, inputCls, cx } from '../ui-kit';
 
 const CalendarView: React.FC = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -197,155 +201,133 @@ const CalendarView: React.FC = () => {
 
   const selectedDateEvents = selectedDate ? getEventsForDate(selectedDate) : [];
 
-  return (
-    <div className="p-8 h-full overflow-y-auto animate-fade-in">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Calendar</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Plan your events and stay organized.</p>
-        </div>
-        <button 
-          onClick={() => openAddModal()}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
-        >
-          <Plus size={16} />
-          Add Event
-        </button>
-      </div>
+  // Open tasks by (local) due date, shown in the grid and the day panel.
+  const { tasks } = useTaskData();
+  const openTasksByDate = useMemo(() => {
+    const m = new Map<string, Task[]>();
+    for (const t of tasks) {
+      if (t.completed || t.deleted || !t.dueDate) continue;
+      const list = m.get(t.dueDate);
+      if (list) list.push(t); else m.set(t.dueDate, [t]);
+    }
+    for (const list of m.values()) list.sort(compareTasks);
+    return m;
+  }, [tasks]);
+  const selectedISO = selectedDate ? toISODate(selectedDate) : null;
+  const selectedDateTasks = selectedISO ? openTasksByDate.get(selectedISO) ?? [] : [];
 
-      <div className="flex flex-col lg:flex-row gap-6">
-        {/* Calendar Grid */}
-        <div className="flex-1 bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none">
-          {/* Month Navigation */}
-          <div className="flex items-center justify-between mb-6">
-            <button 
-              onClick={() => navigateMonth(-1)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-            >
-              <ChevronLeft size={20} className="text-gray-500" />
-            </button>
-            <h3 className="text-xl font-bold dark:text-white text-gray-900">
+  return (
+    <FullPage
+      title="Calendar"
+      subtitle="Plan your events and stay organized."
+      actions={
+        <button onClick={() => openAddModal()} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+          <Plus size={16} />Add event
+        </button>
+      }
+    >
+      <div className="flex flex-col lg:flex-row gap-4">
+        {/* Calendar grid */}
+        <section className={`flex-1 min-w-0 rounded-xl border ${cx.border} ${cx.card} p-4`}>
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className={`flex-1 text-lg font-semibold ${cx.text}`}>
               {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-            </h3>
-            <button 
-              onClick={() => navigateMonth(1)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-            >
-              <ChevronRight size={20} className="text-gray-500" />
-            </button>
+            </h2>
+            <button onClick={() => setCurrentDate(new Date())} className={cx.btnGhost}>Today</button>
+            <IconBtn label="Previous month" onClick={() => navigateMonth(-1)}><ChevronLeft size={18} /></IconBtn>
+            <IconBtn label="Next month" onClick={() => navigateMonth(1)}><ChevronRight size={18} /></IconBtn>
           </div>
 
-          {/* Week Days Header */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-1 mb-1">
             {weekDays.map(day => (
-              <div key={day} className="text-center text-xs font-semibold text-gray-500 uppercase py-2">
-                {day}
-              </div>
+              <div key={day} className={`text-center text-xs font-medium py-1.5 ${cx.muted}`}>{day}</div>
             ))}
           </div>
 
-          {/* Calendar Days */}
           <div className="grid grid-cols-7 gap-1">
             {daysInMonth.map(({ date, isCurrentMonth }, index) => {
               const dayEvents = getEventsForDate(date);
+              const dayTasks = openTasksByDate.get(toISODate(date)) ?? [];
               const isSelected = selectedDate?.toDateString() === date.toDateString();
-              
+              const today = isToday(date);
+              const label = `${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}${dayEvents.length ? `, ${dayEvents.length} event${dayEvents.length === 1 ? '' : 's'}` : ''}${dayTasks.length ? `, ${dayTasks.length} task${dayTasks.length === 1 ? '' : 's'}` : ''}`;
               return (
                 <div
                   key={index}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={label}
+                  aria-pressed={isSelected}
                   onClick={() => setSelectedDate(date)}
                   onDoubleClick={() => openAddModal(date)}
-                  className={`min-h-[80px] p-2 rounded-lg cursor-pointer transition-all border-2
-                    ${isCurrentMonth 
-                      ? 'dark:bg-gray-800/30 bg-gray-50' 
-                      : 'dark:bg-gray-900/30 bg-gray-100/50 opacity-50'}
-                    ${isToday(date) ? 'border-blue-500' : 'border-transparent'}
-                    ${isSelected ? 'ring-2 ring-blue-400 dark:bg-gray-800 bg-white' : ''}
-                    hover:bg-gray-100 dark:hover:bg-gray-800`}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedDate(date); }
+                  }}
+                  className={`min-h-[84px] p-1.5 rounded-lg cursor-pointer border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40
+                    ${isSelected ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10' : `border-transparent ${isCurrentMonth ? 'bg-gray-50 dark:bg-white/[0.03]' : ''} ${cx.hover}`}
+                    ${isCurrentMonth ? '' : 'opacity-50'}`}
                 >
-                  <span className={`text-sm font-medium ${
-                    isToday(date) 
-                      ? 'text-blue-500' 
-                      : isCurrentMonth 
-                        ? 'dark:text-white text-gray-900' 
-                        : 'text-gray-400'
-                  }`}>
-                    {date.getDate()}
-                  </span>
-                  
-                  <div className="mt-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className={`inline-flex items-center justify-center min-w-[22px] h-[22px] px-1 rounded-full text-xs font-medium ${
+                      today ? 'bg-blue-600 text-white' : isCurrentMonth ? cx.text : cx.faint
+                    }`}>
+                      {date.getDate()}
+                    </span>
+                    {dayTasks.length ? (
+                      <span className={`inline-flex items-center gap-0.5 text-[10px] ${cx.muted}`} title={`${dayTasks.length} open task${dayTasks.length === 1 ? '' : 's'}`}>
+                        <Check size={10} />{dayTasks.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 space-y-0.5">
                     {dayEvents.slice(0, 2).map(event => (
-                      <div 
-                        key={event.id}
-                        className="text-[10px] px-1 py-0.5 rounded truncate text-white font-medium"
-                        style={{ backgroundColor: event.color }}
-                      >
+                      <div key={event.id} className="text-[10px] px-1 py-0.5 rounded truncate text-white font-medium" style={{ backgroundColor: event.color }}>
                         {event.title}
                       </div>
                     ))}
                     {dayEvents.length > 2 && (
-                      <div className="text-[10px] text-gray-500">
-                        +{dayEvents.length - 2} more
-                      </div>
+                      <div className={`text-[10px] ${cx.muted}`}>+{dayEvents.length - 2} more</div>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
+        </section>
 
-        {/* Event Details Panel */}
-        <div className="lg:w-80 bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none">
-          <h4 className="font-bold dark:text-white text-gray-900 mb-4 flex items-center gap-2">
-            <CalendarIcon size={18} className="text-blue-500" />
-            {selectedDate 
+        {/* Day panel */}
+        <aside className={`lg:w-80 shrink-0 rounded-xl border ${cx.border} ${cx.card} p-4 self-start w-full`}>
+          <h2 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${cx.text}`}>
+            <CalendarIcon size={16} className="text-blue-500" />
+            {selectedDate
               ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
               : 'Select a date'}
-          </h4>
+          </h2>
 
           {selectedDate ? (
             <>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className={`flex-1 text-xs font-semibold uppercase tracking-wide ${cx.muted}`}>Events</h3>
+                <IconBtn label="Add event on this day" onClick={() => openAddModal(selectedDate)}><CalendarPlus size={16} /></IconBtn>
+              </div>
               {selectedDateEvents.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <CalendarIcon size={32} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No events on this day</p>
-                  <button 
-                    onClick={() => openAddModal(selectedDate)}
-                    className="mt-3 text-blue-500 text-sm hover:underline"
-                  >
-                    Add an event
-                  </button>
-                </div>
+                <p className={`text-sm py-2 ${cx.faint}`}>
+                  No events on this day.{' '}
+                  <button onClick={() => openAddModal(selectedDate)} className="text-blue-600 dark:text-blue-400 hover:underline">Add an event</button>
+                </p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {selectedDateEvents.map(event => (
-                    <div 
-                      key={event.id}
-                      className="p-3 rounded-lg border-l-4 dark:bg-gray-800/50 bg-gray-50"
-                      style={{ borderLeftColor: event.color }}
-                    >
-                      <div className="flex items-start justify-between">
-                        <h5 className="font-medium dark:text-white text-gray-900">{event.title}</h5>
-                        <div className="flex gap-1">
-                          <button 
-                            onClick={() => openEditModal(event)}
-                            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-                          >
-                            <Edit2 size={14} className="text-gray-400 hover:text-blue-500" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteEvent(event.id)}
-                            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-                          >
-                            <Trash2 size={14} className="text-gray-400 hover:text-red-500" />
-                          </button>
-                        </div>
+                    <div key={event.id} className="p-2.5 rounded-lg border-l-4 bg-gray-50 dark:bg-white/[0.03]" style={{ borderLeftColor: event.color }}>
+                      <div className="flex items-start gap-1">
+                        <h4 className={`flex-1 min-w-0 text-sm font-medium ${cx.text}`}>{event.title}</h4>
+                        {event.reminder ? <span title="Reminder on" className={`mt-1 ${cx.faint}`}><Bell size={12} aria-label="Reminder on" /></span> : null}
+                        <IconBtn label="Edit event" onClick={() => openEditModal(event)} className="!p-1"><Pencil size={14} /></IconBtn>
+                        <IconBtn label="Delete event" danger onClick={() => handleDeleteEvent(event.id)} className="!p-1"><Trash2 size={14} /></IconBtn>
                       </div>
-                      
                       {(event.startTime || event.endTime) && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+                        <div className={`flex items-center gap-1 text-xs mt-1 ${cx.muted}`}>
                           <Clock size={12} />
                           <span>
                             {formatTime(event.startTime || '')}
@@ -353,169 +335,98 @@ const CalendarView: React.FC = () => {
                           </span>
                         </div>
                       )}
-                      
                       {event.location && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+                        <div className={`flex items-center gap-1 text-xs mt-1 ${cx.muted}`}>
                           <MapPin size={12} />
                           <span>{event.location}</span>
                         </div>
                       )}
-                      
-                      {event.description && (
-                        <p className="text-xs text-gray-400 mt-2">{event.description}</p>
-                      )}
+                      {event.description && <p className={`text-xs mt-1.5 ${cx.muted}`}>{event.description}</p>}
                     </div>
                   ))}
-                  
-                  <button 
-                    onClick={() => openAddModal(selectedDate)}
-                    className="w-full py-2 border border-dashed dark:border-gray-700 border-gray-300 rounded-lg text-gray-500 hover:text-blue-500 hover:border-blue-500 text-sm transition-colors"
-                  >
-                    + Add another event
-                  </button>
                 </div>
               )}
+
+              <div className={`mt-4 pt-3 border-t ${cx.border}`}>
+                <h3 className={`text-xs font-semibold uppercase tracking-wide mb-1 ${cx.muted}`}>
+                  Tasks{selectedDateTasks.length ? <span className={`ml-1.5 normal-case font-normal ${cx.faint}`}>{selectedDateTasks.length}</span> : null}
+                </h3>
+                {/* Same rows + inline composer as the task views, pinned to this day. */}
+                <TaskList key={selectedISO ?? ''} tasks={selectedDateTasks} hideDate showProject addDefaults={{ dueDate: selectedISO }} />
+              </div>
             </>
           ) : (
-            <div className="text-center py-8 text-gray-500">
-              <p className="text-sm">Click on a date to view or add events</p>
-            </div>
+            <p className={`text-sm py-6 text-center ${cx.muted}`}>Click a date to see its events and tasks.</p>
           )}
-        </div>
+        </aside>
       </div>
 
-      {/* Add/Edit Event Modal */}
-      {showEventModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold dark:text-white text-gray-900">
-                {editingEvent ? 'Edit Event' : 'New Event'}
-              </h3>
-              <button 
-                onClick={() => setShowEventModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Event Title *</label>
-                <input
-                  type="text"
-                  value={eventForm.title}
-                  onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
-                  placeholder="Meeting, Birthday, etc."
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Date *</label>
-                <input
-                  type="date"
-                  value={eventForm.date}
-                  onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })}
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Start Time</label>
-                  <input
-                    type="time"
-                    value={eventForm.startTime}
-                    onChange={(e) => setEventForm({ ...eventForm, startTime: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">End Time</label>
-                  <input
-                    type="time"
-                    value={eventForm.endTime}
-                    onChange={(e) => setEventForm({ ...eventForm, endTime: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Location</label>
-                <input
-                  type="text"
-                  value={eventForm.location}
-                  onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })}
-                  placeholder="Office, Zoom, etc."
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Description</label>
-                <textarea
-                  value={eventForm.description}
-                  onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
-                  placeholder="Add details..."
-                  rows={2}
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-2">Color</label>
-                <div className="flex gap-2">
-                  {colors.map(color => (
-                    <button
-                      key={color}
-                      onClick={() => setEventForm({ ...eventForm, color })}
-                      className={`w-8 h-8 rounded-full transition-all ${
-                        eventForm.color === color ? 'ring-2 ring-offset-2 ring-offset-midnight-light ring-white scale-110' : ''
-                      }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
+      <Modal open={showEventModal} onClose={() => setShowEventModal(false)} title={editingEvent ? 'Edit event' : 'New event'}>
+        <ModalBody>
+          <Field label="Event title *">
+            <input
+              type="text"
+              autoFocus
+              value={eventForm.title}
+              onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+              placeholder="Meeting, Birthday, etc."
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Date *">
+            <input type="date" value={eventForm.date} onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })} className={inputCls} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Start time">
+              <input type="time" value={eventForm.startTime} onChange={(e) => setEventForm({ ...eventForm, startTime: e.target.value })} className={inputCls} />
+            </Field>
+            <Field label="End time">
+              <input type="time" value={eventForm.endTime} onChange={(e) => setEventForm({ ...eventForm, endTime: e.target.value })} className={inputCls} />
+            </Field>
+          </div>
+          <Field label="Location">
+            <input type="text" value={eventForm.location} onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })} placeholder="Office, Zoom, etc." className={inputCls} />
+          </Field>
+          <Field label="Description">
+            <textarea value={eventForm.description} onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })} placeholder="Add details..." rows={2} className={`${inputCls} resize-none`} />
+          </Field>
+          <div>
+            <span className={`block text-xs font-medium mb-1.5 ${cx.muted}`}>Color</span>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Event color">
+              {colors.map(color => (
                 <button
-                  onClick={() => setEventForm({ ...eventForm, reminder: !eventForm.reminder })}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
-                    eventForm.reminder 
-                      ? 'border-blue-500 bg-blue-500/10 text-blue-500' 
-                      : 'border-gray-300 dark:border-gray-700 text-gray-500'
-                  }`}
-                >
-                  <Bell size={16} />
-                  <span className="text-sm">Reminder</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleSaveEvent}
-                disabled={!eventForm.title.trim() || !eventForm.date}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                <Save size={18} />
-                {editingEvent ? 'Update Event' : 'Create Event'}
-              </button>
-              <button
-                onClick={() => setShowEventModal(false)}
-                className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
+                  key={color}
+                  type="button"
+                  role="radio"
+                  aria-checked={eventForm.color === color}
+                  aria-label={`Color ${color}`}
+                  title={color}
+                  onClick={() => setEventForm({ ...eventForm, color })}
+                  className={`w-7 h-7 rounded-full transition-transform ${eventForm.color === color ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-[#0F1219] ring-blue-500 scale-110' : ''}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
             </div>
           </div>
-        </div>
-      )}
-    </div>
+          <button
+            type="button"
+            aria-pressed={eventForm.reminder}
+            onClick={() => setEventForm({ ...eventForm, reminder: !eventForm.reminder })}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+              eventForm.reminder ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : `${cx.border} ${cx.muted} ${cx.hover}`
+            }`}
+          >
+            <Bell size={16} />Reminder
+          </button>
+        </ModalBody>
+        <ModalFooter>
+          <button onClick={() => setShowEventModal(false)} className={cx.btnGhost}>Cancel</button>
+          <button onClick={handleSaveEvent} disabled={!eventForm.title.trim() || !eventForm.date} className={cx.btnPrimary}>
+            {editingEvent ? 'Update event' : 'Create event'}
+          </button>
+        </ModalFooter>
+      </Modal>
+    </FullPage>
   );
 };
 

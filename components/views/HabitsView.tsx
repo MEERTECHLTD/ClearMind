@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Habit } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Plus, Check, Flame, Edit2, Trash2, X, Save, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Plus, Check, Flame, Pencil, Trash2, ChevronLeft, ChevronRight, Calendar, CircleCheck, ListChecks, Repeat } from 'lucide-react';
+import { PageShell, Card, Modal, ModalBody, ModalFooter, Field, IconBtn, Empty, inputCls, cx } from '../ui-kit';
 
 const HabitsView: React.FC = () => {
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -187,129 +188,135 @@ const HabitsView: React.FC = () => {
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="p-8 h-full overflow-y-auto animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Habit Tracker</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Consistency is the key to mastery.</p>
-        </div>
-        <div className="flex gap-2">
-          <button 
+    <PageShell
+      title="Habit Tracker"
+      subtitle="Consistency is the key to mastery."
+      wide
+      actions={
+        <>
+          <button
             onClick={() => setShowMonthlyView(!showMonthlyView)}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors ${
-              showMonthlyView 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'
-            }`}
+            aria-pressed={showMonthlyView}
+            className={`inline-flex items-center gap-1.5 ${showMonthlyView ? 'px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : cx.btnGhost}`}
           >
             <Calendar size={16} />
-            Monthly View
+            <span className="hidden sm:inline">Monthly view</span>
           </button>
-          <button 
-            onClick={openAddModal}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium"
-          >
+          <button onClick={openAddModal} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
             <Plus size={16} />
-            Add Habit
+            Add habit
           </button>
-        </div>
+        </>
+      }
+    >
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <StatCard icon={<CircleCheck size={18} className="text-green-600 dark:text-green-400" />} label="Today's completion" value={`${completionRate}%`} />
+        <StatCard icon={<ListChecks size={18} className="text-blue-600 dark:text-blue-400" />} label="Total active" value={`${habits.length} ${habits.length === 1 ? 'habit' : 'habits'}`} />
+        <StatCard icon={<Flame size={18} className="text-orange-500" />} label="Longest streak" value={(() => { const n = habits.length > 0 ? Math.max(...habits.map(h => h.streak)) : 0; return `${n} ${n === 1 ? 'day' : 'days'}`; })()} />
       </div>
 
       {/* Weekly Habit Tracker */}
-      <div className="bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl overflow-hidden shadow-sm dark:shadow-none transition-colors">
-        <div className="grid grid-cols-12 gap-4 p-4 dark:bg-gray-900/50 bg-gray-100 border-b dark:border-gray-800 border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-          <div className="col-span-4">Habit Name</div>
-          <div className="col-span-5 flex justify-between px-4">
-             {days.map((d, i) => <span key={i}>{d}</span>)}
-          </div>
-          <div className="col-span-2 text-center">Streak</div>
-          <div className="col-span-1 text-right">Actions</div>
+      <Card className="!p-0 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3">
+          <h2 className={`text-sm font-semibold flex-1 ${cx.text}`}>This week</h2>
+          <span className={`text-xs ${cx.muted}`}>Last 7 days</span>
         </div>
-
         {habits.length === 0 ? (
-           <div className="p-8 text-center text-gray-500">No habits tracked yet.</div>
+          <Empty
+            icon={<Repeat size={30} className={cx.muted} />}
+            title="No habits tracked yet"
+            subtitle="Add a habit and tick it off each day to build a streak."
+          />
         ) : (
-          habits.map((habit) => (
-            <div key={habit.id} className="grid grid-cols-12 gap-4 p-4 border-b dark:border-gray-800 border-gray-200 items-center hover:bg-gray-100 dark:hover:bg-gray-800/30 transition-colors group">
-              <div className="col-span-4 font-medium dark:text-white text-gray-800 flex items-center gap-2">
-                <button 
-                  onClick={() => toggleToday(habit.id)}
-                  title={habit.completedToday ? "Mark incomplete" : "Mark complete"}
-                  className={`w-6 h-6 rounded-full flex items-center justify-center border transition-all
-                    ${habit.completedToday 
-                      ? 'bg-green-500 border-green-500 text-white' 
-                      : 'border-gray-400 dark:border-gray-600 hover:border-green-500 text-transparent'}`}
-                >
-                  <Check size={14} />
-                </button>
-                <div className="flex-1 min-w-0">
-                  <span className="truncate block" style={{ color: habit.color }}>{habit.name}</span>
-                  {habit.description && (
-                    <span className="text-xs text-gray-500 truncate block">{habit.description}</span>
-                  )}
+          <>
+            <div className={`hidden sm:grid grid-cols-12 gap-4 px-4 py-2 border-y ${cx.border} text-xs font-medium ${cx.muted}`}>
+              <div className="col-span-5">Habit</div>
+              <div className="col-span-4 flex justify-between px-2">
+                {days.map((d, i) => <span key={i} className="w-3 text-center">{d}</span>)}
+              </div>
+              <div className="col-span-2 text-center">Streak</div>
+              <div className="col-span-1" />
+            </div>
+            {habits.map((habit) => (
+              <div key={habit.id} className={`group grid grid-cols-12 gap-x-4 gap-y-2 px-4 py-3 border-b last:border-b-0 ${cx.border} items-center ${cx.hover} transition-colors`}>
+                <div className="col-span-12 sm:col-span-5 flex items-center gap-3 min-w-0">
+                  <button
+                    onClick={() => toggleToday(habit.id)}
+                    role="checkbox"
+                    aria-checked={habit.completedToday}
+                    aria-label={habit.completedToday ? `Mark “${habit.name}” incomplete for today` : `Complete “${habit.name}” for today`}
+                    title={habit.completedToday ? 'Mark incomplete' : 'Mark complete'}
+                    className="group/check shrink-0 w-[18px] h-[18px] rounded-full flex items-center justify-center transition-colors"
+                    style={{
+                      border: `2px solid ${habit.color || '#3B82F6'}`,
+                      background: habit.completedToday ? (habit.color || '#3B82F6') : `${habit.color || '#3B82F6'}1A`,
+                    }}
+                  >
+                    <Check size={12} strokeWidth={3} className={habit.completedToday ? 'text-white' : 'opacity-0 group-hover/check:opacity-60'} style={habit.completedToday ? undefined : { color: habit.color || '#3B82F6' }} />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <span className={`truncate block text-sm font-medium ${cx.text}`}>
+                      <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ backgroundColor: habit.color || '#3B82F6' }} aria-hidden />
+                      {habit.name}
+                    </span>
+                    {habit.description && (
+                      <span className={`text-xs truncate block ${cx.muted}`}>{habit.description}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="col-span-7 sm:col-span-4 flex justify-between px-2" aria-label={`Last 7 days: ${habit.history.filter(Boolean).length} done`}>
+                  {habit.history.map((done, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-3 h-3 rounded-sm transition-colors ${done ? '' : 'bg-gray-200 dark:bg-white/10'}`}
+                      style={done ? { backgroundColor: habit.color || '#3B82F6' } : undefined}
+                      title={done ? 'Done' : 'Missed'}
+                    />
+                  ))}
+                </div>
+
+                <div className={`col-span-2 text-center flex items-center justify-center gap-1.5 text-sm font-semibold tabular-nums ${habit.streak > 0 ? 'text-orange-500' : cx.faint}`} title={`${habit.streak} day streak`}>
+                  <Flame size={16} className={habit.streak > 0 ? 'fill-orange-500' : ''} />
+                  {habit.streak}
+                </div>
+
+                <div className="col-span-3 sm:col-span-1 flex items-center justify-end gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+                  <IconBtn
+                    label="View monthly tracker"
+                    onClick={() => {
+                      setSelectedHabitId(habit.id);
+                      setShowMonthlyView(true);
+                    }}
+                  >
+                    <Calendar size={16} />
+                  </IconBtn>
+                  <IconBtn label="Edit habit" onClick={() => openEditModal(habit)}>
+                    <Pencil size={16} />
+                  </IconBtn>
+                  <IconBtn label="Delete habit" danger onClick={() => handleDeleteHabit(habit.id)}>
+                    <Trash2 size={16} />
+                  </IconBtn>
                 </div>
               </div>
-              
-              <div className="col-span-5 flex justify-between px-4">
-                {habit.history.map((done, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`w-3 h-3 rounded-sm transition-colors`}
-                    style={{ backgroundColor: done ? (habit.color || '#3B82F6') : undefined }}
-                    title={done ? 'Done' : 'Missed'}
-                  >
-                    {!done && <div className="w-full h-full dark:bg-gray-800 bg-gray-300 rounded-sm" />}
-                  </div>
-                ))}
-              </div>
-
-              <div className="col-span-2 text-center flex items-center justify-center gap-2 text-orange-500 font-bold">
-                <Flame size={16} className={habit.streak > 0 ? 'fill-orange-500' : 'text-gray-400'} />
-                {habit.streak}
-              </div>
-
-              <div className="col-span-1 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button 
-                  onClick={() => {
-                    setSelectedHabitId(habit.id);
-                    setShowMonthlyView(true);
-                  }}
-                  title="View monthly tracker"
-                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-blue-500"
-                >
-                  <Calendar size={14} />
-                </button>
-                <button 
-                  onClick={() => openEditModal(habit)}
-                  title="Edit habit"
-                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-blue-500"
-                >
-                  <Edit2 size={14} />
-                </button>
-                <button 
-                  onClick={() => handleDeleteHabit(habit.id)}
-                  title="Delete habit"
-                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-red-500"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))
+            ))}
+          </>
         )}
-      </div>
+      </Card>
 
       {/* Monthly Habit Tracker */}
       {showMonthlyView && (
-        <div className="mt-8 bg-midnight-light border dark:border-gray-800 border-gray-200 rounded-xl p-6 shadow-sm dark:shadow-none">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <h3 className="text-lg font-bold dark:text-white text-gray-900">Monthly Tracker</h3>
+        <Card className="mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className={`text-sm font-semibold ${cx.text}`}>Monthly tracker</h2>
               {habits.length > 0 && (
                 <select
                   value={selectedHabitId || ''}
                   onChange={(e) => setSelectedHabitId(e.target.value || null)}
-                  className="bg-midnight border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900"
+                  aria-label="Habit to show"
+                  className={`${cx.input} !py-1.5`}
                 >
                   <option value="">Select a habit</option>
                   {habits.map(h => (
@@ -318,32 +325,24 @@ const HabitsView: React.FC = () => {
                 </select>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => navigateMonth(-1)}
-                title="Previous month"
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-              >
-                <ChevronLeft size={20} className="text-gray-500" />
-              </button>
-              <span className="text-sm font-medium dark:text-white text-gray-900 min-w-[140px] text-center">
+            <div className="flex items-center gap-1">
+              <IconBtn label="Previous month" onClick={() => navigateMonth(-1)}>
+                <ChevronLeft size={18} />
+              </IconBtn>
+              <span className={`text-sm font-medium min-w-[140px] text-center ${cx.text}`}>
                 {monthNames[monthlyViewDate.getMonth()]} {monthlyViewDate.getFullYear()}
               </span>
-              <button 
-                onClick={() => navigateMonth(1)}
-                title="Next month"
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-              >
-                <ChevronRight size={20} className="text-gray-500" />
-              </button>
+              <IconBtn label="Next month" onClick={() => navigateMonth(1)}>
+                <ChevronRight size={18} />
+              </IconBtn>
             </div>
           </div>
 
           {selectedHabit ? (
             <>
-              <div className="grid grid-cols-7 gap-1 mb-2">
+              <div className="grid grid-cols-7 gap-1 mb-1">
                 {weekDays.map(day => (
-                  <div key={day} className="text-center text-xs font-semibold text-gray-500 uppercase py-2">
+                  <div key={day} className={`text-center text-xs font-medium py-2 ${cx.muted}`}>
                     {day}
                   </div>
                 ))}
@@ -353,151 +352,130 @@ const HabitsView: React.FC = () => {
                   const dateStr = date.toISOString().split('T')[0];
                   const isCompleted = selectedHabit.monthlyHistory?.[dateStr] || false;
                   const isPast = date < new Date() && !isToday(date);
-                  
+
                   return (
                     <button
                       key={index}
                       onClick={() => toggleMonthlyDay(selectedHabit.id, dateStr)}
                       disabled={!isCurrentMonth}
+                      aria-pressed={isCompleted}
+                      aria-label={`${date.toDateString()}: ${isCompleted ? 'completed' : 'not completed'}`}
                       title={isCompleted ? 'Completed' : 'Not completed'}
-                      className={`aspect-square p-2 rounded-lg transition-all flex items-center justify-center
-                        ${!isCurrentMonth ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer hover:scale-105'}
+                      className={`aspect-square max-h-14 w-full rounded-lg transition-colors flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60
+                        ${!isCurrentMonth ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer hover:opacity-80'}
                         ${isToday(date) ? 'ring-2 ring-blue-500' : ''}
-                        ${isCompleted 
-                          ? '' 
-                          : isPast 
-                            ? 'bg-red-500/20 dark:bg-red-900/20' 
-                            : 'dark:bg-gray-800 bg-gray-200'
+                        ${isCompleted
+                          ? ''
+                          : isPast
+                            ? 'bg-red-50 dark:bg-red-500/[0.07]'
+                            : 'bg-gray-100 dark:bg-white/5'
                         }`}
                       style={isCompleted ? { backgroundColor: selectedHabit.color || '#3B82F6' } : undefined}
                     >
-                      <span className={`text-sm font-medium ${
-                        isCompleted ? 'text-white' : 'dark:text-white text-gray-900'
-                      }`}>
+                      <span className={`text-sm font-medium tabular-nums ${isCompleted ? 'text-white' : cx.text}`}>
                         {date.getDate()}
                       </span>
                     </button>
                   );
                 })}
               </div>
-              
+
               {/* Monthly Stats */}
-              <div className="mt-4 flex gap-4 text-sm">
+              <div className={`mt-4 flex gap-4 text-xs ${cx.muted}`}>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded" style={{ backgroundColor: selectedHabit.color || '#3B82F6' }} />
-                  <span className="text-gray-500">Completed</span>
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: selectedHabit.color || '#3B82F6' }} />
+                  <span>Completed</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded bg-red-500/20 dark:bg-red-900/20" />
-                  <span className="text-gray-500">Missed</span>
+                  <div className="w-3 h-3 rounded-sm bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20" />
+                  <span>Missed</span>
                 </div>
               </div>
             </>
           ) : (
-            <div className="text-center py-12 text-gray-500">
-              <Calendar size={48} className="mx-auto mb-3 opacity-30" />
-              <p>Select a habit to view monthly progress</p>
-            </div>
+            <Empty icon={<Calendar size={30} className={cx.muted} />} title="Select a habit to view monthly progress" />
           )}
-        </div>
+        </Card>
       )}
-      
-      {/* Stats Cards */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900/50 p-6 rounded-xl">
-          <h4 className="text-blue-600 dark:text-blue-400 font-medium mb-1">Today's Completion</h4>
-          <p className="text-2xl font-bold dark:text-white text-gray-900">{completionRate}%</p>
-        </div>
-        <div className="bg-purple-100 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-900/50 p-6 rounded-xl">
-          <h4 className="text-purple-600 dark:text-purple-400 font-medium mb-1">Total Active</h4>
-          <p className="text-2xl font-bold dark:text-white text-gray-900">{habits.length} Habits</p>
-        </div>
-        <div className="bg-orange-100 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-900/50 p-6 rounded-xl">
-          <h4 className="text-orange-600 dark:text-orange-400 font-medium mb-1">Longest Streak</h4>
-          <p className="text-2xl font-bold dark:text-white text-gray-900">
-            {habits.length > 0 ? Math.max(...habits.map(h => h.streak)) : 0} Days
-          </p>
-        </div>
-      </div>
 
       {/* Add/Edit Habit Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold dark:text-white text-gray-900">
-                {editingHabit ? 'Edit Habit' : 'New Habit'}
-              </h3>
-              <button 
-                onClick={() => setShowAddModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
-              >
-                <X size={24} />
-              </button>
-            </div>
+      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title={editingHabit ? 'Edit habit' : 'New habit'}>
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleSaveHabit(); }}
+          className="flex flex-col min-h-0"
+        >
+          <ModalBody>
+            <Field label="Habit name *">
+              <input
+                type="text"
+                value={habitForm.name}
+                onChange={(e) => setHabitForm({ ...habitForm, name: e.target.value })}
+                placeholder="Read for 30 minutes"
+                className={inputCls}
+                autoFocus
+              />
+            </Field>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Habit Name *</label>
-                <input
-                  type="text"
-                  value={habitForm.name}
-                  onChange={(e) => setHabitForm({ ...habitForm, name: e.target.value })}
-                  placeholder="Read for 30 minutes"
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
+            <Field label="Description">
+              <textarea
+                value={habitForm.description}
+                onChange={(e) => setHabitForm({ ...habitForm, description: e.target.value })}
+                placeholder="Optional notes about this habit..."
+                rows={2}
+                className={`${inputCls} resize-none`}
+              />
+            </Field>
 
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Description</label>
-                <textarea
-                  value={habitForm.description}
-                  onChange={(e) => setHabitForm({ ...habitForm, description: e.target.value })}
-                  placeholder="Optional notes about this habit..."
-                  rows={2}
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-2">Color</label>
-                <div className="flex gap-2">
-                  {colors.map(color => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setHabitForm({ ...habitForm, color })}
-                      className={`w-8 h-8 rounded-full transition-all ${
-                        habitForm.color === color ? 'ring-2 ring-offset-2 ring-offset-midnight-light ring-white scale-110' : ''
-                      }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
+            <div role="radiogroup" aria-label="Color">
+              <span className={`block text-xs font-medium mb-1.5 ${cx.muted}`}>Color</span>
+              <div className="flex flex-wrap gap-2">
+                {colors.map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    role="radio"
+                    aria-checked={habitForm.color === color}
+                    aria-label={`Color ${color}`}
+                    title={color}
+                    onClick={() => setHabitForm({ ...habitForm, color })}
+                    className={`w-7 h-7 rounded-full transition-all flex items-center justify-center ${
+                      habitForm.color === color ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-[#0F1219] ring-gray-400 dark:ring-gray-500' : ''
+                    }`}
+                    style={{ backgroundColor: color }}
+                  >
+                    {habitForm.color === color ? <Check size={14} className="text-white" /> : null}
+                  </button>
+                ))}
               </div>
             </div>
+          </ModalBody>
 
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleSaveHabit}
-                disabled={!habitForm.name.trim()}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                <Save size={18} />
-                {editingHabit ? 'Update Habit' : 'Create Habit'}
-              </button>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+          <ModalFooter>
+            <button type="button" onClick={() => setShowAddModal(false)} className={cx.btnGhost}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!habitForm.name.trim()} className={cx.btnPrimary}>
+              {editingHabit ? 'Save' : 'Add habit'}
+            </button>
+          </ModalFooter>
+        </form>
+      </Modal>
+    </PageShell>
   );
 };
+
+function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <Card>
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center shrink-0">{icon}</div>
+        <div className="min-w-0">
+          <p className={`text-xs ${cx.muted}`}>{label}</p>
+          <p className={`text-lg font-semibold tabular-nums ${cx.text}`}>{value}</p>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 export default HabitsView;

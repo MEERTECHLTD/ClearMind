@@ -17,6 +17,8 @@ interface TopBarProps {
   isDarkMode: boolean;
   onInstallApp: () => void;
   canInstall: boolean;
+  /** Button text, e.g. "Install App" (PWA) or "Get the App" (Android store). */
+  installLabel?: string;
   onOpenMobileMenu: () => void;
   onLogout: () => void;
   onNavigate: (view: ViewState) => void;
@@ -28,6 +30,7 @@ const TopBar: React.FC<TopBarProps> = ({
   isDarkMode, 
   onInstallApp, 
   canInstall, 
+  installLabel = 'Install App',
   onOpenMobileMenu,
   onLogout,
   onNavigate
@@ -103,7 +106,8 @@ const TopBar: React.FC<TopBarProps> = ({
   }, [searchQuery]);
 
   const handleSearchResultClick = (result: SearchResult) => {
-    onNavigate(result.type === 'task' ? 'tasks' : result.type === 'project' ? 'projects' : 'notes');
+    // Open the exact item: the task's detail, the project page (Tasks | Plan), or the note.
+    window.location.hash = result.type === 'task' ? `today?task=${encodeURIComponent(result.id)}` : result.type === 'project' ? `project/${encodeURIComponent(result.id)}` : `notes/${encodeURIComponent(result.id)}`;
     setSearchQuery('');
     setIsSearchOpen(false);
   };
@@ -130,7 +134,7 @@ const TopBar: React.FC<TopBarProps> = ({
   }, []);
 
   const handleNotificationClick = () => {
-      onNavigate('tasks');
+      onNavigate('today');
       setIsNotificationsOpen(false);
   };
 
@@ -197,7 +201,7 @@ const TopBar: React.FC<TopBarProps> = ({
             className="hidden sm:flex items-center gap-2 bg-midnight-light hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-300 text-gray-700 border dark:border-gray-700 border-gray-300 px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
           >
             <Download size={16} />
-            <span>Download App</span>
+            <span>{installLabel}</span>
           </button>
         )}
 
@@ -208,7 +212,8 @@ const TopBar: React.FC<TopBarProps> = ({
           <button 
             onClick={onInstallApp}
             className="sm:hidden relative text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors p-1 animate-pulse hover:animate-none"
-            title="Download App"
+            title={installLabel}
+            aria-label={installLabel}
           >
             <Download size={20} />
           </button>

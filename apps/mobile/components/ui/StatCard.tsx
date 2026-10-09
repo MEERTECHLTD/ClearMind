@@ -24,7 +24,7 @@ export function StatCard({
       <Text className="text-ink text-3xl font-extrabold mt-2">{value}</Text>
     </>
   );
-  const cls = `rounded-2xl bg-midnight-light border border-hairline p-4 ${className}`;
+  const cls = `rounded-2xl bg-midnight-light border border-line p-4 ${className}`;
   if (onPress) {
     return (
       <Pressable onPress={onPress} className={`${cls} active:opacity-80`}>

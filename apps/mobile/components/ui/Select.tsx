@@ -29,7 +29,7 @@ export function Select<T extends string = string>({
       {label ? <Text className="text-ink-muted text-xs mb-1.5 ml-1">{label}</Text> : null}
       <Pressable
         onPress={() => setOpen(true)}
-        className="flex-row items-center justify-between bg-midnight-light rounded-2xl px-4 py-3.5 border border-hairline active:opacity-80"
+        className="flex-row items-center justify-between bg-midnight-light rounded-2xl px-4 py-3.5 border border-line active:opacity-80"
       >
         <Text className="text-ink text-base">{current?.label ?? 'Select…'}</Text>
         <ChevronDown size={18} color={T.muted} />
@@ -37,7 +37,7 @@ export function Select<T extends string = string>({
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setOpen(false)}>
-          <Pressable className="bg-midnight-light rounded-t-3xl border-t border-hairline pb-8 pt-2">
+          <Pressable className="bg-midnight-light rounded-t-3xl border-t border-line pb-8 pt-2">
             {label ? <Text className="text-ink-muted text-xs text-center py-2">{label}</Text> : null}
             {options.map((o) => {
               const sel = o.value === value;

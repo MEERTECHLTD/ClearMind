@@ -18,7 +18,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'clearmind',
   owner: EAS_OWNER,
   scheme: 'clearmind',
-  version: '0.3.0', // versionName — bump per release (see README Play checklist)
+  version: '0.4.0', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
   userInterfaceStyle: 'dark', // the UI is dark-only; keeps native pickers/dialogs consistent
   newArchEnabled: true,
@@ -65,12 +65,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.READ_EXTERNAL_STORAGE',
       'android.permission.WRITE_EXTERNAL_STORAGE',
-      // Profile photos use the system photo picker (no media permission needed),
-      // and the completion sound only plays audio (no microphone).
+      // Profile photos use the system photo picker (no media permission needed).
+      // RECORD_AUDIO is NOT blocked: Quick Add voice input (expo-speech-recognition)
+      // needs it; it's requested only when the user taps the mic.
       'android.permission.READ_MEDIA_IMAGES',
       'android.permission.READ_MEDIA_VIDEO',
       'android.permission.READ_MEDIA_VISUAL_USER_SELECTED',
-      'android.permission.RECORD_AUDIO',
       'android.permission.MODIFY_AUDIO_SETTINGS',
     ],
     // Edge-to-edge (react-native-edge-to-edge): mandatory on Android 16 for
@@ -97,6 +97,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-background-task',
     ['expo-image-picker', { photosPermission: 'ClearMind lets you pick a profile photo from your library.', cameraPermission: 'ClearMind uses the camera only when you choose to take a new profile photo.', microphonePermission: false }],
     ['expo-audio', { microphonePermission: false }],
+    // Voice-to-text in Quick Add — uses the device's speech service (Google app on Android).
+    ['expo-speech-recognition', {
+      microphonePermission: 'ClearMind uses the microphone only while you dictate a task.',
+      speechRecognitionPermission: 'ClearMind turns your speech into task text.',
+      androidSpeechServicePackages: ['com.google.android.googlequicksearchbox'],
+    }],
     // iOS: Google Sign-In's AppCheckCore (Swift, static) needs module maps for these.
     // Android: Google Play requires targetSdk 36 (Android 16) for new apps/updates.
     ['expo-build-properties', {
@@ -143,7 +149,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
       appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
     },
-    geminiApiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '',
     googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
   },
 });

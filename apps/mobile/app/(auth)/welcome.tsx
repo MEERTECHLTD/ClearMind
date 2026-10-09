@@ -4,26 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { firebaseService } from '../../services/firebaseService';
 import { Input } from '../../components/ui';
+import { logWarn } from '../../lib/logger';
+import { friendlyAuthError as friendlyError, isAuthCancel as isCancel } from '../../services/authErrors';
 
 const ACCENT = '#3B82F6';
-
-// Map Firebase / Google error codes to friendly messages.
-function friendlyError(e: any): string {
-  const code = e?.code ?? '';
-  if (String(code) === '10' || /DEVELOPER_ERROR/i.test(e?.message ?? ''))
-    return 'Google sign-in config error (SHA-1 not registered for this build).';
-  const map: Record<string, string> = {
-    'auth/invalid-email': 'That email address looks invalid.',
-    'auth/invalid-credential': 'Wrong email or password.',
-    'auth/wrong-password': 'Wrong password.',
-    'auth/user-not-found': 'No account with that email.',
-    'auth/email-already-in-use': 'That email is already registered — sign in instead.',
-    'auth/weak-password': 'Password should be at least 6 characters.',
-    'auth/network-request-failed': 'Network error — check your connection.',
-    'auth/too-many-requests': 'Too many attempts. Try again later.',
-  };
-  return map[code] ?? (e?.message ? String(e.message) : 'Something went wrong.');
-}
 
 export default function Welcome() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -36,7 +20,11 @@ export default function Welcome() {
 
   const run = useCallback(async (which: 'email' | 'google' | 'guest', fn: () => Promise<any>) => {
     setError(''); setNotice(''); setBusy(which);
-    try { await fn(); } catch (e: any) { setError(friendlyError(e)); } finally { setBusy(null); }
+    try { await fn(); } catch (e: any) {
+      if (isCancel(e)) return;
+      logWarn(`sign-in (${which}) failed: code=${String(e?.code ?? '')} ${String(e?.message ?? e)}`);
+      setError(friendlyError(e));
+    } finally { setBusy(null); }
   }, []);
 
   const submitEmail = () =>
@@ -56,7 +44,7 @@ export default function Welcome() {
 
   return (
     <SafeAreaView className="flex-1 bg-midnight">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }} keyboardShouldPersistTaps="handled">
           <Text className="text-accent text-4xl font-extrabold text-center">ClearMind</Text>
           <Text className="text-ink-muted text-center mt-1 mb-8">

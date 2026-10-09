@@ -1,13 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   Pressable,
   FlatList,
-  Modal,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Keyboard,
   Linking,
   TextInput,
@@ -38,11 +34,9 @@ import {
   ChevronDown,
   ChevronRight,
   X,
-  Share2,
-  Crown,
-  Lock,
-  UserPlus,
-  Globe,
+  MoreHorizontal,
+  ListPlus,
+  Flag,
 } from 'lucide-react-native';
 import type { Application, ApplicationContact, ApplicationRequirement, Workspace } from '@clearmind/shared';
 import {
@@ -87,7 +81,14 @@ import {
   Spinner,
   confirmDialog,
   useToast,
+  FormSheet,
+  Sheet,
+  ActionMenu,
+  IconButton,
+  type MenuAction,
 } from '../../components/ui';
+import { WorkspaceBar, WorkspaceBanner, NewWorkspaceModal, MembersModal } from '../../components/ui/WorkspaceShare';
+import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { T } from '../../lib/theme';
 
 // Applications fire reminders at multiple lead times, so we persist an ARRAY of
@@ -138,7 +139,18 @@ const fmtDate = (s?: string): string | null => {
 
 const withAlpha = (hex: string, alpha: string) => `${hex}${alpha}`;
 
-const EMAIL_RE = /^\S+@\S+\.\S+$/;
+/** Open a follow-up sheet once the action menu has dismissed (same pattern as the task menu). */
+const afterMenu = (fn: () => void) => setTimeout(fn, 250);
+
+/** A deadline as a local YYYY-MM-DD for Quick Add's dueDate. */
+const deadlineDay = (deadline?: string): string | undefined => {
+  if (!deadline) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return deadline;
+  const d = new Date(deadline);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 // ---- Reminder scheduling (schedule-on-write, mirrors tasks.tsx) ----
 const cancelReminders = async (ids?: string[]): Promise<void> => {
@@ -170,6 +182,7 @@ type Row =
 export default function ApplicationsScreen() {
   const personal = useCollection<MApplication>(STORES.APPLICATIONS);
   const toast = useToast();
+  const ui = useTaskUI();
 
   // Collaboration: shared workspaces (null active = personal local-first list).
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -219,6 +232,8 @@ export default function ApplicationsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<MApplication | null>(null);
   const [statusPickerFor, setStatusPickerFor] = useState<MApplication | null>(null);
+  const [menuFor, setMenuFor] = useState<MApplication | null>(null);
+  const [reqMenuFor, setReqMenuFor] = useState<MApplication | null>(null);
 
   const processed = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -314,12 +329,41 @@ export default function ApplicationsScreen() {
       } catch {
         toast.show('Could not delete — check your connection', 'error');
       }
+      return true;
     }
+    return false;
   };
 
   const onOpenLink = (link?: string) => {
     if (!link) return;
     Linking.openURL(link).catch(() => toast.show('Could not open link', 'error'));
+  };
+
+  // ---- Task synergy: hand off to Quick Add (the task system owns creation) ----
+  const addPrepTask = (app: MApplication) =>
+    ui.openQuickAdd({ title: `Prepare: ${app.name}`, dueDate: deadlineDay(applicationDeadline(app)) });
+  const requirementToTask = (app: MApplication, req: ApplicationRequirement) =>
+    ui.openQuickAdd({ title: `${req.label.trim()} — ${app.name}`, dueDate: deadlineDay(applicationDeadline(app)) });
+  const openRequirements = (app: MApplication) => app.requirements?.filter((r) => !r.done && r.label.trim()) ?? [];
+
+  const menuActions = (app: MApplication): MenuAction[] => {
+    const open = openRequirements(app);
+    const actions: MenuAction[] = [
+      { label: 'Edit', icon: <Pencil size={18} color={T.ink} />, onPress: () => afterMenu(() => openEdit(app)) },
+      { label: 'Move to stage', icon: <Flag size={18} color={T.ink} />, hint: STATUS_LABEL[app.status] ?? app.status, onPress: () => afterMenu(() => setStatusPickerFor(app)) },
+      { label: 'Add task', icon: <ListPlus size={18} color={T.ink} />, onPress: () => afterMenu(() => addPrepTask(app)) },
+    ];
+    if (open.length) {
+      actions.push({
+        label: 'Turn requirement into task',
+        icon: <ListChecks size={18} color={T.ink} />,
+        hint: `${open.length} open`,
+        onPress: () => afterMenu(() => (open.length === 1 ? requirementToTask(app, open[0]) : setReqMenuFor(app))),
+      });
+    }
+    if (app.link) actions.push({ label: 'Open application link', icon: <ExternalLink size={18} color={T.ink} />, onPress: () => onOpenLink(app.link) });
+    actions.push({ label: 'Delete', icon: <Trash2 size={18} color={T.danger} />, destructive: true, onPress: () => { onDelete(app); } });
+    return actions;
   };
 
   // Inline status change (advance through the pipeline without opening the form).
@@ -430,7 +474,7 @@ export default function ApplicationsScreen() {
   const Controls = (
     <View className="px-4 pt-4 pb-2">
       {/* Search */}
-      <View className="flex-row items-center bg-midnight-light rounded-2xl px-3 mb-3 border border-hairline">
+      <View className="flex-row items-center bg-midnight-light rounded-2xl px-3 mb-3 border border-line">
         <Search size={16} color={T.muted} />
         <TextInput
           value={query}
@@ -440,7 +484,7 @@ export default function ApplicationsScreen() {
           className="flex-1 text-ink text-base px-2 py-3"
         />
         {query ? (
-          <Pressable onPress={() => setQuery('')} hitSlop={8}>
+          <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear search">
             <X size={16} color={T.muted} />
           </Pressable>
         ) : null}
@@ -500,65 +544,22 @@ export default function ApplicationsScreen() {
       />
 
       {showWorkspaceBar ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, gap: 8 }}
-        >
-          <WsChip
-            active={!activeWsId}
-            label="My Applications"
-            icon={<Lock size={12} color={!activeWsId ? '#fff' : T.muted} />}
-            onPress={() => setActiveWsId(null)}
-          />
-          {workspaces.map((ws) => (
-            <WsChip
-              key={ws.id}
-              active={activeWsId === ws.id}
-              label={ws.name}
-              icon={<Users size={12} color={activeWsId === ws.id ? '#fff' : T.muted} />}
-              onPress={() => setActiveWsId(ws.id)}
-            />
-          ))}
-          <Pressable
-            onPress={() => setShowNewWorkspace(true)}
-            className="flex-row items-center rounded-full px-3 py-1.5 border border-dashed border-hairline active:opacity-70"
-          >
-            <Share2 size={12} color="#60a5fa" />
-            <Text className="text-accent text-xs ml-1">Share / New</Text>
-          </Pressable>
-        </ScrollView>
+        <WorkspaceBar
+          workspaces={workspaces}
+          activeWsId={activeWsId}
+          personalLabel="My Applications"
+          onSelect={setActiveWsId}
+          onShareNew={() => setShowNewWorkspace(true)}
+        />
       ) : null}
 
       {activeWorkspace ? (
-        <View
-          className="mx-4 mt-3 rounded-2xl border border-blue-500/30 p-3 flex-row items-center justify-between"
-          style={{ backgroundColor: 'rgba(59,130,246,0.08)' }}
-        >
-          <View className="flex-row items-center flex-1 mr-2">
-            <View className="w-8 h-8 rounded-lg items-center justify-center mr-2" style={{ backgroundColor: 'rgba(59,130,246,0.15)' }}>
-              <Share2 size={15} color="#60a5fa" />
-            </View>
-            <View className="flex-1">
-              <View className="flex-row items-center">
-                <Text className="text-ink text-sm font-semibold" numberOfLines={1}>{activeWorkspace.name}</Text>
-                {workspaceService.isOwner(activeWorkspace) ? <Crown size={11} color="#fbbf24" style={{ marginLeft: 6 }} /> : null}
-                <Globe size={11} color="#34d399" style={{ marginLeft: 6 }} />
-              </View>
-              <Text className="text-ink-muted text-xs">
-                {activeWorkspace.memberEmails.length} member{activeWorkspace.memberEmails.length !== 1 ? 's' : ''} · everyone can edit
-              </Text>
-            </View>
-          </View>
-          <Pressable onPress={() => setShowMembers(true)} className="px-3 py-2 rounded-lg bg-midnight-lighter active:opacity-80">
-            <Text className="text-ink text-xs font-medium">Members</Text>
-          </Pressable>
-        </View>
+        <WorkspaceBanner workspace={activeWorkspace} isOwner={workspaceService.isOwner(activeWorkspace)} onMembers={() => setShowMembers(true)} />
       ) : null}
 
       {items.length === 0 ? (
         <EmptyState
-          icon={<Briefcase size={40} color="#3B82F6" />}
+          icon={<Briefcase size={34} color={T.accent} />}
           title={activeWsId ? 'No applications here yet' : 'No applications yet'}
           subtitle={activeWsId ? 'Add the first application to this shared workspace.' : 'Add your first application to track jobs, grants, and scholarships.'}
           ctaTitle="New Application"
@@ -571,15 +572,17 @@ export default function ApplicationsScreen() {
           ListHeaderComponent={Controls}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 96 }}
           ListEmptyComponent={
-            <View className="items-center py-16 px-8">
-              <Briefcase size={40} color={T.faint} />
-              <Text className="text-ink-muted text-sm text-center mt-4">No applications match your filters.</Text>
-            </View>
+            <EmptyState
+              fill={false}
+              icon={<Search size={34} color={T.muted} />}
+              title="No matches"
+              subtitle="No applications match your filters."
+            />
           }
           renderItem={({ item }) =>
             item.kind === 'header' ? (
               <View className="flex-row items-center mt-5 mb-2">
-                <View className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: STATUS_COLOR[item.title.toLowerCase() as AppStatus] ?? '#3B82F6' }} />
+                <View className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: STATUS_COLOR[item.title.toLowerCase() as AppStatus] ?? T.accent }} />
                 <Text className="text-ink text-base font-semibold">{item.title}</Text>
                 <Text className="text-ink-muted text-xs ml-2">({item.count})</Text>
               </View>
@@ -588,7 +591,7 @@ export default function ApplicationsScreen() {
                 <ApplicationCard
                   app={item.app}
                   onEdit={() => openEdit(item.app)}
-                  onDelete={() => onDelete(item.app)}
+                  onMenu={() => setMenuFor(item.app)}
                   onOpenLink={() => onOpenLink(item.app.link)}
                   onStatusPress={() => setStatusPickerFor(item.app)}
                 />
@@ -598,13 +601,32 @@ export default function ApplicationsScreen() {
         />
       )}
 
-      <Fab onPress={openAdd} />
+      <Fab onPress={openAdd} label="New application" />
 
       <ApplicationFormModal
         visible={formOpen}
         initial={editing}
         onCancel={() => setFormOpen(false)}
         onSave={handleSave}
+        onDelete={editing ? async () => { if (await onDelete(editing)) setFormOpen(false); } : undefined}
+      />
+
+      <ActionMenu
+        visible={!!menuFor}
+        onClose={() => setMenuFor(null)}
+        title={menuFor?.name}
+        actions={menuFor ? menuActions(menuFor) : []}
+      />
+
+      <ActionMenu
+        visible={!!reqMenuFor}
+        onClose={() => setReqMenuFor(null)}
+        title="Turn requirement into task"
+        actions={reqMenuFor ? openRequirements(reqMenuFor).map((r) => ({
+          label: r.label.trim(),
+          icon: <ListPlus size={18} color={T.ink} />,
+          onPress: () => afterMenu(() => requirementToTask(reqMenuFor, r)),
+        })) : []}
       />
 
       <StatusPickerModal
@@ -616,7 +638,8 @@ export default function ApplicationsScreen() {
       <NewWorkspaceModal
         visible={showNewWorkspace}
         supported={workspaceService.supported()}
-        personalCount={personal.items.length}
+        seedCount={personal.items.length}
+        seedNoun="application"
         onCancel={() => setShowNewWorkspace(false)}
         onCreate={handleCreateWorkspace}
       />
@@ -629,30 +652,6 @@ export default function ApplicationsScreen() {
         onDelete={handleDeleteWorkspace}
       />
     </Screen>
-  );
-}
-
-function WsChip({
-  active,
-  label,
-  icon,
-  onPress,
-}: {
-  active: boolean;
-  label: string;
-  icon: ReactNode;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className={`flex-row items-center rounded-full px-3 py-1.5 border ${active ? 'bg-accent border-accent' : 'border-hairline'} active:opacity-80`}
-    >
-      {icon}
-      <Text className={`text-xs ml-1 ${active ? 'text-white font-semibold' : 'text-ink-muted'}`} numberOfLines={1} style={{ maxWidth: 150 }}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -670,7 +669,7 @@ function StatusPill({ status, onPress }: { status: AppStatus; onPress?: () => vo
     </View>
   );
   return onPress ? (
-    <Pressable onPress={onPress} hitSlop={6} className="active:opacity-70">
+    <Pressable onPress={onPress} hitSlop={6} className="active:opacity-70" accessibilityRole="button" accessibilityLabel={`Stage: ${label}. Change stage`}>
       {body}
     </Pressable>
   ) : (
@@ -692,13 +691,13 @@ function PriorityPill({ priority }: { priority: AppPriority }) {
 function ApplicationCard({
   app,
   onEdit,
-  onDelete,
+  onMenu,
   onOpenLink,
   onStatusPress,
 }: {
   app: MApplication;
   onEdit: () => void;
-  onDelete: () => void;
+  onMenu: () => void;
   onOpenLink: () => void;
   onStatusPress: () => void;
 }) {
@@ -711,6 +710,7 @@ function ApplicationCard({
   const reqTotal = app.requirements?.length ?? 0;
 
   return (
+    <Pressable onPress={onEdit} onLongPress={onMenu} delayLongPress={300} accessibilityRole="button" accessibilityLabel={`Edit ${app.name}`} accessibilityHint="Long-press for more actions">
     <Card>
       <View className="flex-row items-start justify-between">
         <View className="flex-row items-center">
@@ -718,15 +718,12 @@ function ApplicationCard({
           <Text className="text-ink-muted text-xs uppercase ml-1.5" style={{ letterSpacing: 1 }}>
             {app.type}
           </Text>
-          {armed ? <Bell size={12} color="#60a5fa" style={{ marginLeft: 6 }} /> : null}
+          {armed ? <Bell size={12} color={T.accent} style={{ marginLeft: 6 }} /> : null}
         </View>
-        <View className="flex-row items-center -mr-1">
-          <Pressable onPress={onEdit} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Pencil size={18} color={T.muted} />
-          </Pressable>
-          <Pressable onPress={onDelete} hitSlop={8} className="p-1.5 active:opacity-60">
-            <Trash2 size={18} color={T.muted} />
-          </Pressable>
+        <View className="-mr-2 -mt-2">
+          <IconButton onPress={onMenu} label={`Actions for ${app.name}`}>
+            <MoreHorizontal size={18} color={T.muted} />
+          </IconButton>
         </View>
       </View>
 
@@ -822,12 +819,13 @@ function ApplicationCard({
       ) : null}
 
       {app.link ? (
-        <Pressable onPress={onOpenLink} hitSlop={6} className="flex-row items-center mt-3 active:opacity-60">
-          <ExternalLink size={14} color="#3B82F6" />
+        <Pressable onPress={onOpenLink} hitSlop={6} className="flex-row items-center mt-3 active:opacity-60" accessibilityRole="link">
+          <ExternalLink size={14} color={T.accent} />
           <Text className="text-accent text-sm ml-2 font-medium">Open Application</Text>
         </Pressable>
       ) : null}
     </Card>
+    </Pressable>
   );
 }
 
@@ -841,30 +839,29 @@ function StatusPickerModal({
   onPick: (s: AppStatus) => void;
 }) {
   return (
-    <Modal visible={!!app} transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight-light rounded-t-3xl border-t border-hairline pb-8 pt-2" onPress={() => {}}>
-          <Text className="text-ink-muted text-xs text-center py-2">Move to stage</Text>
-          {APPLICATION_STATUSES.map((s) => {
-            const sel = app?.status === s.value;
-            const color = STATUS_COLOR[s.value];
-            return (
-              <Pressable
-                key={s.value}
-                onPress={() => onPick(s.value)}
-                className="flex-row items-center justify-between px-6 py-4 active:bg-midnight-lighter"
-              >
-                <View className="flex-row items-center">
-                  <View className="w-2.5 h-2.5 rounded-full mr-3" style={{ backgroundColor: color }} />
-                  <Text className={`text-base ${sel ? 'text-accent font-semibold' : 'text-ink'}`}>{s.label}</Text>
-                </View>
-                {sel ? <Check size={18} color="#3B82F6" /> : null}
-              </Pressable>
-            );
-          })}
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <Sheet visible={!!app} onClose={onCancel} title="Move to stage" padded={false}>
+      {APPLICATION_STATUSES.map((s) => {
+        const sel = app?.status === s.value;
+        const color = STATUS_COLOR[s.value];
+        return (
+          <Pressable
+            key={s.value}
+            onPress={() => onPick(s.value)}
+            className="flex-row items-center justify-between px-5 py-3.5 active:bg-midnight-lighter"
+            style={{ minHeight: 52 }}
+            accessibilityRole="button"
+            accessibilityState={{ selected: sel }}
+            accessibilityLabel={s.label}
+          >
+            <View className="flex-row items-center">
+              <View className="w-2.5 h-2.5 rounded-full mr-3" style={{ backgroundColor: color }} />
+              <Text className={`text-base ${sel ? 'text-accent font-semibold' : 'text-ink'}`}>{s.label}</Text>
+            </View>
+            {sel ? <Check size={18} color={T.accent} /> : null}
+          </Pressable>
+        );
+      })}
+    </Sheet>
   );
 }
 
@@ -894,11 +891,13 @@ function ApplicationFormModal({
   initial,
   onCancel,
   onSave,
+  onDelete,
 }: {
   visible: boolean;
   initial: MApplication | null;
   onCancel: () => void;
   onSave: (values: FormValues) => void;
+  onDelete?: () => void;
 }) {
   const [name, setName] = useState('');
   const [organization, setOrganization] = useState('');
@@ -984,444 +983,172 @@ function ApplicationFormModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5" style={{ maxHeight: '92%' }} onPress={() => {}}>
-            <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit Application' : 'New Application'}</Text>
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              {/* Identity first */}
-              <Input label="Application Name *" placeholder="e.g. Software Engineer at Google" value={name} onChangeText={setName} className="mb-3" />
-              <Input label="Organization" placeholder="Company or host organization" value={organization} onChangeText={setOrganization} className="mb-3" />
+    <FormSheet
+      visible={visible}
+      onClose={onCancel}
+      title={initial ? 'Edit Application' : 'New Application'}
+      submitLabel={initial ? 'Update' : 'Create'}
+      onSubmit={save}
+      submitDisabled={!name.trim()}
+      onDelete={onDelete}
+      deleteLabel="Delete application"
+      fill
+    >
+      {/* Identity first */}
+      <Input label="Application Name *" placeholder="e.g. Software Engineer at Google" value={name} onChangeText={setName} className="mb-3" />
+      <Input label="Organization" placeholder="Company or host organization" value={organization} onChangeText={setOrganization} className="mb-3" />
 
-              <Select<AppType>
-                label="Type"
-                value={type}
-                onChange={setType}
-                className="mb-3"
-                options={APPLICATION_TYPES.map((t) => ({ label: t.label, value: t.value }))}
-              />
-              <View className="flex-row mb-3" style={{ gap: 12 }}>
-                <Select<AppStatus>
-                  label="Status"
-                  value={status}
-                  onChange={setStatus}
-                  className="flex-1"
-                  options={APPLICATION_STATUSES.map((s) => ({ label: s.label, value: s.value }))}
-                />
-                <Select<AppPriority>
-                  label="Priority"
-                  value={priority}
-                  onChange={setPriority}
-                  className="flex-1"
-                  options={APPLICATION_PRIORITIES.map((p) => ({ label: p.label, value: p.value }))}
-                />
-              </View>
+      <Select<AppType>
+        label="Type"
+        value={type}
+        onChange={setType}
+        className="mb-3"
+        options={APPLICATION_TYPES.map((t) => ({ label: t.label, value: t.value }))}
+      />
+      <View className="flex-row mb-3" style={{ gap: 12 }}>
+        <Select<AppStatus>
+          label="Status"
+          value={status}
+          onChange={setStatus}
+          className="flex-1"
+          options={APPLICATION_STATUSES.map((s) => ({ label: s.label, value: s.value }))}
+        />
+        <Select<AppPriority>
+          label="Priority"
+          value={priority}
+          onChange={setPriority}
+          className="flex-1"
+          options={APPLICATION_PRIORITIES.map((p) => ({ label: p.label, value: p.value }))}
+        />
+      </View>
 
-              {/* Grant identity: opening date right under type for grants */}
-              {grant ? (
-                <View className="mb-3">
-                  <DateField label="Opening Date" value={openingDate} onChange={setOpeningDate} />
-                </View>
-              ) : null}
+      {/* Grant identity: opening date right under type for grants */}
+      {grant ? (
+        <View className="mb-3">
+          <DateField label="Opening Date" value={openingDate} onChange={setOpeningDate} />
+        </View>
+      ) : null}
 
-              {/* Type-specific detail block */}
-              {grant ? (
-                <View className="rounded-2xl border border-hairline p-3 mb-3" style={{ gap: 12 }}>
-                  <Text className="text-ink-muted text-xs uppercase">{type === 'grant' ? 'Grant details' : 'Scholarship details'}</Text>
-                  {funderShown ? (
-                    <Input label="Funder / Awarding Body" placeholder="e.g. NSF, Gates Foundation" value={funder} onChangeText={setFunder} />
-                  ) : null}
-                  <View className="flex-row" style={{ gap: 12 }}>
-                    <View className="flex-1">
-                      <Input label="Award Amount" placeholder="$50,000" value={awardAmount} onChangeText={setAwardAmount} />
-                    </View>
-                    <View className="flex-1">
-                      <Input label="Reference No." placeholder="NSF-2026-1187" value={referenceNumber} onChangeText={setReferenceNumber} />
-                    </View>
-                  </View>
-                </View>
-              ) : null}
-
-              <Input label="Application Link" placeholder="https://..." value={link} onChangeText={setLink} autoCapitalize="none" keyboardType="url" className="mb-3" />
-
-              {/* Deadline + reminder (always visible) */}
-              <View className="mb-3">
-                <DateField label="Submission Deadline" value={submissionDeadline} onChange={setSubmissionDeadline} />
-              </View>
-              {hasDeadline ? (
-                <Select<string>
-                  label="Remind me"
-                  value={reminderPresetKey(reminderLeadDays)}
-                  onChange={(k) => setReminderLeadDays(reminderDaysForKey(k))}
-                  className="mb-3"
-                  options={REMINDER_PRESETS.map((p) => ({ label: p.label, value: p.key }))}
-                />
-              ) : null}
-
-              {/* More dates (collapsed) */}
-              <Pressable onPress={() => setShowMoreDates((v) => !v)} className="flex-row items-center mb-3 active:opacity-70">
-                {showMoreDates ? <ChevronDown size={16} color="#60a5fa" /> : <ChevronRight size={16} color="#60a5fa" />}
-                <Text className="text-accent text-sm ml-1">More dates</Text>
-              </Pressable>
-              {showMoreDates ? (
-                <View className="mb-3" style={{ gap: 12 }}>
-                  {!grant ? <DateField label="Opening Date" value={openingDate} onChange={setOpeningDate} /> : null}
-                  <DateField label="Closing Date" value={closingDate} onChange={setClosingDate} />
-                  <DateField label="Submitted Date" value={submittedDate} onChange={setSubmittedDate} />
-                </View>
-              ) : null}
-
-              {/* Tags */}
-              <Text className="text-ink-muted text-xs mb-1.5 ml-1">Tags</Text>
-              {tags.length ? (
-                <View className="flex-row flex-wrap mb-2" style={{ gap: 6 }}>
-                  {tags.map((t) => (
-                    <Pressable key={t} onPress={() => setTags(tags.filter((x) => x !== t))} className="flex-row items-center rounded-full px-2.5 py-1 active:opacity-70" style={{ backgroundColor: 'rgba(59,130,246,0.18)' }}>
-                      <Text className="text-accent text-xs mr-1">{t}</Text>
-                      <X size={11} color="#60a5fa" />
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-              <View className="flex-row items-center mb-3" style={{ gap: 8 }}>
-                <View className="flex-1">
-                  <Input placeholder="Add a tag" value={tagDraft} onChangeText={setTagDraft} onSubmitEditing={addTag} returnKeyType="done" />
-                </View>
-                <Pressable onPress={addTag} className="px-4 py-3 rounded-2xl bg-midnight-lighter active:opacity-80">
-                  <Plus size={18} color="#e5e7eb" />
-                </Pressable>
-              </View>
-
-              {/* Requirements checklist */}
-              <Text className="text-ink-muted text-xs mb-1.5 ml-1">Requirements / Documents</Text>
-              <View className="mb-3" style={{ gap: 8 }}>
-                {requirements.map((r, i) => (
-                  <View key={r.id} className="flex-row items-center" style={{ gap: 8 }}>
-                    <Pressable
-                      onPress={() => setRequirements(requirements.map((x, j) => (j === i ? { ...x, done: !x.done } : x)))}
-                      hitSlop={6}
-                      className="active:opacity-70"
-                    >
-                      {r.done ? <Check size={20} color="#34d399" /> : <View className="w-5 h-5 rounded border border-hairline" />}
-                    </Pressable>
-                    <View className="flex-1">
-                      <Input placeholder="e.g. CV, cover letter…" value={r.label} onChangeText={(v) => setRequirements(requirements.map((x, j) => (j === i ? { ...x, label: v } : x)))} />
-                    </View>
-                    <Pressable onPress={() => setRequirements(requirements.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70">
-                      <Trash2 size={16} color={T.muted} />
-                    </Pressable>
-                  </View>
-                ))}
-                <Pressable onPress={() => setRequirements([...requirements, { id: newId(), label: '', done: false }])} className="flex-row items-center active:opacity-70">
-                  <Plus size={16} color="#60a5fa" />
-                  <Text className="text-accent text-sm ml-1">Add requirement</Text>
-                </Pressable>
-              </View>
-
-              {/* Contacts */}
-              <Text className="text-ink-muted text-xs mb-1.5 ml-1">Contacts</Text>
-              <View className="mb-3" style={{ gap: 8 }}>
-                {contacts.map((c, i) => (
-                  <View key={c.id} className="flex-row items-center" style={{ gap: 8 }}>
-                    <View className="flex-1">
-                      <Input placeholder="Name" value={c.name} onChangeText={(v) => setContacts(contacts.map((x, j) => (j === i ? { ...x, name: v } : x)))} />
-                    </View>
-                    <View className="flex-1">
-                      <Input placeholder="Email / role" value={c.email ?? ''} onChangeText={(v) => setContacts(contacts.map((x, j) => (j === i ? { ...x, email: v } : x)))} autoCapitalize="none" />
-                    </View>
-                    <Pressable onPress={() => setContacts(contacts.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70">
-                      <Trash2 size={16} color={T.muted} />
-                    </Pressable>
-                  </View>
-                ))}
-                <Pressable onPress={() => setContacts([...contacts, { id: newId(), name: '' }])} className="flex-row items-center active:opacity-70">
-                  <Plus size={16} color="#60a5fa" />
-                  <Text className="text-accent text-sm ml-1">Add contact</Text>
-                </Pressable>
-              </View>
-
-              <TextArea label="Notes" placeholder="Additional notes about this application..." value={notes} onChangeText={setNotes} minHeight={90} className="mb-2" />
-            </ScrollView>
-
-            <View className="flex-row mt-4 mb-8" style={{ gap: 12 }}>
-              <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
-                <Text className="text-ink font-semibold">Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={save}
-                disabled={!name.trim()}
-                className={`flex-1 items-center py-3.5 rounded-full ${name.trim() ? 'bg-accent active:bg-accent-hover' : 'bg-midnight-lighter'}`}
-              >
-                <Text className={`font-bold ${name.trim() ? 'text-white' : 'text-ink-muted'}`}>{initial ? 'Update' : 'Create'}</Text>
-              </Pressable>
+      {/* Type-specific detail block */}
+      {grant ? (
+        <View className="rounded-2xl border border-line p-3 mb-3" style={{ gap: 12 }}>
+          <Text className="text-ink-muted text-xs uppercase">{type === 'grant' ? 'Grant details' : 'Scholarship details'}</Text>
+          {funderShown ? (
+            <Input label="Funder / Awarding Body" placeholder="e.g. NSF, Gates Foundation" value={funder} onChangeText={setFunder} />
+          ) : null}
+          <View className="flex-row" style={{ gap: 12 }}>
+            <View className="flex-1">
+              <Input label="Award Amount" placeholder="$50,000" value={awardAmount} onChangeText={setAwardAmount} />
             </View>
-          </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-}
-
-function NewWorkspaceModal({
-  visible,
-  supported,
-  personalCount,
-  onCancel,
-  onCreate,
-}: {
-  visible: boolean;
-  supported: boolean;
-  personalCount: number;
-  onCancel: () => void;
-  onCreate: (name: string, emails: string[], seed: boolean) => Promise<void>;
-}) {
-  const [name, setName] = useState('');
-  const [emails, setEmails] = useState<string[]>([]);
-  const [emailDraft, setEmailDraft] = useState('');
-  const [seed, setSeed] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [lastVisible, setLastVisible] = useState(false);
-  if (visible !== lastVisible) {
-    setLastVisible(visible);
-    if (visible) {
-      setName('');
-      setEmails([]);
-      setEmailDraft('');
-      setSeed(true);
-      setBusy(false);
-      setError(null);
-    }
-  }
-
-  const addEmail = () => {
-    const e = emailDraft.trim().toLowerCase();
-    if (e && EMAIL_RE.test(e) && !emails.includes(e)) setEmails([...emails, e]);
-    setEmailDraft('');
-  };
-  const submit = async () => {
-    if (!name.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await onCreate(name.trim(), emails, seed);
-    } catch (e: any) {
-      setError(e?.message || 'Could not create workspace');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '92%' }} onPress={() => {}}>
-            <View className="flex-row items-center mb-4">
-              <Share2 size={18} color="#60a5fa" />
-              <Text className="text-ink text-lg font-bold ml-2">Share a workspace</Text>
+            <View className="flex-1">
+              <Input label="Reference No." placeholder="NSF-2026-1187" value={referenceNumber} onChangeText={setReferenceNumber} />
             </View>
-            {!supported ? (
-              <View style={{ gap: 16 }}>
-                <Text className="text-ink-muted text-sm">
-                  Sign in with an email or Google account to create a shared workspace others can join and collaborate in.
-                </Text>
-                <Pressable onPress={onCancel} className="items-center py-3.5 rounded-full bg-accent active:bg-accent-hover">
-                  <Text className="text-white font-bold">Got it</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                <Input label="Workspace name" placeholder="e.g. Grants 2026" value={name} onChangeText={setName} className="mb-3" />
-                <Text className="text-ink-muted text-xs mb-1.5 ml-1">Invite by email (optional)</Text>
-                {emails.length ? (
-                  <View className="flex-row flex-wrap mb-2" style={{ gap: 6 }}>
-                    {emails.map((e) => (
-                      <Pressable
-                        key={e}
-                        onPress={() => setEmails(emails.filter((x) => x !== e))}
-                        className="flex-row items-center rounded-full px-2.5 py-1 active:opacity-70"
-                        style={{ backgroundColor: 'rgba(59,130,246,0.18)' }}
-                      >
-                        <Text className="text-accent text-xs mr-1">{e}</Text>
-                        <X size={11} color="#60a5fa" />
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-                <View className="flex-row items-center mb-1" style={{ gap: 8 }}>
-                  <View className="flex-1">
-                    <Input
-                      placeholder="name@example.com"
-                      value={emailDraft}
-                      onChangeText={setEmailDraft}
-                      onSubmitEditing={addEmail}
-                      autoCapitalize="none"
-                      keyboardType="email-address"
-                      returnKeyType="done"
-                    />
-                  </View>
-                  <Pressable onPress={addEmail} className="px-4 py-3 rounded-2xl bg-midnight-lighter active:opacity-80">
-                    <Plus size={18} color="#e5e7eb" />
-                  </Pressable>
-                </View>
-                <Text className="text-ink-muted text-xs mb-3 ml-1">
-                  They'll see this workspace next time they open ClearMind signed in with that email.
-                </Text>
-                <Pressable onPress={() => setSeed(!seed)} className="flex-row items-center mb-4 active:opacity-70">
-                  <View className={`w-5 h-5 rounded mr-2 items-center justify-center ${seed ? 'bg-accent' : 'border border-hairline'}`}>
-                    {seed ? <Check size={14} color="#fff" /> : null}
-                  </View>
-                  <Text className="text-ink text-sm">
-                    Copy my {personalCount} current application{personalCount !== 1 ? 's' : ''} into it
-                  </Text>
-                </Pressable>
-                {error ? <Text className="text-red-400 text-sm mb-3">{error}</Text> : null}
-                <View className="flex-row" style={{ gap: 12 }}>
-                  <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
-                    <Text className="text-ink font-semibold">Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={submit}
-                    disabled={!name.trim() || busy}
-                    className={`flex-1 items-center py-3.5 rounded-full ${name.trim() && !busy ? 'bg-accent active:bg-accent-hover' : 'bg-midnight-lighter'}`}
-                  >
-                    <Text className={`font-bold ${name.trim() && !busy ? 'text-white' : 'text-ink-muted'}`}>{busy ? 'Creating…' : 'Create & share'}</Text>
-                  </Pressable>
-                </View>
-              </ScrollView>
-            )}
-          </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      <Input label="Application Link" placeholder="https://..." value={link} onChangeText={setLink} autoCapitalize="none" keyboardType="url" className="mb-3" />
+
+      {/* Deadline + reminder (always visible) */}
+      <View className="mb-3">
+        <DateField label="Submission Deadline" value={submissionDeadline} onChange={setSubmissionDeadline} />
+      </View>
+      {hasDeadline ? (
+        <Select<string>
+          label="Remind me"
+          value={reminderPresetKey(reminderLeadDays)}
+          onChange={(k) => setReminderLeadDays(reminderDaysForKey(k))}
+          className="mb-3"
+          options={REMINDER_PRESETS.map((p) => ({ label: p.label, value: p.key }))}
+        />
+      ) : null}
+
+      {/* More dates (collapsed) */}
+      <Pressable onPress={() => setShowMoreDates((v) => !v)} className="flex-row items-center mb-3 active:opacity-70" accessibilityRole="button" accessibilityState={{ expanded: showMoreDates }}>
+        {showMoreDates ? <ChevronDown size={16} color={T.accent} /> : <ChevronRight size={16} color={T.accent} />}
+        <Text className="text-accent text-sm ml-1">More dates</Text>
+      </Pressable>
+      {showMoreDates ? (
+        <View className="mb-3" style={{ gap: 12 }}>
+          {!grant ? <DateField label="Opening Date" value={openingDate} onChange={setOpeningDate} /> : null}
+          <DateField label="Closing Date" value={closingDate} onChange={setClosingDate} />
+          <DateField label="Submitted Date" value={submittedDate} onChange={setSubmittedDate} />
+        </View>
+      ) : null}
+
+      {/* Tags */}
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">Tags</Text>
+      {tags.length ? (
+        <View className="flex-row flex-wrap mb-2" style={{ gap: 6 }}>
+          {tags.map((t) => (
+            <Pressable key={t} onPress={() => setTags(tags.filter((x) => x !== t))} accessibilityRole="button" accessibilityLabel={`Remove tag ${t}`} className="flex-row items-center rounded-full px-2.5 py-1 active:opacity-70" style={{ backgroundColor: 'rgba(59,130,246,0.18)' }}>
+              <Text className="text-accent text-xs mr-1">{t}</Text>
+              <X size={11} color={T.accent} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      <View className="flex-row items-center mb-3" style={{ gap: 8 }}>
+        <View className="flex-1">
+          <Input placeholder="Add a tag" value={tagDraft} onChangeText={setTagDraft} onSubmitEditing={addTag} returnKeyType="done" />
+        </View>
+        <Pressable onPress={addTag} accessibilityRole="button" accessibilityLabel="Add tag" className="px-4 py-3 rounded-2xl bg-midnight-lighter active:opacity-80">
+          <Plus size={18} color={T.ink} />
         </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-}
+      </View>
 
-function MembersModal({
-  workspace,
-  isOwner,
-  currentEmail,
-  onCancel,
-  onSave,
-  onDelete,
-}: {
-  workspace: Workspace | null;
-  isOwner: boolean;
-  currentEmail: string | null;
-  onCancel: () => void;
-  onSave: (emails: string[]) => Promise<void>;
-  onDelete: () => void;
-}) {
-  const [invitees, setInvitees] = useState<string[]>([]);
-  const [emailDraft, setEmailDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const wsId = workspace?.id ?? null;
-  const [lastWs, setLastWs] = useState<string | null>(null);
-  if (wsId !== lastWs) {
-    setLastWs(wsId);
-    setInvitees(workspace ? workspace.memberEmails.filter((e) => e !== workspace.ownerEmail) : []);
-    setEmailDraft('');
-    setBusy(false);
-    setError(null);
-  }
-
-  const addEmail = () => {
-    if (!workspace) return;
-    const e = emailDraft.trim().toLowerCase();
-    if (e && EMAIL_RE.test(e) && e !== workspace.ownerEmail && !invitees.includes(e)) setInvitees([...invitees, e]);
-    setEmailDraft('');
-  };
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onSave(invitees);
-      onCancel();
-    } catch (e: any) {
-      setError(e?.message || 'Could not update members');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal visible={!!workspace} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '90%' }} onPress={() => {}}>
-            {workspace ? (
-              <>
-                <View className="flex-row items-center mb-1">
-                  <Users size={18} color="#60a5fa" />
-                  <Text className="text-ink text-lg font-bold ml-2">Members</Text>
-                </View>
-                <Text className="text-ink-muted text-xs mb-4">{workspace.name} · everyone listed can view and edit every application.</Text>
-                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ maxHeight: 300 }}>
-                  <View className="flex-row items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ backgroundColor: 'rgba(148,163,184,0.12)' }}>
-                    <Text className="text-ink text-sm flex-1 mr-2" numberOfLines={1}>
-                      {workspace.ownerEmail}{currentEmail === workspace.ownerEmail ? ' · you' : ''}
-                    </Text>
-                    <View className="flex-row items-center">
-                      <Crown size={12} color="#fbbf24" />
-                      <Text className="text-amber-400 text-xs ml-1">owner</Text>
-                    </View>
-                  </View>
-                  {invitees.map((e) => (
-                    <View key={e} className="flex-row items-center justify-between rounded-xl px-3 py-2.5 mb-2" style={{ backgroundColor: 'rgba(148,163,184,0.06)' }}>
-                      <Text className="text-ink text-sm flex-1 mr-2" numberOfLines={1}>{e}{currentEmail === e ? ' · you' : ''}</Text>
-                      {isOwner ? (
-                        <Pressable onPress={() => setInvitees(invitees.filter((x) => x !== e))} hitSlop={8} className="active:opacity-60">
-                          <X size={15} color={T.muted} />
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ))}
-                </ScrollView>
-
-                {isOwner ? (
-                  <>
-                    <View className="flex-row items-center mt-2 mb-3" style={{ gap: 8 }}>
-                      <View className="flex-1">
-                        <Input
-                          placeholder="Invite by email"
-                          value={emailDraft}
-                          onChangeText={setEmailDraft}
-                          onSubmitEditing={addEmail}
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          returnKeyType="done"
-                        />
-                      </View>
-                      <Pressable onPress={addEmail} className="px-4 py-3 rounded-2xl bg-midnight-lighter active:opacity-80">
-                        <UserPlus size={18} color="#e5e7eb" />
-                      </Pressable>
-                    </View>
-                    {error ? <Text className="text-red-400 text-sm mb-3">{error}</Text> : null}
-                    <View className="flex-row mb-2" style={{ gap: 12 }}>
-                      <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
-                        <Text className="text-ink font-semibold">Cancel</Text>
-                      </Pressable>
-                      <Pressable onPress={save} disabled={busy} className="flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover">
-                        <Text className="text-white font-bold">{busy ? 'Saving…' : 'Save'}</Text>
-                      </Pressable>
-                    </View>
-                    <Pressable onPress={onDelete} className="items-center py-3 active:opacity-70">
-                      <Text className="text-red-400 text-sm font-medium">Delete workspace</Text>
-                    </Pressable>
-                  </>
-                ) : (
-                  <Pressable onPress={onCancel} className="items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80 mt-2">
-                    <Text className="text-ink font-semibold">Close</Text>
-                  </Pressable>
-                )}
-              </>
-            ) : null}
-          </Pressable>
+      {/* Requirements checklist */}
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">Requirements / Documents</Text>
+      <View className="mb-3" style={{ gap: 8 }}>
+        {requirements.map((r, i) => (
+          <View key={r.id} className="flex-row items-center" style={{ gap: 8 }}>
+            <Pressable
+              onPress={() => setRequirements(requirements.map((x, j) => (j === i ? { ...x, done: !x.done } : x)))}
+              hitSlop={6}
+              className="active:opacity-70"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: !!r.done }}
+              accessibilityLabel={r.label || 'Requirement'}
+            >
+              {r.done ? <Check size={20} color="#34d399" /> : <View className="w-5 h-5 rounded border border-line" />}
+            </Pressable>
+            <View className="flex-1">
+              <Input placeholder="e.g. CV, cover letter…" value={r.label} onChangeText={(v) => setRequirements(requirements.map((x, j) => (j === i ? { ...x, label: v } : x)))} />
+            </View>
+            <Pressable onPress={() => setRequirements(requirements.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70" accessibilityRole="button" accessibilityLabel="Remove requirement">
+              <Trash2 size={16} color={T.muted} />
+            </Pressable>
+          </View>
+        ))}
+        <Pressable onPress={() => setRequirements([...requirements, { id: newId(), label: '', done: false }])} className="flex-row items-center active:opacity-70" accessibilityRole="button">
+          <Plus size={16} color={T.accent} />
+          <Text className="text-accent text-sm ml-1">Add requirement</Text>
         </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+      </View>
+
+      {/* Contacts */}
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">Contacts</Text>
+      <View className="mb-3" style={{ gap: 8 }}>
+        {contacts.map((c, i) => (
+          <View key={c.id} className="flex-row items-center" style={{ gap: 8 }}>
+            <View className="flex-1">
+              <Input placeholder="Name" value={c.name} onChangeText={(v) => setContacts(contacts.map((x, j) => (j === i ? { ...x, name: v } : x)))} />
+            </View>
+            <View className="flex-1">
+              <Input placeholder="Email / role" value={c.email ?? ''} onChangeText={(v) => setContacts(contacts.map((x, j) => (j === i ? { ...x, email: v } : x)))} autoCapitalize="none" />
+            </View>
+            <Pressable onPress={() => setContacts(contacts.filter((_, j) => j !== i))} hitSlop={6} className="active:opacity-70" accessibilityRole="button" accessibilityLabel="Remove contact">
+              <Trash2 size={16} color={T.muted} />
+            </Pressable>
+          </View>
+        ))}
+        <Pressable onPress={() => setContacts([...contacts, { id: newId(), name: '' }])} className="flex-row items-center active:opacity-70" accessibilityRole="button">
+          <Plus size={16} color={T.accent} />
+          <Text className="text-accent text-sm ml-1">Add contact</Text>
+        </Pressable>
+      </View>
+
+      <TextArea label="Notes" placeholder="Additional notes about this application..." value={notes} onChangeText={setNotes} minHeight={90} className="mb-2" />
+    </FormSheet>
   );
 }

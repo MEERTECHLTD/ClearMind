@@ -12,13 +12,15 @@ import type {
   DailyMapperTemplate, UserProfile, ProjectCategory,
 } from '@clearmind/shared';
 import { dbService, STORES } from '../../services/db';
+import { createTask, toggleTask, deleteTask, createProject, updateProject, domainState } from '../../services/taskActions';
+import { logWarn } from '../../lib/logger';
 import { newId } from '../../lib/id';
 import {
   generateIrisResponse, parseActionCommands, isApiConfigured,
   type UserContext, type ParsedActions,
 } from '../../services/gemini';
 import {
-  Screen, AppHeader, EmptyState, Spinner, confirmDialog, useToast,
+  Screen, AppHeader, EmptyState, Spinner, IconButton, confirmDialog, useToast,
 } from '../../components/ui';
 import { T } from '../../lib/theme';
 
@@ -146,10 +148,6 @@ function formatTime(value: Date | string): string {
   }
 }
 
-const getNextTaskNumber = async (): Promise<number> => {
-  const allTasks = await dbService.getAll<Task>(STORES.TASKS);
-  return allTasks.reduce((max, t) => Math.max(max, t.taskNumber || 0), 0) + 1;
-};
 
 // Execute every action Iris requested. Ported from web IrisView.executeActions,
 // using newId() for ids and dbService.put/delete/hardDelete for persistence.
@@ -157,21 +155,15 @@ async function executeActions(actions: ParsedActions): Promise<ActionsSummary> {
   const summary = emptySummary();
   const now = () => new Date().toISOString();
 
+  // Tasks go through the shared domain layer (same as Quick Add): numbering,
+  // default reminders, recurrence, activity and field-level sync.
   for (const task of actions.tasks) {
-    const taskNumber = await getNextTaskNumber();
-    const newTask: Task = {
-      id: newId(),
-      title: task.title,
-      completed: false,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      dueTime: task.dueTime,
-      description: task.description,
-      taskNumber,
-      notified: false,
-    };
-    await dbService.put(STORES.TASKS, newTask);
-    summary.tasksCreated.push(task.title);
+    try {
+      await createTask({ title: task.title, description: task.description, dueDate: task.dueDate || null, dueTime: task.dueTime || null, priority: task.priority });
+      summary.tasksCreated.push(task.title);
+    } catch (e) {
+      logWarn(`Iris could not create task "${task.title}": ${String(e)}`);
+    }
   }
 
   for (const note of actions.notes) {
@@ -214,20 +206,21 @@ async function executeActions(actions: ParsedActions): Promise<ActionsSummary> {
     summary.goalsCreated.push(goal.title);
   }
 
+  // Projects: one record for tasks + plan, created like Browse/Projects do.
   for (const project of actions.projects) {
-    const newProject: Project = {
-      id: newId(),
-      title: project.title,
-      description: project.description,
-      status: project.status || 'In Progress',
-      progress: 0,
-      priority: project.priority || 'Medium',
-      deadline: project.deadline,
-      tags: project.tags || [],
-      category: project.category as ProjectCategory,
-    };
-    await dbService.put(STORES.PROJECTS, newProject);
-    summary.projectsCreated.push(project.title);
+    try {
+      const created = createProject({ title: project.title, description: project.description || null });
+      updateProject(created, {
+        status: project.status || 'In Progress',
+        priority: project.priority || 'Medium',
+        deadline: project.deadline,
+        tags: project.tags || [],
+        category: project.category as ProjectCategory,
+      });
+      summary.projectsCreated.push(project.title);
+    } catch (e) {
+      logWarn(`Iris could not create project "${project.title}": ${String(e)}`);
+    }
   }
 
   for (const milestone of actions.milestones) {
@@ -381,19 +374,21 @@ async function executeActions(actions: ParsedActions): Promise<ActionsSummary> {
     }
   }
 
-  const allTasks = await dbService.getAll<Task>(STORES.TASKS);
+  // Complete / delete via the domain ops too, so recurring tasks roll forward,
+  // completions count toward Progress, and deletes cascade to sub-tasks.
+  const liveTasks = () => domainState().tasks.filter((t) => !t.deleted);
   for (const taskTitle of actions.completedTasks) {
-    const task = allTasks.find((t) => t.title.toLowerCase() === taskTitle.toLowerCase() && !t.completed);
+    const task = liveTasks().find((t) => t.title.toLowerCase() === taskTitle.toLowerCase() && !t.completed);
     if (task) {
-      await dbService.put(STORES.TASKS, { ...task, completed: true });
+      await toggleTask(task);
       summary.tasksCompleted.push(task.title);
     }
   }
 
   for (const taskTitle of actions.deletedTasks) {
-    const task = allTasks.find((t) => t.title.toLowerCase() === taskTitle.toLowerCase());
+    const task = liveTasks().find((t) => t.title.toLowerCase() === taskTitle.toLowerCase());
     if (task) {
-      await dbService.delete(STORES.TASKS, task.id);
+      await deleteTask(task);
       summary.tasksDeleted.push(task.title);
     }
   }
@@ -665,7 +660,7 @@ export default function IrisScreen() {
       <Screen padded={false}>
         <AppHeader title="Iris" subtitle="Your AI co-pilot for the journey" />
         <EmptyState
-          icon={<Sparkles size={40} color="#a855f7" />}
+          icon={<Sparkles size={34} color="#a855f7" />}
           title="AI not configured"
           subtitle="Add your Gemini API key (EXPO_PUBLIC_GEMINI_API_KEY) to chat with Iris and let her act on your ClearMind workspace."
         />
@@ -681,15 +676,15 @@ export default function IrisScreen() {
         title="Iris"
         subtitle="Your AI co-pilot for the journey"
         right={
-          <View className="flex-row items-center">
-            <View className="flex-row items-center mr-3">
+          <>
+            <View className="flex-row items-center mr-1" accessibilityLabel={`${Math.max(messages.length - 1, 0)} messages`}>
               <MessageSquare size={12} color={T.muted} />
               <Text className="text-ink-muted text-xs ml-1">{Math.max(messages.length - 1, 0)}</Text>
             </View>
-            <Pressable onPress={clearConversation} hitSlop={8} className="p-1.5 active:opacity-60">
+            <IconButton onPress={clearConversation} label="Clear conversation">
               <Trash2 size={18} color={T.muted} />
-            </Pressable>
-          </View>
+            </IconButton>
+          </>
         }
       />
 
@@ -728,8 +723,8 @@ export default function IrisScreen() {
         />
       )}
 
-      <View className="flex-row items-end px-3 py-3 border-t border-hairline bg-midnight">
-        <View className="flex-1 bg-midnight-light border border-hairline rounded-2xl px-4 py-1 mr-2">
+      <View className="flex-row items-end px-3 py-3 border-t border-line bg-midnight">
+        <View className="flex-1 bg-midnight-light border border-line rounded-2xl px-4 py-1 mr-2">
           <TextInput
             value={input}
             onChangeText={setInput}
@@ -746,9 +741,12 @@ export default function IrisScreen() {
         <Pressable
           onPress={handleSend}
           disabled={!input.trim() || isTyping}
+          accessibilityRole="button"
+          accessibilityLabel={isTyping ? 'Iris is replying' : 'Send message'}
+          accessibilityState={{ disabled: !input.trim() || isTyping, busy: isTyping }}
           className={`w-12 h-12 rounded-full items-center justify-center ${!input.trim() || isTyping ? 'bg-midnight-lighter opacity-50' : 'bg-accent active:bg-accent-hover'}`}
         >
-          {isTyping ? <ActivityIndicator color="#fff" /> : <Send size={20} color="#fff" />}
+          <Send size={20} color="#fff" />
         </Pressable>
       </View>
 
@@ -770,7 +768,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       )}
       <View
         className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-          isUser ? 'bg-accent rounded-tr-sm' : 'bg-midnight-light border border-hairline rounded-tl-sm'
+          isUser ? 'bg-accent rounded-tr-sm' : 'bg-midnight-light border border-line rounded-tl-sm'
         }`}
       >
         <Text className={`text-[15px] leading-relaxed ${isUser ? 'text-white' : 'text-ink'}`}>{message.text}</Text>
@@ -778,7 +776,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </View>
       {isUser && (
         <View className="w-8 h-8 rounded-full bg-accent/20 border border-accent/40 items-center justify-center ml-2 mt-0.5">
-          <User size={16} color="#60a5fa" />
+          <User size={16} color={T.accent} />
         </View>
       )}
     </View>
@@ -791,7 +789,8 @@ function TypingIndicator() {
       <View className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-500/40 items-center justify-center mr-2">
         <Bot size={16} color="#c084fc" />
       </View>
-      <View className="bg-midnight-light border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 flex-row items-center">
+      <View className="bg-midnight-light border border-line rounded-2xl rounded-tl-sm px-4 py-3 flex-row items-center">
+        {/* Inline (in-bubble) activity: the kit Spinner is full-area, so a small native indicator stays here. */}
         <ActivityIndicator color={T.muted} size="small" />
         <Text className="text-ink-muted text-sm ml-2">Iris is thinking…</Text>
       </View>

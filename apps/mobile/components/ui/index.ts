@@ -1,5 +1,6 @@
 export { Screen } from './Screen';
 export { AppHeader } from './AppHeader';
+export { PageHeader, OfflineBanner, IconButton, useBack } from './PageHeader';
 export { Button } from './Button';
 export { Card } from './Card';
 export { Gradient } from './Gradient';
@@ -19,3 +20,5 @@ export { confirmDialog } from './ConfirmDialog';
 export { ToastProvider, useToast } from './Toast';
 export { Sheet } from './Sheet';
 export { ActionMenu, type MenuAction } from './ActionMenu';
+export { FormSheet } from './FormSheet';
+export { Avatar } from './Avatar';

@@ -5,8 +5,9 @@ import { reviewApplication, isApiConfigured, ApplicationReview } from '../../ser
 import {
   ScanSearch, Link2, Sparkles, Loader2, ExternalLink, Building2, GraduationCap, Briefcase,
   Award, FileText, CircleDollarSign, Hash, Calendar, ListChecks, ClipboardList, Tag as TagIcon,
-  Check, CircleCheck, CircleAlert, CircleX, HelpCircle, Plus, ChevronDown, ChevronRight, X,
+  Check, CircleCheck, CircleAlert, CircleX, HelpCircle, Plus, ChevronDown, ChevronRight, ArrowRight,
 } from 'lucide-react';
+import { PageShell, Card, Empty, Badge, inputCls, cx, useTaskToast } from '../ui-kit';
 
 const BG_KEY = 'reviewer-applicant-background';
 
@@ -40,11 +41,9 @@ const ApplicationReviewerView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [review, setReview] = useState<ApplicationReview | null>(null);
   const [added, setAdded] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const showToast = useTaskToast();
 
   const configured = isApiConfigured();
-
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2600); };
 
   const normalizeUrl = (u: string) => {
     const t = u.trim();
@@ -106,43 +105,38 @@ const ApplicationReviewerView: React.FC = () => {
     }
   };
 
-  const inputClass = 'w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500';
-
   return (
-    <div className="p-8 h-full overflow-y-auto animate-fade-in">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center">
-            <ScanSearch size={20} className="text-white" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold dark:text-white text-gray-900">AI Application Reviewer</h2>
-            <p className="text-gray-500 dark:text-gray-400 text-sm">Paste a grant, scholarship, or job link — get a full brief, eligibility read, and the real submission link.</p>
-          </div>
+    <PageShell
+      title="AI Application Reviewer"
+      subtitle="Paste a grant, scholarship, or job link — get a full brief, eligibility read, and the real submission link."
+    >
+      {!configured && (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2" role="status">
+          <CircleAlert size={16} className="shrink-0" /> The AI reviewer needs a Gemini API key configured for this deployment.
         </div>
+      )}
 
-        {!configured && (
-          <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-400 text-sm flex items-center gap-2">
-            <CircleAlert size={16} /> The AI reviewer needs a Gemini API key configured for this deployment.
-          </div>
-        )}
+      {/* Input */}
+      <Card>
+        <div className="space-y-3">
+          <label className="block">
+            <span className="sr-only">Opportunity link</span>
+            <span className="relative block">
+              <Link2 size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${cx.faint}`} aria-hidden />
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !loading) run(); }}
+                placeholder="https://example.org/grants/climate-fellowship-2026"
+                className={`${inputCls} pl-9`}
+                disabled={loading}
+                aria-label="Opportunity link"
+              />
+            </span>
+          </label>
 
-        {/* Input */}
-        <div className="mt-6 space-y-3">
-          <div className="relative">
-            <Link2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !loading) run(); }}
-              placeholder="https://example.org/grants/climate-fellowship-2026"
-              className={`${inputClass} pl-9`}
-              disabled={loading}
-            />
-          </div>
-
-          <button type="button" onClick={() => setShowBg((v) => !v)} className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400">
-            {showBg ? <ChevronDown size={15} /> : <ChevronRight size={15} />} Your background (for an eligibility check)
+          <button type="button" onClick={() => setShowBg((v) => !v)} aria-expanded={showBg} className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline">
+            {showBg ? <ChevronDown size={16} /> : <ChevronRight size={16} />} Your background (for an eligibility check)
           </button>
           {showBg && (
             <textarea
@@ -150,50 +144,53 @@ const ApplicationReviewerView: React.FC = () => {
               onChange={(e) => setBackground(e.target.value)}
               placeholder="e.g. 2nd-year PhD in renewable energy, Nigerian citizen, based in the UK, focus on solar microgrids…"
               rows={3}
-              className={`${inputClass} resize-none`}
+              aria-label="Your background"
+              className={`${inputCls} resize-none`}
             />
           )}
 
-          <button
-            type="button"
-            onClick={run}
-            disabled={loading || !url.trim() || !configured}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
-          >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-            {loading ? 'Reviewing the opportunity…' : 'Review application'}
-          </button>
-          {loading && <p className="text-xs text-gray-500 text-center">Reading the page, finding the submission link, and checking eligibility — this can take ~15s.</p>}
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          <div className="flex items-center justify-end gap-3">
+            {loading && <p className={`text-xs flex-1 ${cx.muted}`}>Reading the page, finding the submission link, and checking eligibility — this can take ~15s.</p>}
+            <button
+              type="button"
+              onClick={run}
+              disabled={loading || !url.trim() || !configured}
+              className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}
+            >
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              {loading ? 'Reviewing…' : 'Review application'}
+            </button>
+          </div>
+          {error && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{error}</p>}
         </div>
+      </Card>
 
-        {/* Result */}
-        {review && renderReview(review)}
-      </div>
-
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl animate-fade-in">{toast}</div>
-      )}
-    </div>
+      {/* Result */}
+      {review ? renderReview(review) : !loading && !error ? (
+        <Empty
+          icon={<ScanSearch size={30} className={cx.muted} />}
+          title="Review an opportunity"
+          subtitle="Paste a link above. You can add the result straight to your Applications with a deadline reminder."
+        />
+      ) : null}
+    </PageShell>
   );
 
   function renderReview(r: ApplicationReview) {
     const TypeIcon = TYPE_ICON[r.type] ?? FileText;
     const v = VERDICT[r.eligibilityVerdict];
     return (
-      <div className="mt-8 dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-2xl p-6 shadow-sm animate-fade-in">
+      <Card className="mt-4">
         <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 text-gray-500">
-            <TypeIcon size={18} />
-            <span className="text-xs uppercase tracking-wider">{r.type}</span>
+          <div className={`flex items-center gap-1.5 ${cx.muted}`}>
+            <TypeIcon size={16} />
+            <span className="text-xs font-medium capitalize">{r.type}</span>
           </div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border" style={{ color: v.color, backgroundColor: `${v.color}22`, borderColor: `${v.color}55` }}>
-            <v.Icon size={13} /> {v.label}
-          </span>
+          <Badge color={v.color}><v.Icon size={12} /> {v.label}</Badge>
         </div>
 
-        <h3 className="text-xl font-bold dark:text-white text-gray-900">{r.name}</h3>
-        {r.organization && <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1"><Building2 size={13} /> {r.organization}{r.funder && r.funder !== r.organization ? ` · funded by ${r.funder}` : ''}</p>}
+        <h2 className={`text-lg font-semibold ${cx.text}`}>{r.name}</h2>
+        {r.organization && <p className={`text-sm mt-0.5 flex items-center gap-1 ${cx.muted}`}><Building2 size={14} /> {r.organization}{r.funder && r.funder !== r.organization ? ` · funded by ${r.funder}` : ''}</p>}
 
         {r.eligibilityReasoning && (
           <div className="mt-3 rounded-lg p-3 text-sm" style={{ backgroundColor: `${v.color}14`, color: v.color }}>
@@ -201,10 +198,10 @@ const ApplicationReviewerView: React.FC = () => {
           </div>
         )}
 
-        <p className="text-sm dark:text-gray-300 text-gray-700 mt-4 leading-relaxed whitespace-pre-line">{r.summary}</p>
+        <p className="text-sm text-gray-700 dark:text-gray-300 mt-4 leading-relaxed whitespace-pre-line">{r.summary}</p>
 
         {/* Key facts */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-5">
           {r.submissionDeadline && <Fact icon={<Calendar size={14} />} label="Deadline" value={fmtDate(r.submissionDeadline)!} highlight />}
           {r.closingDate && !r.submissionDeadline && <Fact icon={<Calendar size={14} />} label="Closes" value={fmtDate(r.closingDate)!} highlight />}
           {r.openingDate && <Fact icon={<Calendar size={14} />} label="Opens" value={fmtDate(r.openingDate)!} />}
@@ -212,54 +209,54 @@ const ApplicationReviewerView: React.FC = () => {
           {r.referenceNumber && <Fact icon={<Hash size={14} />} label="Reference" value={r.referenceNumber} />}
         </div>
 
-        {r.eligibility.length > 0 && <Section title="Eligibility" icon={<ListChecks size={15} />} items={r.eligibility} />}
-        {r.requirements.length > 0 && <Section title="What you need to submit" icon={<ClipboardList size={15} />} items={r.requirements} />}
+        {r.eligibility.length > 0 && <Section title="Eligibility" icon={<ListChecks size={16} />} items={r.eligibility} />}
+        {r.requirements.length > 0 && <Section title="What you need to submit" icon={<ClipboardList size={16} />} items={r.requirements} />}
 
         {r.tags && r.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-4">
-            {r.tags.map((t) => <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-gray-500/15 text-gray-400 flex items-center gap-1"><TagIcon size={10} />{t}</span>)}
+            {r.tags.map((t) => <Badge key={t}><TagIcon size={11} />{t}</Badge>)}
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-3 mt-6">
-          <a href={r.submissionLink || r.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium">
-            <ExternalLink size={15} /> Open submission page
+        <div className={`flex flex-wrap items-center gap-2 mt-5 pt-4 border-t ${cx.border}`}>
+          <a href={r.submissionLink || r.sourceUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+            <ExternalLink size={16} /> Open submission page
           </a>
           <button
             type="button"
             onClick={addToApplications}
             disabled={added}
-            className="inline-flex items-center gap-2 dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-60"
+            className={`inline-flex items-center gap-1.5 ${cx.btnGhost} disabled:opacity-60`}
           >
-            {added ? <><Check size={15} className="text-emerald-500" /> Added to Applications</> : <><Plus size={15} /> Add to my Applications</>}
+            {added ? <><Check size={16} className="text-green-600" /> Added to Applications</> : <><Plus size={16} /> Add to my Applications</>}
           </button>
           {added && (
-            <button type="button" onClick={() => { window.location.hash = 'applications'; }} className="text-sm text-blue-500 hover:text-blue-400">
-              View in Applications →
+            <button type="button" onClick={() => { window.location.hash = 'applications'; }} className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline">
+              View in Applications <ArrowRight size={14} />
             </button>
           )}
         </div>
         {r.sourceUrl !== (r.submissionLink || r.sourceUrl) && (
-          <p className="text-xs text-gray-500 mt-3">Reviewed from: <a href={r.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-400">{r.sourceUrl}</a></p>
+          <p className={`text-xs mt-3 ${cx.muted}`}>Reviewed from: <a href={r.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-700 dark:hover:text-gray-300">{r.sourceUrl}</a></p>
         )}
-      </div>
+      </Card>
     );
   }
 };
 
 const Fact: React.FC<{ icon: React.ReactNode; label: string; value: string; highlight?: boolean }> = ({ icon, label, value, highlight }) => (
-  <div className={`rounded-lg p-3 border ${highlight ? 'border-orange-500/30 bg-orange-500/5' : 'dark:border-gray-800 border-gray-200'}`}>
-    <div className={`flex items-center gap-1 text-xs mb-1 ${highlight ? 'text-orange-400' : 'text-gray-500'}`}>{icon} {label}</div>
-    <div className="text-sm font-medium dark:text-white text-gray-900">{value}</div>
+  <div className={`rounded-lg p-3 border ${highlight ? 'border-orange-500/30 bg-orange-50 dark:bg-orange-500/5' : `${cx.border}`}`}>
+    <div className={`flex items-center gap-1 text-xs mb-1 ${highlight ? 'text-orange-600 dark:text-orange-400' : cx.muted}`}>{icon} {label}</div>
+    <div className={`text-sm font-medium ${cx.text}`}>{value}</div>
   </div>
 );
 
 const Section: React.FC<{ title: string; icon: React.ReactNode; items: string[] }> = ({ title, icon, items }) => (
   <div className="mt-5">
-    <h4 className="text-sm font-semibold dark:text-white text-gray-900 flex items-center gap-2 mb-2">{icon} {title}</h4>
+    <h3 className={`text-sm font-semibold flex items-center gap-2 mb-2 ${cx.text}`}><span className={cx.muted}>{icon}</span> {title}</h3>
     <ul className="space-y-1.5">
       {items.map((it, i) => (
-        <li key={i} className="flex items-start gap-2 text-sm dark:text-gray-300 text-gray-700">
+        <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
           <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
           <span>{it}</span>
         </li>

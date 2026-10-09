@@ -4,21 +4,15 @@ import {
   Text,
   Pressable,
   FlatList,
-  Modal,
   ScrollView,
   Image,
   Linking,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
 } from 'react-native';
 import {
   Plus,
   ExternalLink,
   Pencil,
   Trash2,
-  X,
-  Save,
   Play,
   Video,
   Headphones,
@@ -37,6 +31,8 @@ import {
   Sparkles,
   EyeOff,
   ArrowUpDown,
+  MoreHorizontal,
+  ListPlus,
 } from 'lucide-react-native';
 import type {
   LearningResource,
@@ -61,7 +57,13 @@ import {
   Badge,
   confirmDialog,
   useToast,
+  Button,
+  FormSheet,
+  Sheet,
+  ActionMenu,
+  IconButton,
 } from '../../components/ui';
+import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { T } from '../../lib/theme';
 
 // ----------------------------------------------------------------------------
@@ -287,6 +289,9 @@ type SortKey = 'savedAt' | 'duration' | 'title' | 'lastAccessed';
 // ----------------------------------------------------------------------------
 // Screen
 // ----------------------------------------------------------------------------
+/** Open a follow-up sheet once the action menu has dismissed (same pattern as the task menu). */
+const afterMenu = (fn: () => void) => setTimeout(fn, 250);
+
 export default function LearningVaultScreen() {
   const {
     items: resources,
@@ -301,6 +306,8 @@ export default function LearningVaultScreen() {
     remove: removeFolder,
   } = useCollection<LearningFolder>(STORES.LEARNING_FOLDERS);
   const toast = useToast();
+  const ui = useTaskUI();
+  const [menuFor, setMenuFor] = useState<LearningResource | null>(null);
 
   const [search, setSearch] = useState('');
   const [filterContentType, setFilterContentType] = useState<'all' | LearningContentType>('all');
@@ -449,7 +456,9 @@ export default function LearningVaultScreen() {
       removeResource(r.id);
       if (notesId === r.id) setNotesId(null);
       toast.show('Resource deleted', 'info');
+      return true;
     }
+    return false;
   };
 
   const toggleStatus = (r: LearningResource) => {
@@ -577,7 +586,9 @@ export default function LearningVaultScreen() {
         />
         <Pressable
           onPress={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
-          className="flex-row items-center justify-center bg-midnight-light rounded-2xl px-4 border border-hairline active:opacity-80"
+          accessibilityRole="button"
+          accessibilityLabel={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}. Toggle`}
+          className="flex-row items-center justify-center bg-midnight-light rounded-2xl px-4 border border-line active:opacity-80"
         >
           <ArrowUpDown size={16} color={T.muted} />
           <Text className="text-ink-muted text-xs ml-1.5">{sortOrder === 'asc' ? 'Asc' : 'Desc'}</Text>
@@ -594,8 +605,11 @@ export default function LearningVaultScreen() {
               <Pressable
                 key={f.id}
                 onPress={() => setFilterFolder(active ? 'all' : f.name)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Folder ${f.name}`}
                 className={`flex-row items-center px-3 py-1.5 rounded-full mr-2 border ${
-                  active ? 'bg-accent/15 border-accent/50' : 'bg-midnight-light border-hairline'
+                  active ? 'bg-accent/15 border-accent/50' : 'bg-midnight-light border-line'
                 }`}
               >
                 <Folder size={14} color={f.color || T.muted} />
@@ -612,7 +626,7 @@ export default function LearningVaultScreen() {
 
       {/* Stats panel */}
       {showStats && (
-        <View className="mt-3 p-4 rounded-2xl bg-midnight-light border border-hairline">
+        <View className="mt-3 p-4 rounded-2xl bg-midnight-light border border-line">
           <View className="flex-row items-center mb-3">
             <ChartColumn size={16} color={T.muted} />
             <Text className="text-ink-muted text-sm font-semibold ml-2">Progress Analytics</Text>
@@ -620,7 +634,7 @@ export default function LearningVaultScreen() {
           <View className="flex-row flex-wrap">
             <StatTile label="Total" value={String(stats.totalItems)} color={T.ink} />
             <StatTile label="Completed" value={String(stats.completedItems)} color="#10b981" />
-            <StatTile label="Total Time" value={formatDuration(stats.totalWatchTime)} color="#3B82F6" />
+            <StatTile label="Total Time" value={formatDuration(stats.totalWatchTime)} color={T.accent} />
             <StatTile label="This Week" value={formatDuration(stats.weeklyWatchTime)} color="#a855f7" />
             <StatTile label="Avg Session" value={formatDuration(stats.averageSessionLength)} color="#f59e0b" />
           </View>
@@ -639,14 +653,14 @@ export default function LearningVaultScreen() {
         title="Learning Vault"
         subtitle={`${stats.completedItems} / ${resources.length} completed`}
         right={
-          <View className="flex-row items-center">
-            <Pressable onPress={() => setShowStats((s) => !s)} hitSlop={8} className="p-2 active:opacity-60">
-              <ChartColumn size={20} color={showStats ? '#3B82F6' : T.muted} />
-            </Pressable>
-            <Pressable onPress={() => setFolderOpen(true)} hitSlop={8} className="p-2 active:opacity-60">
+          <>
+            <IconButton onPress={() => setShowStats((s) => !s)} label={showStats ? 'Hide progress analytics' : 'Show progress analytics'}>
+              <ChartColumn size={20} color={showStats ? T.accent : T.muted} />
+            </IconButton>
+            <IconButton onPress={() => setFolderOpen(true)} label="Manage folders">
               <FolderPlus size={20} color={T.muted} />
-            </Pressable>
-          </View>
+            </IconButton>
+          </>
         }
       />
 
@@ -658,7 +672,7 @@ export default function LearningVaultScreen() {
         ItemSeparatorComponent={() => <View className="h-3" />}
         ListEmptyComponent={
           <EmptyState
-            icon={<Bookmark size={40} color="#3B82F6" />}
+            icon={<Bookmark size={34} color={T.accent} />}
             title={resources.length === 0 ? 'No resources yet' : 'No matches'}
             subtitle={
               resources.length === 0
@@ -675,15 +689,25 @@ export default function LearningVaultScreen() {
               resource={item}
               onOpen={() => openResource(item)}
               onToggle={() => toggleStatus(item)}
-              onNotes={() => setNotesId(item.id)}
-              onEdit={() => openEdit(item)}
-              onDelete={() => handleDeleteResource(item)}
+              onMenu={() => setMenuFor(item)}
             />
           </View>
         )}
       />
 
-      <Fab onPress={openAdd} />
+      <Fab onPress={openAdd} label="Add learning resource" />
+
+      <ActionMenu
+        visible={!!menuFor}
+        onClose={() => setMenuFor(null)}
+        title={menuFor?.title}
+        actions={menuFor ? [
+          { label: 'Notes', icon: <StickyNote size={18} color={T.ink} />, hint: menuFor.notes.length ? String(menuFor.notes.length) : undefined, onPress: () => afterMenu(() => setNotesId(menuFor.id)) },
+          { label: 'Add study task', icon: <ListPlus size={18} color={T.ink} />, onPress: () => afterMenu(() => ui.openQuickAdd({ title: `Study: ${menuFor.title}` })) },
+          { label: 'Edit', icon: <Pencil size={18} color={T.ink} />, onPress: () => afterMenu(() => openEdit(menuFor)) },
+          { label: 'Delete', icon: <Trash2 size={18} color={T.danger} />, destructive: true, onPress: () => { handleDeleteResource(menuFor); } },
+        ] : []}
+      />
 
       <ResourceFormModal
         visible={formOpen}
@@ -694,6 +718,12 @@ export default function LearningVaultScreen() {
           setEditing(null);
         }}
         onSave={handleSaveResource}
+        onDelete={editing ? async () => {
+          if (await handleDeleteResource(editing)) {
+            setFormOpen(false);
+            setEditing(null);
+          }
+        } : undefined}
         onDetectFail={() => toast.show('Could not auto-detect — fill in manually', 'info')}
       />
 
@@ -736,16 +766,12 @@ function ResourceCard({
   resource,
   onOpen,
   onToggle,
-  onNotes,
-  onEdit,
-  onDelete,
+  onMenu,
 }: {
   resource: LearningResource;
   onOpen: () => void;
   onToggle: () => void;
-  onNotes: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onMenu: () => void;
 }) {
   const toggleMeta =
     resource.status === 'completed'
@@ -755,9 +781,9 @@ function ResourceCard({
       : { icon: <Play size={14} color={T.ink} />, label: 'Start' };
 
   return (
-    <View className="rounded-2xl bg-midnight-light border border-hairline overflow-hidden">
+    <View className="rounded-2xl bg-midnight-light border border-line overflow-hidden">
       {/* Thumbnail */}
-      <Pressable onPress={onOpen} className="active:opacity-90">
+      <Pressable onPress={onOpen} onLongPress={onMenu} delayLongPress={300} className="active:opacity-90" accessibilityRole="link" accessibilityLabel={`Open ${resource.title}`} accessibilityHint="Long-press for more actions">
         <View className="h-40 bg-midnight-lighter items-center justify-center">
           {resource.thumbnail ? (
             <Image source={{ uri: resource.thumbnail }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
@@ -799,7 +825,7 @@ function ResourceCard({
 
       {/* Body */}
       <View className="p-4">
-        <Pressable onPress={onOpen}>
+        <Pressable onPress={onOpen} onLongPress={onMenu} delayLongPress={300} accessibilityRole="link">
           <Text className="text-ink font-semibold text-base" numberOfLines={2}>
             {resource.title}
           </Text>
@@ -848,9 +874,10 @@ function ResourceCard({
         </View>
 
         {/* Actions */}
-        <View className="flex-row items-center mt-3 pt-3 border-t border-hairline">
+        <View className="flex-row items-center mt-3 pt-3 border-t border-line">
           <Pressable
             onPress={onToggle}
+            accessibilityRole="button"
             className="flex-1 flex-row items-center justify-center py-2 rounded-lg bg-midnight-lighter active:opacity-80 mr-2"
           >
             {toggleMeta.icon}
@@ -858,20 +885,16 @@ function ResourceCard({
           </Pressable>
           <Pressable
             onPress={onOpen}
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${resource.title}`}
             className="flex-row items-center justify-center px-3 py-2 rounded-lg bg-accent active:bg-accent-hover mr-1"
           >
             <ExternalLink size={14} color="#fff" />
             <Text className="text-white text-xs ml-1 font-medium">Open</Text>
           </Pressable>
-          <Pressable onPress={onNotes} hitSlop={6} className="p-2 active:opacity-60">
-            <StickyNote size={16} color={T.muted} />
-          </Pressable>
-          <Pressable onPress={onEdit} hitSlop={6} className="p-2 active:opacity-60">
-            <Pencil size={16} color={T.muted} />
-          </Pressable>
-          <Pressable onPress={onDelete} hitSlop={6} className="p-2 active:opacity-60">
-            <Trash2 size={16} color={T.muted} />
-          </Pressable>
+          <IconButton onPress={onMenu} label={`More actions for ${resource.title}`}>
+            <MoreHorizontal size={18} color={T.muted} />
+          </IconButton>
         </View>
       </View>
     </View>
@@ -913,6 +936,7 @@ function ResourceFormModal({
   folders,
   onCancel,
   onSave,
+  onDelete,
   onDetectFail,
 }: {
   visible: boolean;
@@ -920,6 +944,7 @@ function ResourceFormModal({
   folders: LearningFolder[];
   onCancel: () => void;
   onSave: (d: ResourceFormData) => void;
+  onDelete?: () => void;
   onDetectFail: () => void;
 }) {
   const [form, setForm] = useState<ResourceFormData>(EMPTY_FORM);
@@ -991,130 +1016,105 @@ function ResourceFormModal({
   const folderSelectOptions = [{ label: 'No Folder', value: '' }, ...folders.map((f) => ({ label: f.name, value: f.name }))];
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-        className="bg-black/60 justify-end"
-      >
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '92%' }}>
-          <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <Text className="text-ink text-lg font-bold">{initial ? 'Edit Resource' : 'Add Learning Resource'}</Text>
-            <Pressable onPress={onCancel} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color={T.muted} />
-            </Pressable>
-          </View>
+    <FormSheet
+      visible={visible}
+      onClose={onCancel}
+      title={initial ? 'Edit Resource' : 'Add Learning Resource'}
+      submitLabel={initial ? 'Update' : 'Save'}
+      onSubmit={save}
+      submitDisabled={!canSave}
+      onDelete={onDelete}
+      deleteLabel="Delete resource"
+      fill
+    >
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">URL *</Text>
+      <View className="flex-row mb-3">
+        <Input
+          placeholder="https://youtube.com/watch?v=…"
+          value={form.url}
+          onChangeText={(v) => set('url', v)}
+          autoCapitalize="none"
+          keyboardType="url"
+          className="flex-1 mr-2"
+        />
+        <Button
+          title="Detect"
+          onPress={handleDetect}
+          disabled={!form.url.trim()}
+          loading={detecting}
+          full={false}
+        />
+      </View>
 
-          <ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
-            <Text className="text-ink-muted text-xs mb-1.5 ml-1">URL *</Text>
-            <View className="flex-row mb-3">
-              <Input
-                placeholder="https://youtube.com/watch?v=…"
-                value={form.url}
-                onChangeText={(v) => set('url', v)}
-                autoCapitalize="none"
-                keyboardType="url"
-                className="flex-1 mr-2"
-              />
-              <Pressable
-                onPress={handleDetect}
-                disabled={!form.url.trim() || detecting}
-                className={`items-center justify-center px-4 rounded-2xl ${
-                  !form.url.trim() || detecting ? 'bg-midnight-lighter' : 'bg-accent active:bg-accent-hover'
-                }`}
-              >
-                {detecting ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-semibold">Detect</Text>}
-              </Pressable>
-            </View>
+      <Input label="Title *" placeholder="Resource title" value={form.title} onChangeText={(v) => set('title', v)} className="mb-3" />
+      <TextArea
+        label="Description"
+        placeholder="Brief description"
+        value={form.description}
+        onChangeText={(v) => set('description', v)}
+        minHeight={70}
+        className="mb-3"
+      />
+      <Input
+        label="Thumbnail URL"
+        placeholder="https://…"
+        value={form.thumbnail}
+        onChangeText={(v) => set('thumbnail', v)}
+        autoCapitalize="none"
+        className="mb-3"
+      />
 
-            <Input label="Title *" placeholder="Resource title" value={form.title} onChangeText={(v) => set('title', v)} className="mb-3" />
-            <TextArea
-              label="Description"
-              placeholder="Brief description"
-              value={form.description}
-              onChangeText={(v) => set('description', v)}
-              minHeight={70}
-              className="mb-3"
-            />
-            <Input
-              label="Thumbnail URL"
-              placeholder="https://…"
-              value={form.thumbnail}
-              onChangeText={(v) => set('thumbnail', v)}
-              autoCapitalize="none"
-              className="mb-3"
-            />
+      <View className="flex-row mb-3">
+        <Select<LearningContentType>
+          label="Content Type"
+          value={form.contentType}
+          onChange={(v) => set('contentType', v)}
+          options={[
+            { label: 'Video', value: 'video' },
+            { label: 'Audio', value: 'audio' },
+          ]}
+          className="flex-1 mr-2"
+        />
+        <Input
+          label="Duration (min)"
+          placeholder="60"
+          value={form.duration}
+          onChangeText={(v) => set('duration', v)}
+          keyboardType="number-pad"
+          className="flex-1"
+        />
+      </View>
 
-            <View className="flex-row mb-3">
-              <Select<LearningContentType>
-                label="Content Type"
-                value={form.contentType}
-                onChange={(v) => set('contentType', v)}
-                options={[
-                  { label: 'Video', value: 'video' },
-                  { label: 'Audio', value: 'audio' },
-                ]}
-                className="flex-1 mr-2"
-              />
-              <Input
-                label="Duration (min)"
-                placeholder="60"
-                value={form.duration}
-                onChangeText={(v) => set('duration', v)}
-                keyboardType="number-pad"
-                className="flex-1"
-              />
-            </View>
-
-            <Select<LearningSourcePlatform>
-              label="Platform"
-              value={form.sourcePlatform}
-              onChange={(v) => set('sourcePlatform', v)}
-              options={PLATFORM_OPTIONS}
-              className="mb-3"
-            />
-            <Select<string>
-              label="Folder"
-              value={form.folder}
-              onChange={(v) => set('folder', v)}
-              options={folderSelectOptions}
-              className="mb-3"
-            />
-            <Input
-              label="Author / Channel"
-              placeholder="Channel name or author"
-              value={form.author}
-              onChangeText={(v) => set('author', v)}
-              className="mb-3"
-            />
-            <Input
-              label="Tags (comma-separated)"
-              placeholder="Machine Learning, Python"
-              value={form.tags}
-              onChangeText={(v) => set('tags', v)}
-              autoCapitalize="none"
-              className="mb-3"
-            />
-          </ScrollView>
-
-          <View className="flex-row px-5 pt-3 pb-8 border-t border-hairline">
-            <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80 mr-3">
-              <Text className="text-ink font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={save}
-              disabled={!canSave}
-              className={`flex-1 flex-row items-center justify-center py-3.5 rounded-full ${
-                canSave ? 'bg-accent active:bg-accent-hover' : 'bg-midnight-lighter opacity-50'
-              }`}
-            >
-              <Save size={16} color="#fff" />
-              <Text className="text-white font-bold ml-2">{initial ? 'Update' : 'Save'}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      <Select<LearningSourcePlatform>
+        label="Platform"
+        value={form.sourcePlatform}
+        onChange={(v) => set('sourcePlatform', v)}
+        options={PLATFORM_OPTIONS}
+        className="mb-3"
+      />
+      <Select<string>
+        label="Folder"
+        value={form.folder}
+        onChange={(v) => set('folder', v)}
+        options={folderSelectOptions}
+        className="mb-3"
+      />
+      <Input
+        label="Author / Channel"
+        placeholder="Channel name or author"
+        value={form.author}
+        onChangeText={(v) => set('author', v)}
+        className="mb-3"
+      />
+      <Input
+        label="Tags (comma-separated)"
+        placeholder="Machine Learning, Python"
+        value={form.tags}
+        onChangeText={(v) => set('tags', v)}
+        autoCapitalize="none"
+        className="mb-3"
+      />
+    </FormSheet>
   );
 }
 
@@ -1154,70 +1154,55 @@ function FolderModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-        className="bg-black/60 justify-end"
-      >
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8" style={{ maxHeight: '85%' }}>
-          <View className="flex-row items-center justify-between mb-4">
-            <Text className="text-ink text-lg font-bold">Folders</Text>
-            <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color={T.muted} />
+    <Sheet visible={visible} onClose={onClose} title="Folders">
+      <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingBottom: 8 }}>
+        <Input label="Folder name" placeholder="e.g. Machine Learning" value={name} onChangeText={setName} onSubmitEditing={create} returnKeyType="done" className="mb-3" />
+        <Text className="text-ink-muted text-xs mb-1.5 ml-1">Color</Text>
+        <View className="flex-row mb-4">
+          {FOLDER_COLORS.map((c) => (
+            <Pressable
+              key={c}
+              onPress={() => setColor(c)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: color === c }}
+              accessibilityLabel={`Folder colour ${c}`}
+              className="w-9 h-9 rounded-full mr-2 items-center justify-center"
+              style={{ backgroundColor: c }}
+            >
+              {color === c ? <Check size={16} color="#fff" /> : null}
             </Pressable>
-          </View>
-
-          <Input label="Folder name" placeholder="e.g. Machine Learning" value={name} onChangeText={setName} className="mb-3" />
-          <Text className="text-ink-muted text-xs mb-1.5 ml-1">Color</Text>
-          <View className="flex-row mb-4">
-            {FOLDER_COLORS.map((c) => (
-              <Pressable
-                key={c}
-                onPress={() => setColor(c)}
-                className="w-9 h-9 rounded-full mr-2 items-center justify-center"
-                style={{ backgroundColor: c }}
-              >
-                {color === c ? <Check size={16} color="#fff" /> : null}
-              </Pressable>
-            ))}
-          </View>
-
-          <Pressable
-            onPress={create}
-            disabled={!name.trim()}
-            className={`flex-row items-center justify-center py-3.5 rounded-full mb-4 ${
-              name.trim() ? 'bg-accent active:bg-accent-hover' : 'bg-midnight-lighter opacity-50'
-            }`}
-          >
-            <FolderPlus size={16} color="#fff" />
-            <Text className="text-white font-bold ml-2">Create Folder</Text>
-          </Pressable>
-
-          {folders.length > 0 && (
-            <>
-              <Text className="text-ink-muted text-xs mb-2 ml-1">Existing</Text>
-              <ScrollView style={{ maxHeight: 240 }}>
-                {folders.map((f) => (
-                  <View
-                    key={f.id}
-                    className="flex-row items-center justify-between bg-midnight-light rounded-xl px-3 py-2.5 mb-2 border border-hairline"
-                  >
-                    <View className="flex-row items-center">
-                      <Folder size={16} color={f.color || T.muted} />
-                      <Text className="text-ink text-sm ml-2">{f.name}</Text>
-                    </View>
-                    <Pressable onPress={() => onDelete(f)} hitSlop={8} className="p-1 active:opacity-60">
-                      <Trash2 size={16} color={T.muted} />
-                    </Pressable>
-                  </View>
-                ))}
-              </ScrollView>
-            </>
-          )}
+          ))}
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+
+        <Button
+          title="Create Folder"
+          onPress={create}
+          disabled={!name.trim()}
+          icon={<FolderPlus size={16} color="#fff" />}
+          className="mb-4"
+        />
+
+        {folders.length > 0 && (
+          <>
+            <Text className="text-ink-muted text-xs mb-2 ml-1">Existing</Text>
+            {folders.map((f) => (
+              <View
+                key={f.id}
+                className="flex-row items-center justify-between bg-midnight rounded-xl px-3 py-1.5 mb-2 border border-line"
+              >
+                <View className="flex-row items-center">
+                  <Folder size={16} color={f.color || T.muted} />
+                  <Text className="text-ink text-sm ml-2">{f.name}</Text>
+                </View>
+                <IconButton onPress={() => onDelete(f)} label={`Delete folder ${f.name}`}>
+                  <Trash2 size={16} color={T.muted} />
+                </IconButton>
+              </View>
+            ))}
+          </>
+        )}
+      </ScrollView>
+    </Sheet>
   );
 }
 
@@ -1258,79 +1243,61 @@ function NotesModal({
   const sortedNotes = resource ? [...resource.notes].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)) : [];
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-        className="bg-black/60 justify-end"
-      >
-        <View className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '85%' }}>
-          <View className="flex-row items-center justify-between px-5 pt-5 pb-3 border-b border-hairline">
-            <View className="flex-1 mr-3">
-              <Text className="text-ink text-lg font-bold">Notes</Text>
-              {resource ? (
-                <Text className="text-ink-muted text-xs" numberOfLines={1}>
-                  {resource.title}
-                </Text>
-              ) : null}
-            </View>
-            <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color={T.muted} />
-            </Pressable>
-          </View>
+    <Sheet visible={visible} onClose={onClose} title="Notes">
+      {resource ? (
+        <Text className="text-ink-muted text-xs -mt-1 mb-3" numberOfLines={1}>
+          {resource.title}
+        </Text>
+      ) : null}
+      <View className="flex-row mb-1.5">
+        <Input
+          placeholder="0:00"
+          value={timestamp}
+          onChangeText={setTimestamp}
+          keyboardType="numbers-and-punctuation"
+          accessibilityLabel="Timestamp"
+          className="w-20 mr-2"
+        />
+        <Input placeholder="Add a note…" value={content} onChangeText={setContent} onSubmitEditing={add} returnKeyType="done" className="flex-1 mr-2" />
+        <Pressable
+          onPress={add}
+          disabled={!content.trim()}
+          accessibilityRole="button"
+          accessibilityLabel="Add note"
+          accessibilityState={{ disabled: !content.trim() }}
+          className={`items-center justify-center px-4 rounded-2xl ${
+            content.trim() ? 'bg-purple-600 active:opacity-80' : 'bg-midnight-lighter opacity-50'
+          }`}
+        >
+          <Plus size={18} color="#fff" />
+        </Pressable>
+      </View>
+      <Text className="text-ink-muted text-[11px] mb-3">Tip: add a timestamp (e.g. 5:30) to link a moment.</Text>
 
-          <View className="px-5 pt-4">
-            <View className="flex-row mb-1.5">
-              <Input
-                placeholder="0:00"
-                value={timestamp}
-                onChangeText={setTimestamp}
-                keyboardType="numbers-and-punctuation"
-                className="w-20 mr-2"
-              />
-              <Input placeholder="Add a note…" value={content} onChangeText={setContent} className="flex-1 mr-2" />
-              <Pressable
-                onPress={add}
-                disabled={!content.trim()}
-                className={`items-center justify-center px-4 rounded-2xl ${
-                  content.trim() ? 'bg-purple-600 active:opacity-80' : 'bg-midnight-lighter opacity-50'
-                }`}
-              >
-                <Plus size={18} color="#fff" />
-              </Pressable>
-            </View>
-            <Text className="text-ink-muted text-[11px] mb-3">Tip: add a timestamp (e.g. 5:30) to link a moment.</Text>
-          </View>
-
-          <ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 28 }} keyboardShouldPersistTaps="handled">
-            {sortedNotes.length === 0 ? (
-              <View className="items-center py-10">
-                <StickyNote size={32} color="#4b5563" />
-                <Text className="text-ink-muted mt-2">No notes yet</Text>
-              </View>
-            ) : (
-              sortedNotes.map((note) => (
-                <View key={note.id} className="bg-midnight-light rounded-xl p-3 mb-2 border border-hairline">
-                  <View className="flex-row items-start justify-between">
-                    <View className="flex-1 mr-2">
-                      {note.timestamp !== undefined ? (
-                        <View className="self-start mb-1">
-                          <Badge label={formatDuration(note.timestamp)} tone="accent" />
-                        </View>
-                      ) : null}
-                      <Text className="text-ink text-sm">{note.content}</Text>
-                      <Text className="text-ink-muted text-xs mt-1">{formatDate(note.createdAt)}</Text>
+      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+        {sortedNotes.length === 0 ? (
+          <EmptyState fill={false} icon={<StickyNote size={34} color="#a855f7" />} title="No notes yet" subtitle="Jot down key moments as you watch or listen." />
+        ) : (
+          sortedNotes.map((note) => (
+            <View key={note.id} className="bg-midnight rounded-xl p-3 mb-2 border border-line">
+              <View className="flex-row items-start justify-between">
+                <View className="flex-1 mr-2">
+                  {note.timestamp !== undefined ? (
+                    <View className="self-start mb-1">
+                      <Badge label={formatDuration(note.timestamp)} tone="accent" />
                     </View>
-                    <Pressable onPress={() => onDeleteNote(note.id)} hitSlop={8} className="p-1 active:opacity-60">
-                      <Trash2 size={14} color={T.muted} />
-                    </Pressable>
-                  </View>
+                  ) : null}
+                  <Text className="text-ink text-sm">{note.content}</Text>
+                  <Text className="text-ink-muted text-xs mt-1">{formatDate(note.createdAt)}</Text>
                 </View>
-              ))
-            )}
-          </ScrollView>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+                <Pressable onPress={() => onDeleteNote(note.id)} hitSlop={8} className="p-1 active:opacity-60" accessibilityRole="button" accessibilityLabel="Delete note">
+                  <Trash2 size={14} color={T.muted} />
+                </Pressable>
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </Sheet>
   );
 }

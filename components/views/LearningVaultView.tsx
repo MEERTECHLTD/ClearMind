@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { LearningResource, LearningFolder, LearningContentType, LearningContentStatus, LearningSourcePlatform, LearningResourceNote } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { 
-  Plus, ExternalLink, Edit2, Trash2, X, Save, Play, Pause, 
-  Video, Headphones, Clock, Calendar, Tag, FolderPlus, Folder, 
-  Search, Filter, Check, RotateCcw, AlertTriangle, Link, 
-  ChevronDown, ChevronRight, BarChart2, StickyNote, Bookmark,
-  Youtube, Globe, GraduationCap, Sparkles, Eye, EyeOff
+import {
+  Plus, ExternalLink, Edit2, Trash2, Save, Play,
+  Video, Headphones, Clock, Tag, FolderPlus, Folder,
+  Search, Check, RotateCcw, AlertTriangle,
+  BarChart2, StickyNote, Bookmark, ArrowUp, ArrowDown, ListPlus, Loader2, MoreHorizontal,
+  Youtube, Globe, GraduationCap, Sparkles, EyeOff
 } from 'lucide-react';
+import {
+  FullPage, Card, IconBtn, Field, inputCls, Modal, ModalBody, ModalFooter, Popover, MenuItem, Empty, PageLoading, useCreateLinkedTask, cx,
+} from '../ui-kit';
+
+/** Compact secondary action on resource cards. */
+const smallBtn = 'inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors';
 
 const PREFS_KEY = 'learning-vault-preferences';
 
@@ -215,7 +221,7 @@ const PlatformIcon: React.FC<{ platform: LearningSourcePlatform; className?: str
     case 'khan-academy':
     case 'mit-ocw': return <GraduationCap className={`${iconClass} text-blue-500`} />;
     case 'ted': return <Sparkles className={`${iconClass} text-red-500`} />;
-    default: return <Globe className={`${iconClass} text-gray-400`} />;
+    default: return <Globe className={`${iconClass} text-gray-500 dark:text-gray-400`} />;
   }
 };
 
@@ -713,7 +719,7 @@ const LearningVaultView: React.FC = () => {
 
   const getStatusIcon = (status: LearningContentStatus) => {
     switch (status) {
-      case 'unwatched': return <EyeOff size={14} className="text-gray-400" />;
+      case 'unwatched': return <EyeOff size={14} className={cx.faint} />;
       case 'in-progress': return <Play size={14} className="text-yellow-500" />;
       case 'completed': return <Check size={14} className="text-green-500" />;
     }
@@ -728,739 +734,646 @@ const LearningVaultView: React.FC = () => {
     }
   };
 
+  const createLinkedTask = useCreateLinkedTask();
+  const [menu, setMenu] = useState<{ id: string; el: HTMLElement } | null>(null);
+
+  // Synergy: turn a resource into a real task (shared task domain).
+  const addStudyTask = (resource: LearningResource) => {
+    createLinkedTask({ title: `Study: ${resource.title}`, description: resource.url });
+  };
+
   if (isLoading) {
-    return (
-      <div className="p-8 h-full flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-gray-400 text-sm">Loading Learning Vault...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading />;
   }
 
+  const closeAddModal = () => { setShowAddModal(false); resetForm(); };
+  const closeNotesModal = () => { setShowNotesModal(false); setSelectedResource(null); };
+
   return (
-    <div className="p-4 md:p-8 h-full flex flex-col animate-fade-in overflow-hidden min-h-0">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Learning Vault</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
-            Save and organize your learning resources. Never lose a valuable link again.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button 
+    <FullPage
+      title="Learning Vault"
+      subtitle="Save and organize your learning resources. Never lose a valuable link again."
+      actions={
+        <>
+          <button
             onClick={() => setShowStatsPanel(!showStatsPanel)}
-            className="bg-midnight-light hover:bg-gray-700 border dark:border-gray-700 border-gray-200 text-gray-300 px-3 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+            className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`}
+            aria-label="Stats"
+            aria-pressed={showStatsPanel}
           >
-            <BarChart2 size={16} />
+            <BarChart2 size={18} />
             <span className="hidden sm:inline">Stats</span>
           </button>
-          <button 
+          <button
             onClick={() => setShowFolderModal(true)}
-            className="bg-midnight-light hover:bg-gray-700 border dark:border-gray-700 border-gray-200 text-gray-300 px-3 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+            className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`}
+            aria-label="New folder"
           >
-            <FolderPlus size={16} />
+            <FolderPlus size={18} />
             <span className="hidden sm:inline">New Folder</span>
           </button>
-          <button 
-            onClick={openAddModal}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
-          >
-            <Plus size={16} />
+          <button onClick={openAddModal} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+            <Plus size={18} />
             Add Resource
           </button>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {/* Stats Panel */}
       {showStatsPanel && (
-        <div className="mb-6 p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border dark:border-gray-700 border-gray-200 rounded-xl">
-          <h3 className="text-sm font-semibold text-gray-400 mb-3 flex items-center gap-2">
-            <BarChart2 size={16} />
-            Progress Analytics
-          </h3>
+        <Card title="Progress analytics" className="mb-4">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold dark:text-white text-gray-900">{stats.totalItems}</p>
-              <p className="text-xs text-gray-400">Total Items</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.completedItems}</p>
-              <p className="text-xs text-gray-400">Completed</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatDuration(stats.totalWatchTime)}</p>
-              <p className="text-xs text-gray-400">Total Time</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{formatDuration(stats.weeklyWatchTime)}</p>
-              <p className="text-xs text-gray-400">This Week</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{formatDuration(stats.averageSessionLength)}</p>
-              <p className="text-xs text-gray-400">Avg Session</p>
-            </div>
+            {[
+              { label: 'Total Items', value: String(stats.totalItems), cls: cx.text },
+              { label: 'Completed', value: String(stats.completedItems), cls: 'text-green-600 dark:text-green-400' },
+              { label: 'Total Time', value: formatDuration(stats.totalWatchTime), cls: cx.text },
+              { label: 'This Week', value: formatDuration(stats.weeklyWatchTime), cls: cx.text },
+              { label: 'Avg Session', value: formatDuration(stats.averageSessionLength), cls: cx.text },
+            ].map(s => (
+              <div key={s.label}>
+                <p className={`text-2xl font-bold tabular-nums ${s.cls}`}>{s.value}</p>
+                <p className={`text-xs ${cx.muted}`}>{s.label}</p>
+              </div>
+            ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Filters Bar */}
-      <div className="flex flex-col md:flex-row gap-3 mb-6">
-        {/* Search */}
+      <div className="flex flex-col md:flex-row gap-2 mb-4">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${cx.faint}`} aria-hidden />
           <input
             type="text"
+            aria-label="Search resources"
             placeholder="Search by title, tags, description..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            className={`${inputCls} pl-9`}
           />
         </div>
-        
-        {/* Filter dropdowns */}
+
         <div className="flex flex-wrap gap-2">
-          <select
-            value={filterContentType}
-            onChange={(e) => setFilterContentType(e.target.value as any)}
-            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
+          <select aria-label="Filter by type" value={filterContentType} onChange={(e) => setFilterContentType(e.target.value as any)} className={cx.input}>
             <option value="all">All Types</option>
             <option value="video">Video</option>
             <option value="audio">Audio</option>
           </select>
-          
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as any)}
-            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
+
+          <select aria-label="Filter by status" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className={cx.input}>
             <option value="all">All Status</option>
             <option value="unwatched">Unwatched</option>
             <option value="in-progress">In Progress</option>
             <option value="completed">Completed</option>
           </select>
-          
-          <select
-            value={filterFolder}
-            onChange={(e) => setFilterFolder(e.target.value)}
-            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
+
+          <select aria-label="Filter by folder" value={filterFolder} onChange={(e) => setFilterFolder(e.target.value)} className={cx.input}>
             <option value="all">All Folders</option>
             {folders.map(f => (
               <option key={f.id} value={f.name}>{f.name}</option>
             ))}
           </select>
-          
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-          >
+
+          <select aria-label="Sort by" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className={cx.input}>
             <option value="savedAt">Date Saved</option>
             <option value="duration">Duration</option>
             <option value="title">Title</option>
             <option value="lastAccessed">Last Accessed</option>
           </select>
-          
+
           <button
             onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-            className="px-3 py-2 dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 rounded-lg text-sm dark:text-gray-400 text-gray-600 hover:text-blue-500 dark:hover:text-white transition-colors"
+            className={`${cx.input} !px-2.5 ${cx.hover} ${cx.muted}`}
             title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+            aria-label={sortOrder === 'asc' ? 'Sort ascending (click for descending)' : 'Sort descending (click for ascending)'}
           >
-            {sortOrder === 'asc' ? '↑' : '↓'}
+            {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
           </button>
         </div>
       </div>
 
       {/* Folders Quick Access */}
       {folders.length > 0 && (
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-          {folders.map(folder => (
-            <button
-              key={folder.id}
-              onClick={() => setFilterFolder(filterFolder === folder.name ? 'all' : folder.name)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-colors whitespace-nowrap
-                ${filterFolder === folder.name 
-                  ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/50' 
-                  : 'dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-300 dark:text-gray-400 text-gray-600 hover:text-blue-500 dark:hover:text-white'}`}
-            >
-              <Folder size={14} style={{ color: folder.color }} />
-              {folder.name}
-              <span className="text-xs text-gray-500">
-                ({resources.filter(r => r.folder === folder.name).length})
-              </span>
-              {folderStats[folder.name] > 0 && (
-                <span className="text-xs text-green-400">
-                  {formatDuration(folderStats[folder.name])}
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+          {folders.map(folder => {
+            const active = filterFolder === folder.name;
+            return (
+              <button
+                key={folder.id}
+                onClick={() => setFilterFolder(active ? 'all' : folder.name)}
+                aria-pressed={active}
+                className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm border transition-colors whitespace-nowrap ${
+                  active
+                    ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30'
+                    : `${cx.border} ${cx.muted} ${cx.hover}`
+                }`}
+              >
+                <Folder size={14} style={{ color: folder.color }} />
+                {folder.name}
+                <span className={`text-xs ${cx.faint}`}>
+                  {resources.filter(r => r.folder === folder.name).length}
                 </span>
-              )}
-            </button>
-          ))}
+                {folderStats[folder.name] > 0 && (
+                  <span className="text-xs text-green-600 dark:text-green-400">
+                    {formatDuration(folderStats[folder.name])}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
 
       {/* Resources Grid */}
-      <div className="flex-1 overflow-y-auto min-h-0 pb-4">
-        {filteredResources.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-            <Bookmark size={48} className="mb-4 opacity-50" />
-            <p className="text-lg font-medium mb-2">No resources found</p>
-            <p className="text-sm text-gray-500">
-              {resources.length === 0 
-                ? 'Start building your learning library by adding your first resource.'
-                : 'Try adjusting your filters or search query.'}
-            </p>
-            {resources.length === 0 && (
-              <button
-                onClick={openAddModal}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
-              >
+      {filteredResources.length === 0 ? (
+        <div>
+          <Empty
+            icon={<Bookmark size={30} className={cx.muted} />}
+            title={resources.length === 0 ? 'Your learning library is empty' : 'No resources found'}
+            subtitle={resources.length === 0
+              ? 'Start building your learning library by adding your first resource.'
+              : 'Try adjusting your filters or search query.'}
+          />
+          {resources.length === 0 && (
+            <div className="flex justify-center -mt-8">
+              <button onClick={openAddModal} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
                 <Plus size={16} />
                 Add Your First Resource
               </button>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredResources.map(resource => (
-              <div
-                key={resource.id}
-                className="group dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl overflow-hidden hover:border-blue-500/50 transition-all duration-200 shadow-sm"
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredResources.map(resource => (
+            <div
+              key={resource.id}
+              className={`group rounded-xl border ${cx.border} ${cx.card} overflow-hidden hover:border-gray-300 dark:hover:border-gray-700 transition-colors`}
+            >
+              {/* Thumbnail */}
+              <button
+                type="button"
+                className="relative block w-full h-36 bg-gray-100 dark:bg-white/5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+                onClick={() => openResource(resource)}
+                aria-label={`${resource.contentType === 'video' ? 'Watch' : 'Listen to'} ${resource.title}`}
               >
-                {/* Thumbnail */}
-                <div 
-                  className="relative h-36 dark:bg-gray-800 bg-gray-100 cursor-pointer"
-                  onClick={() => openResource(resource)}
-                >
-                  {resource.thumbnail ? (
-                    <img 
-                      src={resource.thumbnail} 
-                      alt={resource.title}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      {resource.contentType === 'video' ? (
-                        <Video size={48} className="text-gray-600" />
-                      ) : (
-                        <Headphones size={48} className="text-gray-600" />
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Overlay */}
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <div className="flex items-center gap-2 text-white">
-                      <Play size={24} />
-                      <span className="text-sm font-medium">
-                        {resource.contentType === 'video' ? 'Watch' : 'Listen'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Duration badge */}
-                  {resource.duration && (
-                    <div className="absolute bottom-2 right-2 bg-black/80 px-2 py-0.5 rounded text-xs text-white">
-                      {formatDuration(resource.duration)}
-                    </div>
-                  )}
-                  
-                  {/* Content type badge */}
-                  <div className="absolute top-2 left-2">
+                {resource.thumbnail ? (
+                  <img
+                    src={resource.thumbnail}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  <span className="w-full h-full flex items-center justify-center">
                     {resource.contentType === 'video' ? (
-                      <Video size={18} className="text-white drop-shadow-lg" />
+                      <Video size={30} className={cx.faint} />
                     ) : (
-                      <Headphones size={18} className="text-white drop-shadow-lg" />
+                      <Headphones size={30} className={cx.faint} />
+                    )}
+                  </span>
+                )}
+
+                {/* Overlay */}
+                <span className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="flex items-center gap-2 text-white">
+                    <Play size={18} />
+                    <span className="text-sm font-medium">
+                      {resource.contentType === 'video' ? 'Watch' : 'Listen'}
+                    </span>
+                  </span>
+                </span>
+
+                {/* Duration badge */}
+                {resource.duration && (
+                  <span className="absolute bottom-2 right-2 bg-black/75 px-1.5 py-0.5 rounded-md text-xs text-white tabular-nums">
+                    {formatDuration(resource.duration)}
+                  </span>
+                )}
+
+                {/* Content type badge */}
+                <span className="absolute top-2 left-2 bg-black/50 rounded-md p-1">
+                  {resource.contentType === 'video' ? (
+                    <Video size={14} className="text-white" />
+                  ) : (
+                    <Headphones size={14} className="text-white" />
+                  )}
+                </span>
+
+                {/* Platform badge */}
+                <span className="absolute top-2 right-2 bg-white/90 dark:bg-black/60 rounded-md p-1">
+                  <PlatformIcon platform={resource.sourcePlatform} className="w-3.5 h-3.5" />
+                </span>
+
+                {/* Unavailable warning */}
+                {!resource.isSourceAvailable && (
+                  <span className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                    <span className="bg-red-600 px-3 py-1 rounded-full flex items-center gap-2 text-sm text-white">
+                      <AlertTriangle size={14} />
+                      Source Unavailable
+                    </span>
+                  </span>
+                )}
+              </button>
+
+              {/* Content */}
+              <div className="p-4">
+                <button
+                  type="button"
+                  className={`block w-full text-left text-sm font-semibold truncate mb-0.5 ${cx.text} hover:text-blue-600 dark:hover:text-blue-400 transition-colors`}
+                  onClick={() => openResource(resource)}
+                  title={resource.title}
+                >
+                  {resource.title}
+                </button>
+
+                {resource.author && (
+                  <p className={`text-xs truncate mb-2 ${cx.muted}`}>{resource.author}</p>
+                )}
+
+                <div className={`flex items-center gap-2 text-xs mb-3 whitespace-nowrap min-w-0 ${cx.muted}`}>
+                  <span className="flex items-center gap-1 shrink-0">
+                    {getStatusIcon(resource.status)}
+                    {getStatusLabel(resource.status, resource.contentType)}
+                  </span>
+                  <span className={cx.faint}>·</span>
+                  <span className="truncate" title={formatDateTime(resource.savedAt)}>
+                    Added {formatDate(resource.savedAt)}
+                  </span>
+                </div>
+
+                {/* Tags / folder / notes */}
+                {(resource.tags.length > 0 || resource.folder || resource.notes.length > 0) && (
+                  <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mb-3 ${cx.muted}`}>
+                    {resource.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="inline-flex items-center gap-1"><Tag size={11} />{tag}</span>
+                    ))}
+                    {resource.tags.length > 3 && (
+                      <span className={cx.faint}>+{resource.tags.length - 3}</span>
+                    )}
+                    {resource.folder && (
+                      <span className="inline-flex items-center gap-1"><Folder size={12} />{resource.folder}</span>
+                    )}
+                    {resource.notes.length > 0 && (
+                      <span className="inline-flex items-center gap-1">
+                        <StickyNote size={12} />
+                        {resource.notes.length} note{resource.notes.length > 1 ? 's' : ''}
+                      </span>
                     )}
                   </div>
-                  
-                  {/* Platform badge */}
-                  <div className="absolute top-2 right-2">
-                    <PlatformIcon platform={resource.sourcePlatform} className="w-5 h-5 drop-shadow-lg" />
-                  </div>
-                  
-                  {/* Unavailable warning */}
-                  {!resource.isSourceAvailable && (
-                    <div className="absolute inset-0 bg-red-900/50 flex items-center justify-center">
-                      <div className="bg-red-600 px-3 py-1 rounded-full flex items-center gap-2 text-sm text-white">
-                        <AlertTriangle size={14} />
-                        Source Unavailable
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                {/* Content */}
-                <div className="p-4">
-                  <h3 
-                    className="font-medium dark:text-white text-gray-900 truncate mb-1 cursor-pointer hover:text-blue-500 transition-colors"
-                    onClick={() => openResource(resource)}
-                    title={resource.title}
+                )}
+
+                {/* Actions */}
+                <div className={`flex items-center gap-1 pt-2 border-t ${cx.border}`}>
+                  <button
+                    onClick={() => toggleStatus(resource)}
+                    className={smallBtn}
+                    title={resource.status === 'completed' ? 'Mark as unwatched' : 'Toggle status'}
                   >
-                    {resource.title}
-                  </h3>
-                  
-                  {resource.author && (
-                    <p className="text-xs text-gray-400 truncate mb-2">{resource.author}</p>
-                  )}
-                  
-                  <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
-                    <span className="flex items-center gap-1">
-                      {getStatusIcon(resource.status)}
-                      {getStatusLabel(resource.status, resource.contentType)}
-                    </span>
-                    <span>•</span>
-                    <span title={formatDateTime(resource.savedAt)}>
-                      Added {formatDate(resource.savedAt)}
-                    </span>
-                  </div>
-                  
-                  {/* Tags */}
-                  {resource.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {resource.tags.slice(0, 3).map(tag => (
-                        <span 
-                          key={tag}
-                          className="text-[10px] dark:bg-gray-800 bg-gray-100 dark:text-gray-400 text-gray-600 px-2 py-0.5 rounded"
-                        >
-                          #{tag}
-                        </span>
-                      ))}
-                      {resource.tags.length > 3 && (
-                        <span className="text-[10px] text-gray-500">+{resource.tags.length - 3}</span>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Folder badge */}
-                  {resource.folder && (
-                    <div className="flex items-center gap-1 text-xs text-gray-400 mb-3">
-                      <Folder size={12} />
-                      {resource.folder}
-                    </div>
-                  )}
-                  
-                  {/* Notes indicator */}
-                  {resource.notes.length > 0 && (
-                    <div className="flex items-center gap-1 text-xs text-purple-400 mb-3">
-                      <StickyNote size={12} />
-                      {resource.notes.length} note{resource.notes.length > 1 ? 's' : ''}
-                    </div>
-                  )}
-                  
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 pt-2 border-t dark:border-gray-700 border-gray-200">
-                    <button
-                      onClick={() => toggleStatus(resource)}
-                      className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs dark:bg-gray-800 bg-gray-100 dark:hover:bg-gray-700 hover:bg-gray-200 dark:text-gray-300 text-gray-700 rounded transition-colors"
-                      title={resource.status === 'completed' ? 'Mark as unwatched' : 'Toggle status'}
-                    >
-                      {resource.status === 'completed' ? (
-                        <>
-                          <RotateCcw size={12} />
-                          Reset
-                        </>
-                      ) : resource.status === 'in-progress' ? (
-                        <>
-                          <Check size={12} />
-                          Complete
-                        </>
-                      ) : (
-                        <>
-                          <Play size={12} />
-                          Start
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => openResource(resource)}
-                      className="flex items-center justify-center gap-1 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded transition-colors"
-                      title="Open URL"
-                    >
-                      <ExternalLink size={14} />
-                      <span className="hidden sm:inline">Open</span>
-                    </button>
-                    <button
-                      onClick={() => { setSelectedResource(resource); setShowNotesModal(true); }}
-                      className="p-1.5 text-gray-400 hover:text-purple-400 transition-colors"
-                      title="Notes"
-                    >
-                      <StickyNote size={14} />
-                    </button>
-                    <button
-                      onClick={() => openEditModal(resource)}
-                      className="p-1.5 text-gray-400 hover:text-blue-400 transition-colors"
-                      title="Edit"
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteResource(resource.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-400 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                    {resource.status === 'completed' ? (
+                      <>
+                        <RotateCcw size={14} />
+                        Reset
+                      </>
+                    ) : resource.status === 'in-progress' ? (
+                      <>
+                        <Check size={14} />
+                        Complete
+                      </>
+                    ) : (
+                      <>
+                        <Play size={14} />
+                        Start
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => openResource(resource)}
+                    className={smallBtn}
+                    title="Open URL"
+                    aria-label="Open URL"
+                  >
+                    <ExternalLink size={14} />
+                    <span className="hidden sm:inline">Open</span>
+                  </button>
+                  <div className="flex-1" />
+                  <IconBtn label="Notes" onClick={() => { setSelectedResource(resource); setShowNotesModal(true); }}>
+                    <StickyNote size={16} />
+                  </IconBtn>
+                  <IconBtn label="More actions" onClick={(e) => setMenu({ id: resource.id, el: e.currentTarget })}>
+                    <MoreHorizontal size={16} />
+                  </IconBtn>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Card overflow menu */}
+      {(() => {
+        const r = menu ? resources.find(x => x.id === menu.id) : undefined;
+        return (
+          <Popover anchor={menu?.el ?? null} open={!!r} onClose={() => setMenu(null)} width={220}>
+            {r ? (
+              <>
+                <MenuItem icon={<ListPlus size={16} />} label="Add study task" onClick={() => { setMenu(null); addStudyTask(r); }} />
+                <MenuItem icon={<Edit2 size={16} />} label="Edit" onClick={() => { setMenu(null); openEditModal(r); }} />
+                <MenuItem icon={<Trash2 size={16} />} label="Delete" danger onClick={() => { setMenu(null); handleDeleteResource(r.id); }} />
+              </>
+            ) : null}
+          </Popover>
+        );
+      })()}
 
       {/* Add/Edit Resource Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold dark:text-white text-gray-900">
-                  {editingResource ? 'Edit Resource' : 'Add Learning Resource'}
-                </h3>
-                <button onClick={() => { setShowAddModal(false); resetForm(); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                {/* URL Input */}
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">URL *</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      value={formData.url}
-                      onChange={(e) => handleUrlChange(e.target.value)}
-                      placeholder="https://youtube.com/watch?v=..."
-                      className="flex-1 px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                    />
-                    <button
-                      onClick={handlePreview}
-                      disabled={!formData.url || isPreviewLoading}
-                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white rounded-lg text-sm transition-colors"
-                    >
-                      {isPreviewLoading ? '...' : 'Detect'}
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Title */}
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Title *</label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Resource title"
-                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                
-                {/* Description */}
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Description</label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Brief description of the content"
-                    rows={2}
-                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
-                  />
-                </div>
-                
-                {/* Thumbnail */}
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Thumbnail URL</label>
-                  <input
-                    type="url"
-                    value={formData.thumbnail}
-                    onChange={(e) => setFormData({ ...formData, thumbnail: e.target.value })}
-                    placeholder="https://..."
-                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                
-                {/* Two columns */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Content Type</label>
-                    <select
-                      value={formData.contentType}
-                      onChange={(e) => setFormData({ ...formData, contentType: e.target.value as LearningContentType })}
-                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="video">Video</option>
-                      <option value="audio">Audio</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Duration (minutes)</label>
-                    <input
-                      type="number"
-                      value={formData.duration}
-                      onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
-                      placeholder="60"
-                      min="0"
-                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Platform</label>
-                    <select
-                      value={formData.sourcePlatform}
-                      onChange={(e) => setFormData({ ...formData, sourcePlatform: e.target.value as LearningSourcePlatform })}
-                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="youtube">YouTube</option>
-                      <option value="vimeo">Vimeo</option>
-                      <option value="coursera">Coursera</option>
-                      <option value="udemy">Udemy</option>
-                      <option value="khan-academy">Khan Academy</option>
-                      <option value="mit-ocw">MIT OpenCourseWare</option>
-                      <option value="ted">TED</option>
-                      <option value="spotify">Spotify</option>
-                      <option value="apple-podcasts">Apple Podcasts</option>
-                      <option value="soundcloud">SoundCloud</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Folder</label>
-                    <select
-                      value={formData.folder}
-                      onChange={(e) => setFormData({ ...formData, folder: e.target.value })}
-                      className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="">No Folder</option>
-                      {folders.map(f => (
-                        <option key={f.id} value={f.name}>{f.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                
-                {/* Author */}
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Author / Channel</label>
-                  <input
-                    type="text"
-                    value={formData.author}
-                    onChange={(e) => setFormData({ ...formData, author: e.target.value })}
-                    placeholder="Channel name or author"
-                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                
-                {/* Tags */}
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Tags (comma-separated)</label>
-                  <input
-                    type="text"
-                    value={formData.tags}
-                    onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                    placeholder="Machine Learning, Python, Tutorial"
-                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-              
-              <div className="flex justify-end gap-3 mt-6">
-                <button
-                  onClick={() => { setShowAddModal(false); resetForm(); }}
-                  className="px-4 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveResource}
-                  disabled={!formData.url.trim() || !formData.title.trim()}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-                >
-                  <Save size={16} />
-                  {editingResource ? 'Update' : 'Save'}
-                </button>
-              </div>
+      <Modal open={showAddModal} onClose={closeAddModal} title={editingResource ? 'Edit Resource' : 'Add Learning Resource'}>
+        <ModalBody>
+          <Field label="URL *">
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={formData.url}
+                onChange={(e) => handleUrlChange(e.target.value)}
+                placeholder="https://youtube.com/watch?v=..."
+                className={`flex-1 min-w-0 ${cx.input}`}
+              />
+              <button
+                type="button"
+                onClick={handlePreview}
+                disabled={!formData.url || isPreviewLoading}
+                className={`inline-flex items-center gap-1.5 ${cx.btnGhost} disabled:opacity-40 disabled:cursor-not-allowed`}
+              >
+                {isPreviewLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                Detect
+              </button>
             </div>
+          </Field>
+
+          <Field label="Title *">
+            <input
+              type="text"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              placeholder="Resource title"
+              className={inputCls}
+            />
+          </Field>
+
+          <Field label="Description">
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Brief description of the content"
+              rows={2}
+              className={`${inputCls} resize-none`}
+            />
+          </Field>
+
+          <Field label="Thumbnail URL">
+            <input
+              type="url"
+              value={formData.thumbnail}
+              onChange={(e) => setFormData({ ...formData, thumbnail: e.target.value })}
+              placeholder="https://..."
+              className={inputCls}
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Content Type">
+              <select
+                value={formData.contentType}
+                onChange={(e) => setFormData({ ...formData, contentType: e.target.value as LearningContentType })}
+                className={inputCls}
+              >
+                <option value="video">Video</option>
+                <option value="audio">Audio</option>
+              </select>
+            </Field>
+
+            <Field label="Duration (minutes)">
+              <input
+                type="number"
+                value={formData.duration}
+                onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
+                placeholder="60"
+                min="0"
+                className={inputCls}
+              />
+            </Field>
           </div>
-        </div>
-      )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Platform">
+              <select
+                value={formData.sourcePlatform}
+                onChange={(e) => setFormData({ ...formData, sourcePlatform: e.target.value as LearningSourcePlatform })}
+                className={inputCls}
+              >
+                <option value="youtube">YouTube</option>
+                <option value="vimeo">Vimeo</option>
+                <option value="coursera">Coursera</option>
+                <option value="udemy">Udemy</option>
+                <option value="khan-academy">Khan Academy</option>
+                <option value="mit-ocw">MIT OpenCourseWare</option>
+                <option value="ted">TED</option>
+                <option value="spotify">Spotify</option>
+                <option value="apple-podcasts">Apple Podcasts</option>
+                <option value="soundcloud">SoundCloud</option>
+                <option value="other">Other</option>
+              </select>
+            </Field>
+
+            <Field label="Folder">
+              <select
+                value={formData.folder}
+                onChange={(e) => setFormData({ ...formData, folder: e.target.value })}
+                className={inputCls}
+              >
+                <option value="">No Folder</option>
+                {folders.map(f => (
+                  <option key={f.id} value={f.name}>{f.name}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <Field label="Author / Channel">
+            <input
+              type="text"
+              value={formData.author}
+              onChange={(e) => setFormData({ ...formData, author: e.target.value })}
+              placeholder="Channel name or author"
+              className={inputCls}
+            />
+          </Field>
+
+          <Field label="Tags (comma-separated)">
+            <input
+              type="text"
+              value={formData.tags}
+              onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+              placeholder="Machine Learning, Python, Tutorial"
+              className={inputCls}
+            />
+          </Field>
+        </ModalBody>
+        <ModalFooter>
+          <button onClick={closeAddModal} className={cx.btnGhost}>Cancel</button>
+          <button
+            onClick={handleSaveResource}
+            disabled={!formData.url.trim() || !formData.title.trim()}
+            className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}
+          >
+            <Save size={16} />
+            {editingResource ? 'Update' : 'Save'}
+          </button>
+        </ModalFooter>
+      </Modal>
 
       {/* Folder Modal */}
-      {showFolderModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold dark:text-white text-gray-900">Create Folder</h3>
-                <button onClick={() => setShowFolderModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Folder Name</label>
-                  <input
-                    type="text"
-                    value={folderFormData.name}
-                    onChange={(e) => setFolderFormData({ ...folderFormData, name: e.target.value })}
-                    placeholder="e.g., Machine Learning, Backend"
-                    className="w-full px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-1">Color</label>
-                  <div className="flex gap-2">
-                    {['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'].map(color => (
-                      <button
-                        key={color}
-                        onClick={() => setFolderFormData({ ...folderFormData, color })}
-                        className={`w-8 h-8 rounded-full transition-transform ${folderFormData.color === color ? 'ring-2 ring-white ring-offset-2 ring-offset-midnight-light scale-110' : ''}`}
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Existing folders */}
-              {folders.length > 0 && (
-                <div className="mt-6 pt-4 border-t dark:border-gray-700 border-gray-200">
-                  <p className="text-sm dark:text-gray-400 text-gray-600 mb-2">Existing Folders</p>
-                  <div className="space-y-2">
-                    {folders.map(folder => (
-                      <div key={folder.id} className="flex items-center justify-between p-2 dark:bg-midnight bg-gray-100 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <Folder size={16} style={{ color: folder.color }} />
-                          <span className="text-sm dark:text-white text-gray-900">{folder.name}</span>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteFolder(folder.id)}
-                          className="text-gray-400 hover:text-red-400"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="flex justify-end gap-3 mt-6">
+      <Modal open={showFolderModal} onClose={() => setShowFolderModal(false)} title="Create Folder">
+        <ModalBody>
+          <Field label="Folder Name">
+            <input
+              type="text"
+              value={folderFormData.name}
+              onChange={(e) => setFolderFormData({ ...folderFormData, name: e.target.value })}
+              placeholder="e.g., Machine Learning, Backend"
+              className={inputCls}
+            />
+          </Field>
+
+          <div>
+            <span className={`block text-xs font-medium mb-1 ${cx.muted}`}>Color</span>
+            <div className="flex gap-2" role="radiogroup" aria-label="Folder color">
+              {['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'].map(color => (
                 <button
-                  onClick={() => setShowFolderModal(false)}
-                  className="px-4 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveFolder}
-                  disabled={!folderFormData.name.trim()}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-                >
-                  <FolderPlus size={16} />
-                  Create Folder
-                </button>
-              </div>
+                  key={color}
+                  type="button"
+                  role="radio"
+                  aria-checked={folderFormData.color === color}
+                  aria-label={`Color ${color}`}
+                  title={color}
+                  onClick={() => setFolderFormData({ ...folderFormData, color })}
+                  className={`w-7 h-7 rounded-full transition-transform ${folderFormData.color === color ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-[#0F1219] scale-110' : ''}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
             </div>
           </div>
-        </div>
-      )}
+
+          {/* Existing folders */}
+          {folders.length > 0 && (
+            <div className={`pt-4 border-t ${cx.border}`}>
+              <p className={`text-xs font-medium mb-1 ${cx.muted}`}>Existing Folders</p>
+              <div>
+                {folders.map(folder => (
+                  <div key={folder.id} className={`flex items-center justify-between py-1.5 border-b last:border-b-0 ${cx.border}`}>
+                    <div className="flex items-center gap-2">
+                      <Folder size={16} style={{ color: folder.color }} />
+                      <span className={`text-sm ${cx.text}`}>{folder.name}</span>
+                    </div>
+                    <IconBtn label={`Delete folder ${folder.name}`} danger onClick={() => handleDeleteFolder(folder.id)}>
+                      <Trash2 size={16} />
+                    </IconBtn>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <button onClick={() => setShowFolderModal(false)} className={cx.btnGhost}>Cancel</button>
+          <button
+            onClick={handleSaveFolder}
+            disabled={!folderFormData.name.trim()}
+            className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}
+          >
+            <FolderPlus size={16} />
+            Create Folder
+          </button>
+        </ModalFooter>
+      </Modal>
 
       {/* Notes Modal */}
-      {showNotesModal && selectedResource && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-700 border-gray-200 rounded-xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
-            <div className="p-6 border-b dark:border-gray-700 border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold dark:text-white text-gray-900">Notes</h3>
-                  <p className="text-sm dark:text-gray-400 text-gray-600 truncate">{selectedResource.title}</p>
-                </div>
-                <button onClick={() => { setShowNotesModal(false); setSelectedResource(null); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
-                  <X size={20} />
+      <Modal open={showNotesModal && !!selectedResource} onClose={closeNotesModal} title="Notes">
+        {selectedResource ? (
+          <ModalBody>
+            <p className={`text-sm truncate -mt-1 ${cx.muted}`}>{selectedResource.title}</p>
+            {/* Add note form */}
+            <div>
+              <div className="flex gap-2 mb-1.5">
+                <input
+                  type="text"
+                  aria-label="Timestamp (optional)"
+                  value={noteTimestamp}
+                  onChange={(e) => setNoteTimestamp(e.target.value)}
+                  placeholder="0:00 (optional)"
+                  className={`w-36 ${cx.input}`}
+                />
+                <input
+                  type="text"
+                  aria-label="Note"
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                  placeholder="Add a note..."
+                  className={`flex-1 min-w-0 ${cx.input}`}
+                  onKeyPress={(e) => e.key === 'Enter' && addNote()}
+                />
+                <button
+                  onClick={addNote}
+                  disabled={!noteContent.trim()}
+                  className={cx.btnPrimary}
+                  aria-label="Add note"
+                  title="Add note"
+                >
+                  <Plus size={16} />
                 </button>
               </div>
+              <p className={`text-xs ${cx.faint}`}>Tip: Add a timestamp (e.g., 5:30) to link your note to a specific moment</p>
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-6">
-              {/* Add note form */}
-              <div className="mb-6">
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={noteTimestamp}
-                    onChange={(e) => setNoteTimestamp(e.target.value)}
-                    placeholder="0:00 (optional)"
-                    className="w-24 px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
-                  />
-                  <input
-                    type="text"
-                    value={noteContent}
-                    onChange={(e) => setNoteContent(e.target.value)}
-                    placeholder="Add a note..."
-                    className="flex-1 px-3 py-2 dark:bg-midnight bg-gray-100 border dark:border-gray-700 border-gray-200 rounded-lg dark:text-white text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
-                    onKeyPress={(e) => e.key === 'Enter' && addNote()}
-                  />
-                  <button
-                    onClick={addNote}
-                    disabled={!noteContent.trim()}
-                    className="px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
-                  >
-                    <Plus size={16} />
-                  </button>
+
+            {/* Notes list */}
+            {selectedResource.notes.length === 0 ? (
+              <div className="flex flex-col items-center text-center py-8">
+                <div className="w-14 h-14 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center mb-3">
+                  <StickyNote size={20} className={cx.muted} />
                 </div>
-                <p className="text-xs text-gray-500">Tip: Add a timestamp (e.g., 5:30) to link your note to a specific moment</p>
+                <p className={`text-sm font-semibold ${cx.text}`}>No notes yet</p>
               </div>
-              
-              {/* Notes list */}
-              {selectedResource.notes.length === 0 ? (
-                <div className="text-center py-8 dark:text-gray-400 text-gray-500">
-                  <StickyNote size={32} className="mx-auto mb-2 opacity-50" />
-                  <p>No notes yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {selectedResource.notes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).map(note => (
-                    <div key={note.id} className="p-3 dark:bg-midnight bg-gray-100 rounded-lg group">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          {note.timestamp !== undefined && (
-                            <span className="inline-block bg-purple-500/20 text-purple-400 text-xs px-2 py-0.5 rounded mr-2">
-                              {formatDuration(note.timestamp)}
-                            </span>
-                          )}
-                          <p className="text-sm dark:text-gray-300 text-gray-700 mt-1">{note.content}</p>
-                          <p className="text-xs text-gray-500 mt-1">{formatDate(note.createdAt)}</p>
-                        </div>
-                        <button
-                          onClick={() => deleteNote(note.id)}
-                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+            ) : (
+              <div>
+                {selectedResource.notes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).map(note => (
+                  <div key={note.id} className={`group flex items-start gap-3 py-2.5 border-b last:border-b-0 ${cx.border}`}>
+                    <div className="flex-1 min-w-0">
+                      {note.timestamp !== undefined && (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 mb-0.5">
+                          <Clock size={12} />
+                          {formatDuration(note.timestamp)}
+                        </span>
+                      )}
+                      <p className={`text-sm ${cx.text}`}>{note.content}</p>
+                      <p className={`text-xs mt-0.5 ${cx.faint}`}>{formatDate(note.createdAt)}</p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+                    <IconBtn
+                      label="Delete note"
+                      danger
+                      onClick={() => deleteNote(note.id)}
+                      className="opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"
+                    >
+                      <Trash2 size={16} />
+                    </IconBtn>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ModalBody>
+        ) : null}
+      </Modal>
+    </FullPage>
   );
 };
 

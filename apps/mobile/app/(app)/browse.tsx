@@ -3,8 +3,8 @@ import { View, Text, Pressable, ScrollView } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import {
   Inbox, Hash, Plus, Tag, CircleCheck, Settings, ChevronRight, ChevronDown, Pencil, Trash2, Archive, ArchiveRestore,
-  ArrowUp, ArrowDown, FolderPlus, LayoutDashboard, CalendarDays, Sparkles, NotebookPen, Flame, Target, ScrollText,
-  LayoutGrid, Flag, FolderKanban, Briefcase, GraduationCap, Network, BarChart3, MessageSquareWarning,
+  ArrowUp, ArrowDown, FolderPlus, CalendarDays, Sparkles, NotebookPen, Flame, Target, ScrollText,
+  LayoutGrid, Flag, FolderKanban, Briefcase, GraduationCap, CalendarRange,
 } from 'lucide-react-native';
 import type { Label, Project, SavedFilter } from '@clearmind/shared';
 import { Star, History, LayoutTemplate, Bot, Filter as FilterIcon, Search as SearchIcon } from 'lucide-react-native';
@@ -12,31 +12,50 @@ import { useCollection } from '../../hooks/useCollection';
 import { STORES } from '../../services/db';
 import { SavedFilterSheet } from '../../components/tasks/SavedFilterSheet';
 import { orderedProjects, openCounts } from '@clearmind/shared/tasks';
-import { Screen, ActionMenu, confirmDialog, useToast } from '../../components/ui';
+import { Screen, ActionMenu, confirmDialog, useToast, Avatar } from '../../components/ui';
 import { OfflineBanner } from '../../components/tasks/TaskScreen';
 import { useTaskUI } from '../../components/tasks/TaskUIProvider';
 import { ProjectFormSheet, LabelFormSheet } from '../../components/tasks/forms';
 import { FILTERS } from '../../components/tasks/filters';
 import { C } from '../../components/tasks/theme';
 import { useAuth } from '../../hooks/useAuth';
+import { usePreferences } from '../../hooks/usePreferences';
+import { DEFAULT_PREFERENCES } from '@clearmind/shared/domain';
 import { projectColor, updateProject, deleteProject, moveProject, deleteLabel, projectSubtree } from '../../services/taskActions';
 
-const TOOLS: { label: string; icon: React.ReactNode; href: Href }[] = [
-  { label: 'Overview', icon: <LayoutDashboard size={20} color={C.accent} />, href: '/(app)/dashboard' },
-  { label: 'Calendar', icon: <CalendarDays size={20} color={C.accent} />, href: '/(app)/calendar' },
-  { label: 'Iris (AI assistant)', icon: <Sparkles size={20} color={C.accent} />, href: '/(app)/iris' },
-  { label: 'Notes', icon: <NotebookPen size={20} color={C.accent} />, href: '/(app)/notes' },
-  { label: 'Habits', icon: <Flame size={20} color={C.accent} />, href: '/(app)/habits' },
-  { label: 'Goals', icon: <Target size={20} color={C.accent} />, href: '/(app)/goals' },
-  { label: 'Daily Log', icon: <ScrollText size={20} color={C.accent} />, href: '/(app)/dailylog' },
-  { label: 'Daily Mapper', icon: <LayoutGrid size={20} color={C.accent} />, href: '/(app)/dailymapper' },
-  { label: 'Milestones', icon: <Flag size={20} color={C.accent} />, href: '/(app)/milestones' },
-  { label: 'Project planner', icon: <FolderKanban size={20} color={C.accent} />, href: '/(app)/projects' },
-  { label: 'Applications', icon: <Briefcase size={20} color={C.accent} />, href: '/(app)/applications' },
-  { label: 'Learning Vault', icon: <GraduationCap size={20} color={C.accent} />, href: '/(app)/learningvault' },
-  { label: 'Mind Map', icon: <Network size={20} color={C.accent} />, href: '/(app)/mindmap' },
-  { label: 'Analytics', icon: <BarChart3 size={20} color={C.accent} />, href: '/(app)/analytics' },
-  { label: 'Rant Corner', icon: <MessageSquareWarning size={20} color={C.accent} />, href: '/(app)/rant' },
+/**
+ * Every ClearMind capability is a first-class Browse destination, grouped by
+ * purpose (no separate "tools" drawer). Notes sits at the top (unless it's a
+ * tab); mind maps open from Notes; Daily Log + Rant Corner are the Journal;
+ * projects + plans live under MY PROJECTS; overview/analytics are part of
+ * Today and Insights. Nothing is listed twice.
+ */
+type Dest = { label: string; icon: (c: string) => React.ReactNode; href: Href; color?: string };
+const GROUPS: { title: string; items: Dest[] }[] = [
+  {
+    title: 'PLAN',
+    items: [
+      { label: 'Calendar', icon: (c) => <CalendarDays size={20} color={c} />, href: '/(app)/calendar' },
+      { label: 'Daily Mapper', icon: (c) => <LayoutGrid size={20} color={c} />, href: '/(app)/dailymapper' },
+      { label: 'Goals', icon: (c) => <Target size={20} color={c} />, href: '/(app)/goals', color: '#34D399' },
+      { label: 'Milestones', icon: (c) => <Flag size={20} color={c} />, href: '/(app)/milestones', color: '#A78BFA' },
+      { label: 'Habits', icon: (c) => <Flame size={20} color={c} />, href: '/(app)/habits', color: '#F97316' },
+    ],
+  },
+  {
+    title: 'THINK',
+    items: [
+      { label: 'Journal', icon: (c) => <ScrollText size={20} color={c} />, href: '/(app)/journal' },
+      { label: 'Iris (AI assistant)', icon: (c) => <Sparkles size={20} color={c} />, href: '/(app)/iris', color: '#C084FC' },
+    ],
+  },
+  {
+    title: 'GROW',
+    items: [
+      { label: 'Applications', icon: (c) => <Briefcase size={20} color={c} />, href: '/(app)/applications' },
+      { label: 'Learning Vault', icon: (c) => <GraduationCap size={20} color={c} />, href: '/(app)/learningvault' },
+    ],
+  },
 ];
 
 function NavRow({ icon, label, count, onPress, onLongPress, indent = 0, right }: {
@@ -79,18 +98,19 @@ function SectionTitle({ title, onAdd, addLabel, open, onToggle }: {
   );
 }
 
-/** Browse: Inbox, projects (nested, reorderable), labels, filters, completed, and every ClearMind tool. */
+/** Browse: Inbox, projects (nested, reorderable) + portfolio, labels, filters, and every ClearMind capability by purpose. */
 export default function BrowseScreen() {
   const router = useRouter();
   const ui = useTaskUI();
   const toast = useToast();
   const { profile, user } = useAuth();
+  const { prefs } = usePreferences();
+  const tabs = prefs.navTabs ?? DEFAULT_PREFERENCES.navTabs;
   const [projectForm, setProjectForm] = useState<null | { initial?: Project; parentId?: string }>(null);
   const [labelForm, setLabelForm] = useState<null | { initial?: Label }>(null);
   const [projectMenu, setProjectMenu] = useState<Project | null>(null);
   const [labelMenu, setLabelMenu] = useState<Label | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [showTools, setShowTools] = useState(false);
   const { items: savedFilters } = useCollection<SavedFilter>(STORES.FILTERS);
   const [filterForm, setFilterForm] = useState<null | { initial?: SavedFilter }>(null);
   const favorites = useMemo(() => ({
@@ -126,10 +146,10 @@ export default function BrowseScreen() {
   return (
     <Screen padded={false}>
       <View className="flex-row items-center px-4 pt-2 pb-2">
-        <View className="w-9 h-9 rounded-full bg-accent items-center justify-center mr-3">
-          <Text className="text-white font-extrabold">{name[0]?.toUpperCase() ?? '?'}</Text>
-        </View>
-        <Text className="text-ink text-[22px] font-extrabold flex-1" numberOfLines={1} accessibilityRole="header">Browse</Text>
+        <Pressable onPress={() => router.push('/(app)/settings/account')} className="mr-3" accessibilityRole="button" accessibilityLabel={`Account: ${name}`}>
+          <Avatar size={36} />
+        </Pressable>
+        <Text className="text-ink text-[26px] font-extrabold flex-1" numberOfLines={1} accessibilityRole="header">Browse</Text>
         <Pressable onPress={() => router.push('/(app)/settings')} hitSlop={8} className="p-2 rounded-full active:bg-midnight-lighter" accessibilityLabel="Settings" accessibilityRole="button">
           <Settings size={22} color={C.ink} />
         </Pressable>
@@ -137,8 +157,10 @@ export default function BrowseScreen() {
       <OfflineBanner />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <NavRow icon={<Inbox size={20} color={C.accent} />} label="Inbox" count={counts.get(null)} onPress={() => router.push('/(app)/inbox')} />
+        {!tabs.includes('notes') ? <NavRow icon={<NotebookPen size={20} color={C.accent} />} label="Notes" onPress={() => router.push('/(app)/notes')} /> : null}
+        {!tabs.includes('upcoming') ? <NavRow icon={<CalendarRange size={20} color="#A78BFA" />} label="Upcoming" onPress={() => router.push('/(app)/upcoming')} /> : null}
         <NavRow icon={<CircleCheck size={20} color={C.success} />} label="Completed" onPress={() => router.push('/(app)/completed')} />
-        <NavRow icon={<Flame size={20} color="#F97316" />} label="Productivity" onPress={() => router.push('/(app)/productivity')} />
+        {!tabs.includes('productivity') ? <NavRow icon={<Flame size={20} color="#F97316" />} label="Insights" onPress={() => router.push('/(app)/productivity')} /> : null}
         <NavRow icon={<History size={20} color={C.muted} />} label="Activity" onPress={() => router.push('/(app)/activity')} />
 
         {favorites.projects.length + favorites.labels.length + favorites.filters.length ? (
@@ -151,6 +173,7 @@ export default function BrowseScreen() {
         ) : null}
 
         <SectionTitle title="MY PROJECTS" onAdd={() => setProjectForm({})} addLabel="Add project" />
+        <NavRow icon={<FolderKanban size={20} color={C.accent} />} label="All projects & plans" count={tree.length || undefined} onPress={() => router.push('/(app)/projects')} right={<ChevronRight size={16} color={C.muted} />} />
         {tree.length ? tree.map(({ project, depth }) => (
           <NavRow
             key={project.id}
@@ -190,15 +213,19 @@ export default function BrowseScreen() {
           <NavRow key={f.id} icon={f.icon} label={f.title} onPress={() => router.push(`/(app)/filter/${f.id}`)} />
         ))}
 
+        {GROUPS.map((g) => (
+          <React.Fragment key={g.title}>
+            <SectionTitle title={g.title} />
+            {g.items.map((d) => (
+              <NavRow key={d.label} icon={d.icon(d.color ?? C.accent)} label={d.label} onPress={() => router.push(d.href)} />
+            ))}
+          </React.Fragment>
+        ))}
+
         <SectionTitle title="MORE" />
         <NavRow icon={<LayoutTemplate size={20} color={C.accent} />} label="Project templates" onPress={() => router.push('/(app)/templates')} />
         <NavRow icon={<Bot size={20} color={C.accent} />} label="Integrations & AI agents" onPress={() => router.push('/(app)/settings/integrations')} />
-        <NavRow icon={<SearchIcon size={20} color={C.accent} />} label="Search" onPress={() => router.push('/(app)/search')} />
-
-        <SectionTitle title="CLEARMIND TOOLS" open={showTools} onToggle={() => setShowTools((x) => !x)} />
-        {showTools ? TOOLS.map((t) => (
-          <NavRow key={t.label} icon={t.icon} label={t.label} onPress={() => router.push(t.href)} right={<ChevronRight size={16} color={C.muted} />} />
-        )) : null}
+        {!tabs.includes('search') ? <NavRow icon={<SearchIcon size={20} color={C.accent} />} label="Search" onPress={() => router.push('/(app)/search')} /> : null}
       </ScrollView>
 
       <SavedFilterSheet visible={!!filterForm} initial={filterForm?.initial} onClose={() => setFilterForm(null)} />

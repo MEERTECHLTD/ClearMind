@@ -44,7 +44,7 @@ const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete, onSwitchToC
         
         <div className="flex flex-col items-center mb-8">
           <div className="w-20 h-20 rounded-2xl mb-4 overflow-hidden">
-            <img src="/clearmindlogo.png" alt="ClearMind" className="w-full h-full object-contain" />
+            <img src="/clearmindlogo-256.png" alt="ClearMind" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">ClearMind</h1>
           <p className="text-gray-400 text-center">

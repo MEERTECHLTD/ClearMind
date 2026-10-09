@@ -395,6 +395,8 @@ export interface AgentToken {
   revokedAt?: string | null;
   /** Requests per minute this token may make. */
   rateLimit?: number | null;
+  /** ISO time after which the token is rejected (OAuth-issued access tokens). Absent = no expiry. */
+  expiresAt?: string | null;
   prefix: string;    // first characters, for display ("cm_live_ab12…")
 }
 
@@ -742,4 +744,8 @@ export type ViewState =
   // Productivity, activity history and project templates (web).
   | 'productivity'
   | 'activity'
-  | 'templates';
+  | 'templates'
+  // Unified web destinations: Insights = Productivity (Tasks tab) + Analytics
+  // (Life tab); Journal = Daily log + Rants. The old routes redirect here.
+  | 'insights'
+  | 'journal';

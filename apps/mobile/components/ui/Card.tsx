@@ -11,7 +11,7 @@ export function Card({
   onPress?: () => void;
   className?: string;
 }) {
-  const cls = `rounded-2xl bg-midnight-light border border-hairline p-4 ${className}`;
+  const cls = `rounded-2xl bg-midnight-light border border-line p-4 ${className}`;
   if (onPress) {
     return (
       <Pressable onPress={onPress} className={`${cls} active:opacity-80`}>

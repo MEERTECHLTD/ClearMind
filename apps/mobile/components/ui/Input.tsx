@@ -12,7 +12,7 @@ export function Input({
       {label ? <Text className="text-ink-muted text-xs mb-1.5 ml-1">{label}</Text> : null}
       <TextInput
         placeholderTextColor={T.faint}
-        className="bg-midnight-light text-ink rounded-2xl px-4 py-3.5 text-base border border-hairline"
+        className="bg-midnight-light text-ink rounded-2xl px-4 py-3.5 text-base border border-line"
         {...props}
       />
     </View>

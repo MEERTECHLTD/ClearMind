@@ -4,7 +4,7 @@
  * @clearmind/shared/data/workspaces (the same module the web binding uses).
  */
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
-import { newId } from '../lib/id';
+import { randomUUID } from 'expo-crypto';
 import {
   createWorkspace as fsCreate,
   subscribeWorkspaces as fsSubscribe,
@@ -45,7 +45,7 @@ export const workspaceService = {
     if (!db || !user?.email) throw new Error('Sign in with an email or Google account to create a shared workspace.');
     return fsCreate(
       db,
-      { id: newId(), name, ownerUid: user.uid, ownerEmail: user.email, memberEmails: invitees, nowIso: nowIso() },
+      { id: randomUUID() /* CSPRNG: the id is the join-by-link secret */, name, ownerUid: user.uid, ownerEmail: user.email, memberEmails: invitees, nowIso: nowIso() },
       seedApps
     );
   },

@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Hash, Ellipsis, Pencil, Trash2, Archive, ArchiveRestore, FolderPlus, CircleCheck, ChevronRight, Rows3, Columns3, Star,
-  History, Search, X, ArrowUpDown, Plus, ArrowUp, ArrowDown, MoveRight,
+  History, Search, X, ArrowUpDown, Plus, ArrowUp, ArrowDown, MoveRight, ClipboardList,
 } from 'lucide-react-native';
 import type { Section, Completion, Task } from '@clearmind/shared';
 import { projectTasks, orderedProjects, compareTasks, priorityOf, formatDueDate } from '@clearmind/shared/tasks';
@@ -14,7 +14,8 @@ import { useTaskUI } from '../../../components/tasks/TaskUIProvider';
 import { ProjectFormSheet } from '../../../components/tasks/forms';
 import { C, PRIORITY_COLOR, dueColor } from '../../../components/tasks/theme';
 import { TaskCheckbox } from '../../../components/tasks/TaskRow';
-import { ActionMenu, Sheet, Button, confirmDialog, useToast } from '../../../components/ui';
+import { ActionMenu, Sheet, Button, SegmentedControl, confirmDialog, useToast } from '../../../components/ui';
+import { PlanSummary, PlanFormSheet, applyPlanForm, hasPlan, formatDate, type PlanForm } from '../../../components/projects/plan';
 import { useCollection } from '../../../hooks/useCollection';
 import { STORES } from '../../../services/db';
 import {
@@ -53,7 +54,9 @@ function BoardCard({ task, onOpen, onToggle, onMove }: { task: MTask; onOpen: ()
 }
 
 export default function ProjectScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
+  const [tab, setTab] = useState<'tasks' | 'plan'>(tabParam === 'plan' ? 'plan' : 'tasks');
+  const [planForm, setPlanForm] = useState(false);
   const ui = useTaskUI();
   const router = useRouter();
   const toast = useToast();
@@ -151,8 +154,27 @@ export default function ProjectScreen() {
     reorderSections(project.id, ids);
   };
 
+  const savePlan = (f: PlanForm) => {
+    const next = applyPlanForm(project, f, project.id);
+    const { id: _i, createdAt: _c, ...patch } = next as any;
+    updateProject(project, patch);
+    setPlanForm(false);
+    toast.show('Plan saved', 'success');
+  };
+  const taskProgress = { open: projectTasks(ui.tasks, project.id).length, done: done.length };
+  const planStrip = hasPlan(project) ? (
+    <Pressable onPress={() => setTab('plan')} className="flex-row items-center mx-4 mb-2 px-3 py-2 rounded-xl bg-midnight-light border border-line active:opacity-70" accessibilityRole="button" accessibilityLabel="Open project plan">
+      <ClipboardList size={15} color={C.muted} />
+      <Text className="text-ink text-[13px] ml-2 flex-1" numberOfLines={1}>
+        {[project.status, project.healthStatus, project.deadline ? `due ${formatDate(project.deadline)}` : null, `${project.progress ?? 0}% planned`].filter(Boolean).join(' · ')}
+      </Text>
+      <ChevronRight size={15} color={C.muted} />
+    </Pressable>
+  ) : null;
+
   const header = (
     <View>
+      {planStrip}
       <Pressable onPress={() => setTrackerOpen((x) => !x)} className="mx-4 mt-1 mb-2 p-3 rounded-2xl bg-midnight-light border border-line" accessibilityRole="button" accessibilityLabel={`Project progress ${stats.progress} percent`} accessibilityState={{ expanded: trackerOpen }}>
         <View className="flex-row items-center">
           <Text className="text-ink font-semibold text-sm flex-1">{stats.progress}% complete</Text>
@@ -217,7 +239,25 @@ export default function ProjectScreen() {
         </>
       }
     >
-      {view === 'list' ? (
+      <SegmentedControl<'tasks' | 'plan'>
+        segments={[{ label: 'Tasks', value: 'tasks' }, { label: 'Plan', value: 'plan' }]}
+        value={tab}
+        onChange={setTab}
+        className="mx-4 mb-2"
+      />
+      {tab === 'plan' ? (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
+          {hasPlan(project) ? null : (
+            <Text className="text-ink-muted text-sm mb-3">Add a plan — status, health, dates, team and notes — to track this project beyond its tasks.</Text>
+          )}
+          <PlanSummary
+            project={project}
+            tasks={taskProgress}
+            onEdit={() => setPlanForm(true)}
+            onUseTaskProgress={(pct) => { updateProject(project, { progress: pct }); toast.show(`Plan progress set to ${pct}%`, 'success'); }}
+          />
+        </ScrollView>
+      ) : view === 'list' ? (
         <TaskList items={items} header={header} empty={<EmptyTasks icon={<CircleCheck size={34} color={color} />} title="No tasks here yet" subtitle="Tap + to add one, or add a section to organise work." />} />
       ) : (
         <ScrollView>
@@ -256,6 +296,7 @@ export default function ProjectScreen() {
           { label: `Sort: ${{ manual: 'Manual', due: 'Due date', priority: 'Priority', name: 'Name' }[sort]}`, icon: <ArrowUpDown size={18} color={C.muted} />, onPress: () => setTimeout(() => setSortMenu(true), 250) },
           { label: project.favorite ? 'Remove from favorites' : 'Add to favorites', icon: <Star size={18} color={project.favorite ? '#F59E0B' : C.muted} fill={project.favorite ? '#F59E0B' : 'transparent'} />, onPress: () => updateProject(project, { favorite: !project.favorite }) },
           { label: 'Edit project', icon: <Pencil size={18} color={C.muted} />, onPress: () => setTimeout(() => setForm('edit'), 250) },
+          { label: 'Edit plan', icon: <ClipboardList size={18} color={C.muted} />, onPress: () => setTimeout(() => setPlanForm(true), 250) },
           { label: 'Add sub-project', icon: <FolderPlus size={18} color={C.muted} />, onPress: () => setTimeout(() => setForm('child'), 250) },
           { label: 'Activity', icon: <History size={18} color={C.muted} />, onPress: () => router.push(`/(app)/activity?project=${project.id}`) },
           project.archived
@@ -298,6 +339,7 @@ export default function ProjectScreen() {
         <TextInput value={sectionName} onChangeText={setSectionName} autoFocus placeholder="e.g. Blocks the build, In progress, Waiting" placeholderTextColor={T.faint} className="bg-midnight text-ink rounded-xl px-4 py-3 text-base border border-line" returnKeyType="done" onSubmitEditing={saveSection} accessibilityLabel="Section name" />
         <View className="mt-4 mb-1"><Button title={sectionSheet?.mode === 'rename' ? 'Save' : 'Add section'} onPress={saveSection} disabled={!sectionName.trim()} /></View>
       </Sheet>
+      <PlanFormSheet visible={planForm} initial={project} onCancel={() => setPlanForm(false)} onSave={savePlan} />
       <ProjectFormSheet
         visible={form !== null}
         initial={form === 'edit' ? project : null}

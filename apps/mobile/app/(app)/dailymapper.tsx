@@ -4,10 +4,7 @@ import {
   Text,
   Pressable,
   FlatList,
-  Modal,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import {
   ChevronLeft,
@@ -19,15 +16,15 @@ import {
   ArrowUpDown,
   Copy,
   Star,
-  Home,
-  Building2,
-  MapPin,
   RefreshCw,
   Briefcase,
   Coffee,
-  X,
+  Ellipsis,
+  CheckSquare,
+  MessageSquare as CommentIcon, Zap as AdjustIcon,
 } from 'lucide-react-native';
 import type { DailyMapperEntry, DailyMapperTemplate } from '@clearmind/shared';
+import { todayView } from '@clearmind/shared/tasks';
 import { STORES } from '../../services/db';
 import { newId } from '../../lib/id';
 import { useCollection } from '../../hooks/useCollection';
@@ -46,9 +43,16 @@ import {
   Fab,
   EmptyState,
   Spinner,
+  Button,
+  FormSheet,
+  Sheet,
+  ActionMenu,
+  IconButton,
   confirmDialog,
   useToast,
 } from '../../components/ui';
+import { useTaskUI } from '../../components/tasks/TaskUIProvider';
+import type { MTask } from '../../services/taskActions';
 import { T } from '../../lib/theme';
 
 // ---------- pure helpers (local-date based — never use toISOString for day keys) ----------
@@ -150,6 +154,7 @@ export default function DailyMapperScreen() {
     remove: removeTemplate,
   } = useCollection<DailyMapperTemplate>(STORES.DAILY_MAPPER_TEMPLATES);
   const toast = useToast();
+  const ui = useTaskUI();
 
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [sortBy, setSortBy] = useState<SortKey>('time');
@@ -161,6 +166,13 @@ export default function DailyMapperScreen() {
   const [moveTarget, setMoveTarget] = useState<DailyMapperEntry | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [menuFor, setMenuFor] = useState<DailyMapperEntry | null>(null);
+
+  // Open tasks due today or overdue — offered as quick picks in the add-block form.
+  const todaysTasks = useMemo<MTask[]>(() => {
+    const { overdue, today } = todayView(ui.tasks, new Date());
+    return [...overdue, ...today].filter((t) => !t.deleted) as MTask[];
+  }, [ui.tasks]);
 
   const isToday = selectedDate === todayStr();
 
@@ -326,7 +338,7 @@ export default function DailyMapperScreen() {
     setFormOpen(false);
   };
 
-  const handleDelete = async (entry: DailyMapperEntry) => {
+  const handleDelete = async (entry: DailyMapperEntry): Promise<boolean> => {
     if (entry.templateId) {
       const ok = await confirmDialog({
         title: 'Permanent time block',
@@ -334,7 +346,7 @@ export default function DailyMapperScreen() {
         confirmText: 'Delete',
         destructive: true,
       });
-      if (!ok) return;
+      if (!ok) return false;
       removeTemplate(entry.templateId);
       entries.filter((e) => e.templateId === entry.templateId).forEach((e) => removeEntry(e.id));
       toast.show('Permanent block removed', 'info');
@@ -345,10 +357,11 @@ export default function DailyMapperScreen() {
         confirmText: 'Delete',
         destructive: true,
       });
-      if (!ok) return;
+      if (!ok) return false;
       removeEntry(entry.id);
       toast.show('Time block deleted', 'info');
     }
+    return true;
   };
 
   const handleMove = (target: string) => {
@@ -399,14 +412,13 @@ export default function DailyMapperScreen() {
         subtitle="Time-block day planner"
         right={
           <View className="flex-row items-center">
-            <Pressable
+            <IconButton
               onPress={() => setSortBy(sortBy === 'time' ? 'location' : 'time')}
-              hitSlop={8}
-              className="p-2 active:opacity-60"
+              label={sortBy === 'time' ? 'Sort by location' : 'Sort by time'}
             >
               <ArrowUpDown size={20} color={T.muted} />
-            </Pressable>
-            <Pressable
+            </IconButton>
+            <IconButton
               onPress={() => {
                 if (dayEntries.length === 0) {
                   toast.show('Nothing to copy on this day', 'info');
@@ -414,14 +426,13 @@ export default function DailyMapperScreen() {
                 }
                 setCopyOpen(true);
               }}
-              hitSlop={8}
-              className="p-2 active:opacity-60"
+              label="Copy day to another date"
             >
               <Copy size={20} color={T.muted} />
-            </Pressable>
-            <Pressable onPress={() => setTemplatesOpen(true)} hitSlop={8} className="p-2 active:opacity-60">
+            </IconButton>
+            <IconButton onPress={() => setTemplatesOpen(true)} label="Permanent todos">
               <Star size={20} color="#f59e0b" />
-            </Pressable>
+            </IconButton>
           </View>
         }
       />
@@ -435,7 +446,7 @@ export default function DailyMapperScreen() {
           <View className="mb-3">
             {/* Date navigation */}
             <Card className="flex-row items-center justify-between mb-3">
-              <Pressable onPress={() => navigateDay(-1)} hitSlop={8} className="p-1 active:opacity-60">
+              <Pressable onPress={() => navigateDay(-1)} hitSlop={8} className="p-1 active:opacity-60" accessibilityRole="button" accessibilityLabel="Previous day">
                 <ChevronLeft size={22} color={T.muted} />
               </Pressable>
               <View className="items-center flex-1 px-2">
@@ -454,12 +465,12 @@ export default function DailyMapperScreen() {
                   />
                 </View>
                 {!isToday ? (
-                  <Pressable onPress={() => setSelectedDate(todayStr())} className="mt-2 active:opacity-60">
+                  <Pressable onPress={() => setSelectedDate(todayStr())} className="mt-2 active:opacity-60" accessibilityRole="button">
                     <Text className="text-accent text-xs font-semibold">Go to Today</Text>
                   </Pressable>
                 ) : null}
               </View>
-              <Pressable onPress={() => navigateDay(1)} hitSlop={8} className="p-1 active:opacity-60">
+              <Pressable onPress={() => navigateDay(1)} hitSlop={8} className="p-1 active:opacity-60" accessibilityRole="button" accessibilityLabel="Next day">
                 <ChevronRight size={22} color={T.muted} />
               </Pressable>
             </Card>
@@ -476,7 +487,7 @@ export default function DailyMapperScreen() {
             {/* Auto-moved banner */}
             {hasAutoMoved ? (
               <View className="flex-row items-center bg-accent/15 border border-accent/30 rounded-2xl px-4 py-3 mt-2">
-                <ArrowRight size={16} color="#3B82F6" />
+                <ArrowRight size={16} color={T.accent} />
                 <Text className="text-accent text-xs ml-2 flex-1">
                   Some entries were auto-moved from previous days. Look for the “Auto-moved” note.
                 </Text>
@@ -487,16 +498,21 @@ export default function DailyMapperScreen() {
         ListEmptyComponent={
           <View className="px-2 pt-6">
             <EmptyState
-              icon={<Clock size={44} color="#3B82F6" />}
+              fill={false}
+              icon={<Clock size={34} color={T.accent} />}
               title="No time blocks for this day"
-              subtitle="Plan your day in focused time blocks — tap a preset below or the + button."
+              subtitle="Plan your day in focused time blocks — tap a preset below or add your own."
+              ctaTitle="Add a time block"
+              onCta={() => openAdd()}
             />
             <View className="flex-row flex-wrap justify-center px-2" style={{ gap: 8 }}>
               {PRESETS.map((p) => (
                 <Pressable
                   key={`${p.start}-${p.end}`}
                   onPress={() => openAdd(p)}
-                  className="bg-midnight-light border border-hairline rounded-full px-3 py-2 active:opacity-70"
+                  className="bg-midnight-light border border-line rounded-full px-3 py-2 active:opacity-70"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add block ${formatTime(p.start)} to ${formatTime(p.end)}`}
                 >
                   <Text className="text-ink-muted text-xs">
                     {formatTime(p.start)} – {formatTime(p.end)}
@@ -511,23 +527,35 @@ export default function DailyMapperScreen() {
             entry={item}
             onCompletion={(v) => setCompletion(item, v)}
             onEdit={() => openEdit(item)}
-            onMove={() => setMoveTarget(item)}
-            onDelete={() => handleDelete(item)}
+            onMenu={() => setMenuFor(item)}
           />
         )}
       />
 
-      <Fab onPress={() => openAdd()} />
+      <Fab onPress={() => openAdd()} label="Add time block" />
 
-      <EntryFormModal
+      <EntryFormSheet
         visible={formOpen}
         editing={editing}
         preset={presetTime}
+        todaysTasks={todaysTasks}
         onCancel={() => setFormOpen(false)}
         onSave={handleSave}
+        onDelete={editing ? async () => { if (await handleDelete(editing)) setFormOpen(false); } : undefined}
       />
 
-      <DatePickModal
+      <ActionMenu
+        visible={menuFor !== null}
+        onClose={() => setMenuFor(null)}
+        title={menuFor?.task}
+        actions={menuFor ? [
+          { label: 'Edit time block', icon: <Pencil size={18} color={T.muted} />, onPress: () => openEdit(menuFor) },
+          { label: 'Move to date', icon: <ArrowRight size={18} color={T.muted} />, onPress: () => setMoveTarget(menuFor) },
+          { label: 'Delete', icon: <Trash2 size={18} color={T.danger} />, destructive: true, onPress: () => { handleDelete(menuFor); } },
+        ] : []}
+      />
+
+      <DatePickSheet
         visible={moveTarget !== null}
         title="Move to date"
         confirmLabel="Move entry"
@@ -536,7 +564,7 @@ export default function DailyMapperScreen() {
         onConfirm={handleMove}
       />
 
-      <DatePickModal
+      <DatePickSheet
         visible={copyOpen}
         title="Copy day to date"
         confirmLabel="Copy schedule"
@@ -545,7 +573,7 @@ export default function DailyMapperScreen() {
         onConfirm={handleCopyDay}
       />
 
-      <TemplatesModal
+      <TemplatesSheet
         visible={templatesOpen}
         templates={templates}
         onDelete={handleDeleteTemplate}
@@ -560,14 +588,12 @@ function EntryCard({
   entry,
   onCompletion,
   onEdit,
-  onMove,
-  onDelete,
+  onMenu,
 }: {
   entry: DailyMapperEntry;
   onCompletion: (v: Completed) => void;
   onEdit: () => void;
-  onMove: () => void;
-  onDelete: () => void;
+  onMenu: () => void;
 }) {
   const color = entry.color || '#3B82F6';
   return (
@@ -575,25 +601,29 @@ function EntryCard({
       <View className="flex-row">
         <View className="w-1.5 rounded-full mr-3" style={{ backgroundColor: color }} />
         <View className="flex-1">
-          <View className="flex-row items-start justify-between">
+          <Pressable
+            onPress={onEdit}
+            onLongPress={onMenu}
+            className="flex-row items-start justify-between active:opacity-70"
+            accessibilityRole="button"
+            accessibilityLabel={`${formatTime(entry.startTime)} to ${formatTime(entry.endTime)}: ${entry.task}. Tap to edit, long-press for options`}
+          >
             <View className="flex-1 pr-2">
               <Text className="text-ink-muted text-xs font-semibold mb-0.5">
                 {formatTime(entry.startTime)} – {formatTime(entry.endTime)}
               </Text>
               <Text className="text-ink text-base font-medium">{entry.task}</Text>
             </View>
-            <View className="flex-row items-center">
-              <Pressable onPress={onMove} hitSlop={6} className="p-1.5 active:opacity-60">
-                <ArrowRight size={18} color={T.muted} />
-              </Pressable>
-              <Pressable onPress={onEdit} hitSlop={6} className="p-1.5 active:opacity-60">
-                <Pencil size={18} color={T.muted} />
-              </Pressable>
-              <Pressable onPress={onDelete} hitSlop={6} className="p-1.5 active:opacity-60">
-                <Trash2 size={18} color={T.muted} />
-              </Pressable>
-            </View>
-          </View>
+            <Pressable
+              onPress={onMenu}
+              hitSlop={8}
+              className="p-1.5 -mt-1 -mr-1 rounded-full active:bg-midnight-lighter"
+              accessibilityRole="button"
+              accessibilityLabel={`Options for ${entry.task}`}
+            >
+              <Ellipsis size={18} color={T.muted} />
+            </Pressable>
+          </Pressable>
 
           {(entry.location || (entry.isPermanent && entry.permanentType)) ? (
             <View className="flex-row items-center flex-wrap mt-2" style={{ gap: 6 }}>
@@ -607,10 +637,10 @@ function EntryCard({
           ) : null}
 
           {entry.comment ? (
-            <Text className="text-ink-muted text-sm mt-2">💬 {entry.comment}</Text>
+            <View className="flex-row items-start mt-2"><CommentIcon size={14} color={T.muted} style={{ marginTop: 2 }} /><Text className="text-ink-muted text-sm ml-1.5 flex-1">{entry.comment}</Text></View>
           ) : null}
           {entry.adjustment ? (
-            <Text className="text-amber-400 text-sm mt-1">⚡ {entry.adjustment}</Text>
+            <View className="flex-row items-start mt-1"><AdjustIcon size={14} color="#FBBF24" style={{ marginTop: 2 }} /><Text className="text-amber-400 text-sm ml-1.5 flex-1">{entry.adjustment}</Text></View>
           ) : null}
 
           <View className="mt-3">
@@ -630,19 +660,23 @@ function EntryCard({
   );
 }
 
-// ---------------- Add / edit modal ----------------
-function EntryFormModal({
+// ---------------- Add / edit sheet ----------------
+function EntryFormSheet({
   visible,
   editing,
   preset,
+  todaysTasks,
   onCancel,
   onSave,
+  onDelete,
 }: {
   visible: boolean;
   editing: DailyMapperEntry | null;
   preset: { start: string; end: string } | null;
+  todaysTasks: MTask[];
   onCancel: () => void;
   onSave: (d: FormData) => void;
+  onDelete?: () => void;
 }) {
   const [form, setForm] = useState<FormData>({
     startTime: '08:00',
@@ -695,143 +729,157 @@ function EntryFormModal({
   const canSave = form.task.trim().length > 0;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-          <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '90%' }}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingBottom: 28 }}>
-              <Text className="text-ink text-lg font-bold mb-4">
-                {editing ? 'Edit time block' : 'New time block'}
-              </Text>
+    <FormSheet
+      visible={visible}
+      onClose={onCancel}
+      title={editing ? 'Edit time block' : 'New time block'}
+      submitLabel={editing ? 'Save block' : 'Add block'}
+      onSubmit={() => canSave && onSave(form)}
+      submitDisabled={!canSave}
+      onDelete={onDelete}
+      deleteLabel="Delete time block"
+      fill
+    >
+      <View className="flex-row mb-3" style={{ gap: 12 }}>
+        <View className="flex-1">
+          <TimeField
+            label="Start time"
+            value={form.startTime}
+            clearable={false}
+            onChange={(v) => set('startTime', v || '08:00')}
+          />
+        </View>
+        <View className="flex-1">
+          <TimeField
+            label="End time"
+            value={form.endTime}
+            clearable={false}
+            onChange={(v) => set('endTime', v || '08:30')}
+          />
+        </View>
+      </View>
 
-              <View className="flex-row mb-3" style={{ gap: 12 }}>
-                <View className="flex-1">
-                  <TimeField
-                    label="Start time"
-                    value={form.startTime}
-                    clearable={false}
-                    onChange={(v) => set('startTime', v || '08:00')}
-                  />
-                </View>
-                <View className="flex-1">
-                  <TimeField
-                    label="End time"
-                    value={form.endTime}
-                    clearable={false}
-                    onChange={(v) => set('endTime', v || '08:30')}
-                  />
-                </View>
-              </View>
+      <Input
+        label="Task / activity"
+        placeholder="e.g. Morning workout, Deep work…"
+        value={form.task}
+        onChangeText={(v) => set('task', v)}
+        className="mb-3"
+      />
 
-              <Input
-                label="Task / activity"
-                placeholder="e.g. Morning workout, Deep work…"
-                value={form.task}
-                onChangeText={(v) => set('task', v)}
-                className="mb-3"
-              />
-
-              <Select<Completed>
-                label="Completion status"
-                value={form.completed}
-                onChange={(v) => set('completed', v)}
-                options={COMPLETED_OPTS}
-                className="mb-3"
-              />
-
-              <Select<Location>
-                label="Location"
-                value={form.location}
-                onChange={(v) => set('location', v)}
-                options={LOCATION_OPTS}
-                className="mb-3"
-              />
-
-              <TextArea
-                label="Comment (optional)"
-                placeholder="Notes about how it went…"
-                value={form.comment}
-                onChangeText={(v) => set('comment', v)}
-                minHeight={70}
-                className="mb-3"
-              />
-
-              <Input
-                label="Adjustment (optional)"
-                placeholder="e.g. Moved to 6:00 AM, skipped…"
-                value={form.adjustment}
-                onChangeText={(v) => set('adjustment', v)}
-                className="mb-3"
-              />
-
-              <Text className="text-ink-muted text-xs mb-1.5 ml-1">Color</Text>
-              <View className="flex-row flex-wrap mb-4" style={{ gap: 10 }}>
-                {COLORS.map((c) => (
-                  <Pressable
-                    key={c}
-                    onPress={() => set('color', c)}
-                    style={{ backgroundColor: c }}
-                    className={`w-9 h-9 rounded-full ${form.color === c ? 'border-2 border-white' : ''}`}
-                  />
-                ))}
-              </View>
-
-              {/* Make permanent */}
-              <Pressable
-                onPress={() => set('makePermanent', !form.makePermanent)}
-                className="flex-row items-center bg-midnight-light border border-hairline rounded-2xl px-4 py-3 active:opacity-80"
-              >
-                <View
-                  className={`w-5 h-5 rounded-md mr-3 items-center justify-center border ${
-                    form.makePermanent ? 'bg-accent border-accent' : 'border-hairline'
-                  }`}
-                >
-                  {form.makePermanent ? <Star size={13} color="#fff" /> : null}
-                </View>
-                <Text className="text-ink text-sm font-medium flex-1">Make this a permanent todo</Text>
-              </Pressable>
-
-              {form.makePermanent ? (
-                <View className="mt-3">
-                  <Text className="text-ink-muted text-xs mb-1.5 ml-1">Repeats on</Text>
-                  <SegmentedControl<PermanentType>
-                    value={form.permanentType}
-                    onChange={(v) => set('permanentType', v)}
-                    segments={[
-                      { label: 'Every day', value: 'daily' },
-                      { label: 'Workdays', value: 'workday' },
-                      { label: 'Weekends', value: 'weekend' },
-                    ]}
-                  />
-                </View>
-              ) : null}
-
-              <View className="flex-row mt-6" style={{ gap: 12 }}>
+      {/* Quick pick from the task system: today's + overdue open tasks fill the block text. */}
+      {!editing && todaysTasks.length > 0 ? (
+        <View className="mb-3">
+          <View className="flex-row items-center mb-1.5 ml-1">
+            <CheckSquare size={12} color={T.muted} />
+            <Text className="text-ink-muted text-xs ml-1.5">From today's tasks</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8 }}>
+            {todaysTasks.map((t) => {
+              const picked = form.task.trim() === t.title.trim();
+              return (
                 <Pressable
-                  onPress={onCancel}
-                  className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80"
+                  key={t.id}
+                  onPress={() => set('task', t.title)}
+                  className={`px-3 py-2 rounded-full border ${picked ? 'border-accent bg-accent/15' : 'border-line bg-midnight-light'} active:opacity-70`}
+                  style={{ maxWidth: 220 }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: picked }}
+                  accessibilityLabel={`Use task “${t.title}”`}
                 >
-                  <Text className="text-ink font-semibold">Cancel</Text>
+                  <Text className={`text-xs ${picked ? 'text-accent font-semibold' : 'text-ink'}`} numberOfLines={1}>{t.title}</Text>
                 </Pressable>
-                <Pressable
-                  onPress={() => canSave && onSave(form)}
-                  className={`flex-1 items-center py-3.5 rounded-full ${canSave ? 'bg-accent active:opacity-80' : 'bg-midnight-lighter'}`}
-                >
-                  <Text className={`font-bold ${canSave ? 'text-white' : 'text-ink-muted'}`}>
-                    {editing ? 'Save block' : 'Add block'}
-                  </Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      <Select<Completed>
+        label="Completion status"
+        value={form.completed}
+        onChange={(v) => set('completed', v)}
+        options={COMPLETED_OPTS}
+        className="mb-3"
+      />
+
+      <Select<Location>
+        label="Location"
+        value={form.location}
+        onChange={(v) => set('location', v)}
+        options={LOCATION_OPTS}
+        className="mb-3"
+      />
+
+      <TextArea
+        label="Comment (optional)"
+        placeholder="Notes about how it went…"
+        value={form.comment}
+        onChangeText={(v) => set('comment', v)}
+        minHeight={70}
+        className="mb-3"
+      />
+
+      <Input
+        label="Adjustment (optional)"
+        placeholder="e.g. Moved to 6:00 AM, skipped…"
+        value={form.adjustment}
+        onChangeText={(v) => set('adjustment', v)}
+        className="mb-3"
+      />
+
+      <Text className="text-ink-muted text-xs mb-1.5 ml-1">Color</Text>
+      <View className="flex-row flex-wrap mb-4" style={{ gap: 10 }}>
+        {COLORS.map((c) => (
+          <Pressable
+            key={c}
+            onPress={() => set('color', c)}
+            style={{ backgroundColor: c, borderWidth: form.color === c ? 2 : 0, borderColor: T.ink }}
+            className="w-9 h-9 rounded-full"
+            accessibilityRole="button"
+            accessibilityLabel={`Colour ${c}`}
+            accessibilityState={{ selected: form.color === c }}
+          />
+        ))}
+      </View>
+
+      {/* Make permanent */}
+      <Pressable
+        onPress={() => set('makePermanent', !form.makePermanent)}
+        className="flex-row items-center bg-midnight-light border border-line rounded-2xl px-4 py-3 active:opacity-80"
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: form.makePermanent }}
+      >
+        <View
+          className={`w-5 h-5 rounded-md mr-3 items-center justify-center border ${
+            form.makePermanent ? 'bg-accent border-accent' : 'border-line'
+          }`}
+        >
+          {form.makePermanent ? <Star size={13} color="#fff" /> : null}
+        </View>
+        <Text className="text-ink text-sm font-medium flex-1">Make this a permanent todo</Text>
+      </Pressable>
+
+      {form.makePermanent ? (
+        <View className="mt-3">
+          <Text className="text-ink-muted text-xs mb-1.5 ml-1">Repeats on</Text>
+          <SegmentedControl<PermanentType>
+            value={form.permanentType}
+            onChange={(v) => set('permanentType', v)}
+            segments={[
+              { label: 'Every day', value: 'daily' },
+              { label: 'Workdays', value: 'workday' },
+              { label: 'Weekends', value: 'weekend' },
+            ]}
+          />
+        </View>
+      ) : null}
+    </FormSheet>
   );
 }
 
-// ---------------- Date pick modal (move / copy) ----------------
-function DatePickModal({
+// ---------------- Date pick sheet (move / copy) ----------------
+function DatePickSheet({
   visible,
   title,
   confirmLabel,
@@ -854,33 +902,20 @@ function DatePickModal({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
-          <Text className="text-ink text-lg font-bold mb-4">{title}</Text>
-          <DateField label="Date" value={date} clearable={false} onChange={(v) => setDate(v || date)} />
-          <View className="flex-row mt-6" style={{ gap: 12 }}>
-            <Pressable
-              onPress={onCancel}
-              className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80"
-            >
-              <Text className="text-ink font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => onConfirm(date)}
-              className="flex-1 items-center py-3.5 rounded-full bg-accent active:opacity-80"
-            >
-              <Text className="text-white font-bold">{confirmLabel}</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <FormSheet
+      visible={visible}
+      onClose={onCancel}
+      title={title}
+      submitLabel={confirmLabel}
+      onSubmit={() => onConfirm(date)}
+    >
+      <DateField label="Date" value={date} clearable={false} onChange={(v) => setDate(v || date)} />
+    </FormSheet>
   );
 }
 
-// ---------------- Templates (permanent todos) modal ----------------
-function TemplatesModal({
+// ---------------- Templates (permanent todos) sheet ----------------
+function TemplatesSheet({
   visible,
   templates,
   onDelete,
@@ -892,85 +927,72 @@ function TemplatesModal({
   onClose: () => void;
 }) {
   const groups: { type: PermanentType; label: string; icon: React.ReactNode }[] = [
-    { type: 'daily', label: 'Every Day', icon: <RefreshCw size={14} color="#3B82F6" /> },
-    { type: 'workday', label: 'Workdays (Mon–Fri)', icon: <Briefcase size={14} color="#3B82F6" /> },
+    { type: 'daily', label: 'Every Day', icon: <RefreshCw size={14} color={T.accent} /> },
+    { type: 'workday', label: 'Workdays (Mon–Fri)', icon: <Briefcase size={14} color={T.accent} /> },
     { type: 'weekend', label: 'Weekends (Sat–Sun)', icon: <Coffee size={14} color="#10B981" /> },
   ];
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/60 justify-end" onPress={onClose}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline" style={{ maxHeight: '85%' }}>
-          <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <View className="flex-row items-center">
-              <Star size={18} color="#f59e0b" />
-              <Text className="text-ink text-lg font-bold ml-2">Permanent todos</Text>
-            </View>
-            <Pressable onPress={onClose} hitSlop={8} className="p-1 active:opacity-60">
-              <X size={22} color={T.muted} />
-            </Pressable>
-          </View>
-          <Text className="text-ink-muted text-xs px-5 mb-3">
-            These tasks are automatically added to your day based on their type.
-          </Text>
+    <Sheet visible={visible} onClose={onClose} title="Permanent todos" right={<Star size={18} color="#f59e0b" />}>
+      <Text className="text-ink-muted text-xs mb-3">
+        These tasks are automatically added to your day based on their type.
+      </Text>
 
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 28 }}>
-            {templates.length === 0 ? (
-              <View className="items-center py-10">
-                <Star size={32} color={T.faint} />
-                <Text className="text-ink-muted text-sm mt-3 text-center">No permanent todos yet</Text>
-                <Text className="text-ink-muted text-xs mt-1 text-center">
-                  Add one by enabling “Make permanent” on a time block.
-                </Text>
-              </View>
-            ) : (
-              groups.map((g) => {
-                const list = templates.filter((t) => t.permanentType === g.type);
-                if (list.length === 0) return null;
-                return (
-                  <View key={g.type} className="mb-5">
-                    <View className="flex-row items-center mb-2">
-                      {g.icon}
-                      <Text className="text-ink-muted text-xs font-semibold uppercase ml-2">{g.label}</Text>
+      <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingBottom: 12 }}>
+        {templates.length === 0 ? (
+          <EmptyState
+            fill={false}
+            icon={<Star size={34} color={T.faint} />}
+            title="No permanent todos yet"
+            subtitle="Add one by enabling “Make permanent” on a time block."
+          />
+        ) : (
+          groups.map((g) => {
+            const list = templates.filter((t) => t.permanentType === g.type);
+            if (list.length === 0) return null;
+            return (
+              <View key={g.type} className="mb-5">
+                <View className="flex-row items-center mb-2">
+                  {g.icon}
+                  <Text className="text-ink-muted text-xs font-semibold uppercase ml-2">{g.label}</Text>
+                </View>
+                {list.map((t) => (
+                  <View
+                    key={t.id}
+                    className="flex-row items-center bg-midnight border border-line rounded-2xl px-3 py-3 mb-2"
+                  >
+                    <View
+                      className="w-1.5 h-9 rounded-full mr-3"
+                      style={{ backgroundColor: t.color || '#3B82F6' }}
+                    />
+                    <View className="flex-1">
+                      <Text className="text-ink text-sm font-medium" numberOfLines={1}>
+                        {t.task}
+                      </Text>
+                      <Text className="text-ink-muted text-xs mt-0.5">
+                        {formatTime(t.startTime)} – {formatTime(t.endTime)}
+                      </Text>
                     </View>
-                    {list.map((t) => (
-                      <View
-                        key={t.id}
-                        className="flex-row items-center bg-midnight-light border border-hairline rounded-2xl px-3 py-3 mb-2"
-                      >
-                        <View
-                          className="w-1.5 h-9 rounded-full mr-3"
-                          style={{ backgroundColor: t.color || '#3B82F6' }}
-                        />
-                        <View className="flex-1">
-                          <Text className="text-ink text-sm font-medium" numberOfLines={1}>
-                            {t.task}
-                          </Text>
-                          <Text className="text-ink-muted text-xs mt-0.5">
-                            {formatTime(t.startTime)} – {formatTime(t.endTime)}
-                          </Text>
-                        </View>
-                        <Pressable onPress={() => onDelete(t.id)} hitSlop={8} className="p-1.5 active:opacity-60">
-                          <Trash2 size={16} color={T.muted} />
-                        </Pressable>
-                      </View>
-                    ))}
+                    <Pressable
+                      onPress={() => onDelete(t.id)}
+                      hitSlop={8}
+                      className="p-1.5 active:opacity-60"
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete permanent todo ${t.task}`}
+                    >
+                      <Trash2 size={16} color={T.muted} />
+                    </Pressable>
                   </View>
-                );
-              })
-            )}
-          </ScrollView>
+                ))}
+              </View>
+            );
+          })
+        )}
+      </ScrollView>
 
-          <View className="px-5 pb-8 pt-2 border-t border-hairline">
-            <Pressable
-              onPress={onClose}
-              className="items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80"
-            >
-              <Text className="text-ink font-semibold">Close</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+      <View className="pt-2">
+        <Button title="Close" variant="secondary" onPress={onClose} />
+      </View>
+    </Sheet>
   );
 }

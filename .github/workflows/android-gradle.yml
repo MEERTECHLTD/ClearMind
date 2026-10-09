@@ -32,7 +32,6 @@ jobs:
       EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET:      ${{ secrets.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET }}
       EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
       EXPO_PUBLIC_FIREBASE_APP_ID:              ${{ secrets.EXPO_PUBLIC_FIREBASE_APP_ID }}
-      EXPO_PUBLIC_GEMINI_API_KEY:               ${{ secrets.EXPO_PUBLIC_GEMINI_API_KEY }}
       # OAuth Web client id for @react-native-google-signin (GoogleSignin.configure):
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID:         ${{ secrets.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
       # app.config.ts reads this for android.versionCode (must rise per build):

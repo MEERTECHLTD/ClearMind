@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { View, Text, Pressable, FlatList, Modal, ScrollView } from 'react-native';
+import { View, Text, Pressable, FlatList, ScrollView } from 'react-native';
 import {
-  Flame, Check, Calendar, Pencil, Trash2, ChevronLeft, ChevronRight, X, CalendarCheck,
+  Flame, Check, Calendar, Pencil, Trash2, ChevronLeft, ChevronRight, CalendarCheck, Ellipsis,
 } from 'lucide-react-native';
 import type { Habit } from '@clearmind/shared';
 import { STORES } from '../../services/db';
@@ -9,7 +9,7 @@ import { newId } from '../../lib/id';
 import { useCollection } from '../../hooks/useCollection';
 import {
   Screen, AppHeader, Card, Input, TextArea, Select, StatCard, Fab,
-  EmptyState, Spinner, confirmDialog, useToast,
+  EmptyState, Spinner, FormSheet, Sheet, ActionMenu, IconButton, confirmDialog, useToast,
 } from '../../components/ui';
 import { T } from '../../lib/theme';
 
@@ -40,6 +40,7 @@ export default function HabitsScreen() {
   const [monthlyOpen, setMonthlyOpen] = useState(false);
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
   const [monthlyViewDate, setMonthlyViewDate] = useState(new Date());
+  const [menuFor, setMenuFor] = useState<Habit | null>(null);
 
   // --- business logic (ported verbatim from web HabitsView) ---
   const toggleToday = (id: string) => {
@@ -104,11 +105,13 @@ export default function HabitsScreen() {
   const selectedHabit = habits.find((h) => h.id === selectedHabitId);
 
   // --- handlers ---
-  const onDelete = async (habit: Habit) => {
+  const onDelete = async (habit: Habit): Promise<boolean> => {
     if (await confirmDialog({ title: 'Delete habit', message: `Delete “${habit.name}”?`, confirmText: 'Delete', destructive: true })) {
       remove(habit.id);
       toast.show('Habit deleted', 'info');
+      return true;
     }
+    return false;
   };
 
   const openAdd = () => { setEditing(null); setFormOpen(true); };
@@ -149,15 +152,15 @@ export default function HabitsScreen() {
         title="Habit Tracker"
         subtitle="Consistency is the key to mastery."
         right={
-          <Pressable onPress={() => openMonthly(null)} hitSlop={8} className="p-2 active:opacity-60">
-            <Calendar size={22} color="#3B82F6" />
-          </Pressable>
+          <IconButton onPress={() => openMonthly(null)} label="Monthly tracker">
+            <Calendar size={22} color={T.accent} />
+          </IconButton>
         }
       />
 
       {habits.length === 0 ? (
         <EmptyState
-          icon={<CalendarCheck size={40} color="#3B82F6" />}
+          icon={<CalendarCheck size={34} color={T.accent} />}
           title="No habits tracked yet"
           subtitle="Build momentum one day at a time."
           ctaTitle="Add a habit"
@@ -182,22 +185,34 @@ export default function HabitsScreen() {
               onToggle={() => toggleToday(item.id)}
               onMonthly={() => openMonthly(item.id)}
               onEdit={() => openEdit(item)}
-              onDelete={() => onDelete(item)}
+              onMenu={() => setMenuFor(item)}
             />
           )}
         />
       )}
 
-      <Fab onPress={openAdd} />
+      <Fab onPress={openAdd} label="Add habit" />
 
-      <HabitFormModal
+      <HabitFormSheet
         visible={formOpen}
         initial={editing}
         onCancel={() => setFormOpen(false)}
         onSave={handleSave}
+        onDelete={editing ? async () => { if (await onDelete(editing)) setFormOpen(false); } : undefined}
       />
 
-      <MonthlyModal
+      <ActionMenu
+        visible={menuFor !== null}
+        onClose={() => setMenuFor(null)}
+        title={menuFor?.name}
+        actions={menuFor ? [
+          { label: 'Monthly view', icon: <Calendar size={18} color={T.muted} />, onPress: () => openMonthly(menuFor.id) },
+          { label: 'Edit habit', icon: <Pencil size={18} color={T.muted} />, onPress: () => openEdit(menuFor) },
+          { label: 'Delete habit', icon: <Trash2 size={18} color={T.danger} />, destructive: true, onPress: () => { onDelete(menuFor); } },
+        ] : []}
+      />
+
+      <MonthlySheet
         visible={monthlyOpen}
         habits={habits}
         selectedHabit={selectedHabit}
@@ -214,13 +229,13 @@ export default function HabitsScreen() {
 }
 
 function HabitRow({
-  habit, onToggle, onMonthly, onEdit, onDelete,
+  habit, onToggle, onMonthly, onEdit, onMenu,
 }: {
   habit: Habit;
   onToggle: () => void;
   onMonthly: () => void;
   onEdit: () => void;
-  onDelete: () => void;
+  onMenu: () => void;
 }) {
   const color = habit.color || '#3B82F6';
   return (
@@ -233,13 +248,22 @@ function HabitRow({
           style={{
             backgroundColor: habit.completedToday ? '#10B981' : 'transparent',
             borderWidth: 1,
-            borderColor: habit.completedToday ? '#10B981' : '#4b5563',
+            borderColor: habit.completedToday ? '#10B981' : T.faint,
           }}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: habit.completedToday }}
+          accessibilityLabel={habit.completedToday ? `Mark “${habit.name}” not done today` : `Mark “${habit.name}” done today`}
         >
           {habit.completedToday ? <Check size={16} color="#ffffff" /> : null}
         </Pressable>
 
-        <View className="flex-1">
+        <Pressable
+          onPress={onEdit}
+          onLongPress={onMenu}
+          className="flex-1 active:opacity-70"
+          accessibilityRole="button"
+          accessibilityLabel={`Habit ${habit.name}, ${habit.streak} day streak. Tap to edit, long-press for options`}
+        >
           <Text className="text-base font-semibold" numberOfLines={1} style={{ color }}>
             {habit.name}
           </Text>
@@ -263,17 +287,26 @@ function HabitRow({
               </Text>
             </View>
           </View>
-        </View>
+        </Pressable>
 
         <View className="flex-row items-center ml-2">
-          <Pressable onPress={onMonthly} hitSlop={6} className="p-1.5 active:opacity-60">
+          <Pressable
+            onPress={onMonthly}
+            hitSlop={6}
+            className="p-1.5 rounded-full active:bg-midnight-lighter"
+            accessibilityRole="button"
+            accessibilityLabel={`Monthly view for ${habit.name}`}
+          >
             <Calendar size={17} color={T.muted} />
           </Pressable>
-          <Pressable onPress={onEdit} hitSlop={6} className="p-1.5 active:opacity-60">
-            <Pencil size={17} color={T.muted} />
-          </Pressable>
-          <Pressable onPress={onDelete} hitSlop={6} className="p-1.5 active:opacity-60">
-            <Trash2 size={17} color={T.muted} />
+          <Pressable
+            onPress={onMenu}
+            hitSlop={6}
+            className="p-1.5 rounded-full active:bg-midnight-lighter"
+            accessibilityRole="button"
+            accessibilityLabel={`Options for ${habit.name}`}
+          >
+            <Ellipsis size={17} color={T.muted} />
           </Pressable>
         </View>
       </View>
@@ -281,13 +314,14 @@ function HabitRow({
   );
 }
 
-function HabitFormModal({
-  visible, initial, onCancel, onSave,
+function HabitFormSheet({
+  visible, initial, onCancel, onSave, onDelete,
 }: {
   visible: boolean;
   initial: Habit | null;
   onCancel: () => void;
   onSave: (d: { name: string; description: string; color: string }) => void;
+  onDelete?: () => void;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -309,44 +343,42 @@ function HabitFormModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/60 justify-end" onPress={onCancel}>
-        <Pressable className="bg-midnight rounded-t-3xl border-t border-hairline px-5 pt-5 pb-8">
-          <Text className="text-ink text-lg font-bold mb-4">{initial ? 'Edit habit' : 'New habit'}</Text>
-          <Input placeholder="Read for 30 minutes" value={name} onChangeText={setName} autoFocus className="mb-3" />
-          <TextArea placeholder="Optional notes about this habit…" value={description} onChangeText={setDescription} minHeight={70} className="mb-4" />
+    <FormSheet
+      visible={visible}
+      onClose={onCancel}
+      title={initial ? 'Edit habit' : 'New habit'}
+      submitLabel={initial ? 'Save' : 'Add'}
+      onSubmit={save}
+      submitDisabled={!name.trim()}
+      onDelete={onDelete}
+      deleteLabel="Delete habit"
+    >
+      <Input placeholder="Read for 30 minutes" value={name} onChangeText={setName} autoFocus className="mb-3" />
+      <TextArea placeholder="Optional notes about this habit…" value={description} onChangeText={setDescription} minHeight={70} className="mb-4" />
 
-          <Text className="text-ink-muted text-xs mb-2 ml-1">Color</Text>
-          <View className="flex-row flex-wrap gap-3 mb-5">
-            {COLORS.map((c) => (
-              <Pressable
-                key={c}
-                onPress={() => setColor(c)}
-                className="w-9 h-9 rounded-full active:opacity-80"
-                style={{
-                  backgroundColor: c,
-                  borderWidth: color === c ? 3 : 0,
-                  borderColor: '#ffffff',
-                }}
-              />
-            ))}
-          </View>
-
-          <View className="flex-row gap-3">
-            <Pressable onPress={onCancel} className="flex-1 items-center py-3.5 rounded-full bg-midnight-lighter active:opacity-80">
-              <Text className="text-ink font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable onPress={save} className="flex-1 items-center py-3.5 rounded-full bg-accent active:bg-accent-hover">
-              <Text className="text-white font-bold">{initial ? 'Save' : 'Add'}</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+      <Text className="text-ink-muted text-xs mb-2 ml-1">Color</Text>
+      <View className="flex-row flex-wrap gap-3 mb-2">
+        {COLORS.map((c) => (
+          <Pressable
+            key={c}
+            onPress={() => setColor(c)}
+            className="w-9 h-9 rounded-full active:opacity-80"
+            accessibilityRole="button"
+            accessibilityLabel={`Colour ${c}`}
+            accessibilityState={{ selected: color === c }}
+            style={{
+              backgroundColor: c,
+              borderWidth: color === c ? 3 : 0,
+              borderColor: T.ink,
+            }}
+          />
+        ))}
+      </View>
+    </FormSheet>
   );
 }
 
-function MonthlyModal({
+function MonthlySheet({
   visible, habits, selectedHabit, selectedHabitId, onSelectHabit,
   monthlyViewDate, days, onNavigate, onToggleDay, onClose,
 }: {
@@ -363,102 +395,97 @@ function MonthlyModal({
 }) {
   const color = selectedHabit?.color || '#3B82F6';
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <Screen padded={false}>
-        <AppHeader
-          title="Monthly Tracker"
-          subtitle="Tap a day to toggle completion"
-          right={
-            <Pressable onPress={onClose} hitSlop={8} className="p-2 active:opacity-60">
-              <X size={22} color={T.ink} />
-            </Pressable>
-          }
-        />
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
-          {habits.length > 0 ? (
-            <Select
-              label="Habit"
-              value={selectedHabitId ?? ''}
-              onChange={(v) => onSelectHabit(v)}
-              options={habits.map((h) => ({ label: h.name, value: h.id }))}
-              className="mb-4"
-            />
-          ) : null}
+    <Sheet visible={visible} onClose={onClose} title="Monthly Tracker" fill maxHeight="92%">
+      <Text className="text-ink-muted text-[13px] -mt-1 mb-3">Tap a day to toggle completion</Text>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
+        {habits.length > 0 ? (
+          <Select
+            label="Habit"
+            value={selectedHabitId ?? ''}
+            onChange={(v) => onSelectHabit(v)}
+            options={habits.map((h) => ({ label: h.name, value: h.id }))}
+            className="mb-4"
+          />
+        ) : null}
 
-          <View className="flex-row items-center justify-between mb-4">
-            <Pressable onPress={() => onNavigate(-1)} hitSlop={8} className="p-2 rounded-xl bg-midnight-light active:opacity-70">
-              <ChevronLeft size={20} color={T.muted} />
-            </Pressable>
-            <Text className="text-ink text-base font-semibold">
-              {MONTH_NAMES[monthlyViewDate.getMonth()]} {monthlyViewDate.getFullYear()}
-            </Text>
-            <Pressable onPress={() => onNavigate(1)} hitSlop={8} className="p-2 rounded-xl bg-midnight-light active:opacity-70">
-              <ChevronRight size={20} color={T.muted} />
-            </Pressable>
-          </View>
+        <View className="flex-row items-center justify-between mb-4">
+          <Pressable onPress={() => onNavigate(-1)} hitSlop={8} className="p-2 rounded-xl bg-midnight-lighter active:opacity-70" accessibilityRole="button" accessibilityLabel="Previous month">
+            <ChevronLeft size={20} color={T.muted} />
+          </Pressable>
+          <Text className="text-ink text-base font-semibold">
+            {MONTH_NAMES[monthlyViewDate.getMonth()]} {monthlyViewDate.getFullYear()}
+          </Text>
+          <Pressable onPress={() => onNavigate(1)} hitSlop={8} className="p-2 rounded-xl bg-midnight-lighter active:opacity-70" accessibilityRole="button" accessibilityLabel="Next month">
+            <ChevronRight size={20} color={T.muted} />
+          </Pressable>
+        </View>
 
-          {selectedHabit ? (
-            <>
-              <View className="flex-row flex-wrap">
-                {WEEK_DAYS.map((d) => (
-                  <View key={d} className="w-[14.2857%] items-center py-1.5">
-                    <Text className="text-ink-muted text-[10px] font-semibold uppercase">{d}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <View className="flex-row flex-wrap">
-                {days.map(({ date, isCurrentMonth }, index) => {
-                  const dateStr = date.toISOString().split('T')[0];
-                  const isCompleted = selectedHabit.monthlyHistory?.[dateStr] || false;
-                  const isPast = date < new Date() && !isSameDay(date);
-                  const today = isSameDay(date);
-                  return (
-                    <View key={index} className="w-[14.2857%] aspect-square p-0.5">
-                      <Pressable
-                        onPress={() => isCurrentMonth && onToggleDay(selectedHabit.id, dateStr)}
-                        disabled={!isCurrentMonth}
-                        className="flex-1 rounded-xl items-center justify-center active:opacity-80"
-                        style={{
-                          opacity: isCurrentMonth ? 1 : 0.3,
-                          backgroundColor: isCompleted
-                            ? color
-                            : isPast
-                              ? 'rgba(239,68,68,0.18)'
-                              : T.line,
-                          borderWidth: today ? 2 : 0,
-                          borderColor: '#3B82F6',
-                        }}
-                      >
-                        <Text className={`text-sm font-medium ${isCompleted ? 'text-white' : 'text-ink'}`}>
-                          {date.getDate()}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  );
-                })}
-              </View>
-
-              {/* Legend */}
-              <View className="flex-row gap-5 mt-5">
-                <View className="flex-row items-center">
-                  <View className="w-4 h-4 rounded mr-2" style={{ backgroundColor: color }} />
-                  <Text className="text-ink-muted text-sm">Completed</Text>
+        {selectedHabit ? (
+          <>
+            <View className="flex-row flex-wrap">
+              {WEEK_DAYS.map((d) => (
+                <View key={d} className="w-[14.2857%] items-center py-1.5">
+                  <Text className="text-ink-muted text-[10px] font-semibold uppercase">{d}</Text>
                 </View>
-                <View className="flex-row items-center">
-                  <View className="w-4 h-4 rounded mr-2" style={{ backgroundColor: 'rgba(239,68,68,0.18)' }} />
-                  <Text className="text-ink-muted text-sm">Missed</Text>
-                </View>
-              </View>
-            </>
-          ) : (
-            <View className="items-center py-16">
-              <Calendar size={48} color="#475569" />
-              <Text className="text-ink-muted text-sm mt-3">Select a habit to view monthly progress</Text>
+              ))}
             </View>
-          )}
-        </ScrollView>
-      </Screen>
-    </Modal>
+
+            <View className="flex-row flex-wrap">
+              {days.map(({ date, isCurrentMonth }, index) => {
+                const dateStr = date.toISOString().split('T')[0];
+                const isCompleted = selectedHabit.monthlyHistory?.[dateStr] || false;
+                const isPast = date < new Date() && !isSameDay(date);
+                const today = isSameDay(date);
+                return (
+                  <View key={index} className="w-[14.2857%] aspect-square p-0.5">
+                    <Pressable
+                      onPress={() => isCurrentMonth && onToggleDay(selectedHabit.id, dateStr)}
+                      disabled={!isCurrentMonth}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: !!isCompleted, disabled: !isCurrentMonth }}
+                      accessibilityLabel={`${MONTH_NAMES[date.getMonth()]} ${date.getDate()}`}
+                      className="flex-1 rounded-xl items-center justify-center active:opacity-80"
+                      style={{
+                        opacity: isCurrentMonth ? 1 : 0.3,
+                        backgroundColor: isCompleted
+                          ? color
+                          : isPast
+                            ? 'rgba(239,68,68,0.18)'
+                            : T.line,
+                        borderWidth: today ? 2 : 0,
+                        borderColor: T.accent,
+                      }}
+                    >
+                      <Text className={`text-sm font-medium ${isCompleted ? 'text-white' : 'text-ink'}`}>
+                        {date.getDate()}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Legend */}
+            <View className="flex-row gap-5 mt-5">
+              <View className="flex-row items-center">
+                <View className="w-4 h-4 rounded mr-2" style={{ backgroundColor: color }} />
+                <Text className="text-ink-muted text-sm">Completed</Text>
+              </View>
+              <View className="flex-row items-center">
+                <View className="w-4 h-4 rounded mr-2" style={{ backgroundColor: 'rgba(239,68,68,0.18)' }} />
+                <Text className="text-ink-muted text-sm">Missed</Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          <EmptyState
+            fill={false}
+            icon={<Calendar size={34} color={T.faint} />}
+            title="No habit selected"
+            subtitle="Select a habit to view monthly progress"
+          />
+        )}
+      </ScrollView>
+    </Sheet>
   );
 }

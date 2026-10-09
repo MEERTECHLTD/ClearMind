@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Redirect, Tabs } from 'expo-router';
-import { Inbox, CalendarCheck, CalendarRange, Search, LayoutGrid, Flame } from 'lucide-react-native';
+import { Inbox, CalendarCheck, CalendarRange, Search, LayoutGrid, Flame, NotebookPen } from 'lucide-react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useAppLifecycleSync } from '../../hooks/useAppLifecycleSync';
@@ -9,13 +9,15 @@ import { Spinner } from '../../components/ui';
 import { TaskUIProvider } from '../../components/tasks/TaskUIProvider';
 import { startRuntime } from '../../services/runtime';
 import { T } from '../../lib/theme';
+import { DEFAULT_PREFERENCES } from '@clearmind/shared/domain';
 
 const TAB_DEFS: Record<string, { title: string; Icon: typeof Inbox }> = {
   inbox: { title: 'Inbox', Icon: Inbox },
   today: { title: 'Today', Icon: CalendarCheck },
   upcoming: { title: 'Upcoming', Icon: CalendarRange },
+  notes: { title: 'Notes', Icon: NotebookPen },
   search: { title: 'Search', Icon: Search },
-  productivity: { title: 'Progress', Icon: Flame },
+  productivity: { title: 'Insights', Icon: Flame },
   browse: { title: 'Browse', Icon: LayoutGrid },
 };
 
@@ -24,7 +26,7 @@ const ALWAYS_HIDDEN = [
   'project/[id]', 'label/[id]', 'filter/[id]', 'completed', 'tasks', 'task/[id]', 'quickadd', 'activity', 'templates',
   'settings/index', 'settings/account', 'settings/general', 'settings/appearance', 'settings/productivity',
   'settings/notifications', 'settings/integrations', 'settings/security', 'settings/data', 'settings/navigation', 'settings/quickadd',
-  'dashboard', 'calendar', 'iris', 'notes', 'note/[id]', 'dailylog', 'goals', 'habits', 'milestones',
+  'dashboard', 'calendar', 'iris', 'note/[id]', 'journal', 'dailylog', 'goals', 'habits', 'milestones',
   'applications', 'rant', 'dailymapper', 'learningvault', 'analytics', 'projects', 'mindmap', 'diagnostics', 'notes-graph',
 ];
 
@@ -35,7 +37,7 @@ function AppTabs() {
   useEffect(() => startRuntime({ signedIn: !!user }), [user]);
 
   // Settings → Navigation: which destinations are tabs (Browse is always there).
-  const chosen = [...new Set([...(prefs.navTabs ?? []).filter((t) => t in TAB_DEFS), 'browse'])].slice(0, 6);
+  const chosen = [...new Set([...(prefs.navTabs ?? DEFAULT_PREFERENCES.navTabs).filter((t) => t in TAB_DEFS), 'browse'])].slice(0, 6);
   const hiddenTabs = Object.keys(TAB_DEFS).filter((t) => !chosen.includes(t));
 
   return (

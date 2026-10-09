@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Goal } from '../../types';
 import { dbService, STORES } from '../../services/db';
-import { Target, Trophy, Clock, Edit3, Trash2, Check, X, Plus } from 'lucide-react';
+import { Target, Trophy, Clock, Pencil, Trash2, Check, Plus, FolderKanban } from 'lucide-react';
+import { useTaskData } from '../tasks/TaskContext';
+import { projectColor } from '../tasks/actions';
+import { PageShell, Card, Modal, ModalBody, ModalFooter, Field, IconBtn, ProgressBar, Badge, Empty, inputCls, cx } from '../ui-kit';
+
+const GOAL_MET = '#16A34A';
+const ACCENT = '#3B82F6';
+const norm = (s: string | undefined | null) => (s ?? '').trim().toLowerCase();
 
 const GoalsView: React.FC = () => {
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -75,230 +82,165 @@ const GoalsView: React.FC = () => {
 
   const categories: Goal['category'][] = ['Career', 'Personal', 'Health', 'Skill'];
 
+  // Projects whose strategic alignment names this goal (case-insensitive).
+  const { projects } = useTaskData();
+  const alignedByGoal = useMemo(() => {
+    const m = new Map<string, typeof projects>();
+    for (const g of goals) {
+      const key = norm(g.title);
+      if (!key) continue;
+      m.set(g.id, projects.filter((p) => !p.deleted && !p.archived && (p.alignments ?? []).some((a) => norm(a.strategicGoal) === key)));
+    }
+    return m;
+  }, [goals, projects]);
+
+  const closeAdd = () => {
+    setShowAddModal(false);
+    setNewGoal({ title: '', targetDate: '', category: 'Personal', progress: 0 });
+  };
+
   return (
-    <div className="p-8 h-full overflow-y-auto animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Goals</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Long term vision determines short term actions.</p>
-        </div>
-        <button 
-          onClick={() => setShowAddModal(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
-        >
-          <Plus size={16} />
-          New Goal
+    <PageShell
+      title="Goals"
+      subtitle="Long term vision determines short term actions."
+      wide
+      actions={
+        <button onClick={() => setShowAddModal(true)} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+          <Plus size={16} />New goal
         </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {goals.map(goal => (
-          <div key={goal.id} className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 p-6 rounded-xl hover:border-blue-500/50 transition-colors shadow-sm dark:shadow-none">
-            {editingId === goal.id && editForm ? (
-              /* Edit Mode */
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Title</label>
-                  <input
-                    type="text"
-                    value={editForm.title}
-                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-3 py-2 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Category</label>
-                    <select
-                      value={editForm.category}
-                      onChange={(e) => setEditForm({ ...editForm, category: e.target.value as Goal['category'] })}
-                      className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-3 py-2 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {categories.map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Target Date</label>
-                    <input
-                      type="date"
-                      value={editForm.targetDate}
-                      onChange={(e) => setEditForm({ ...editForm, targetDate: e.target.value })}
-                      className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-3 py-2 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Progress: {editForm.progress}%</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={editForm.progress}
-                    onChange={(e) => setEditForm({ ...editForm, progress: parseInt(e.target.value) })}
-                    className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
-                </div>
-
-                <div className="flex gap-2 pt-2">
-                  <button
-                    onClick={handleSaveEdit}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg flex items-center justify-center gap-2 text-sm transition-colors"
-                  >
-                    <Check size={16} /> Save
-                  </button>
-                  <button
-                    onClick={handleCancelEdit}
-                    className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg flex items-center justify-center gap-2 text-sm transition-colors"
-                  >
-                    <X size={16} /> Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* View Mode */
-              <>
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 dark:bg-gray-800 bg-gray-100 rounded-lg text-blue-500">
-                      <Target size={24} />
+      }
+    >
+      {goals.length === 0 ? (
+        <Empty
+          icon={<Target size={30} className="text-blue-500" />}
+          title="No goals yet"
+          subtitle="Set a long-term goal, then align projects to it from the project planner."
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {goals.map((goal) => {
+            const aligned = alignedByGoal.get(goal.id) ?? [];
+            const done = goal.progress === 100;
+            return (
+              <Card key={goal.id} className="flex flex-col">
+                {editingId === goal.id && editForm ? (
+                  <div className="space-y-4">
+                    <Field label="Title">
+                      <input type="text" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} className={inputCls} />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Category">
+                        <select value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value as Goal['category'] })} className={inputCls}>
+                          {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Target date">
+                        <input type="date" value={editForm.targetDate} onChange={(e) => setEditForm({ ...editForm, targetDate: e.target.value })} className={inputCls} />
+                      </Field>
                     </div>
-                    <div>
-                      <h3 className="font-semibold text-lg dark:text-white text-gray-900">{goal.title}</h3>
-                      <span className="text-xs text-gray-500 uppercase tracking-wider">{goal.category}</span>
+                    <Field label={`Progress: ${editForm.progress}%`}>
+                      <input type="range" min="0" max="100" value={editForm.progress} onChange={(e) => setEditForm({ ...editForm, progress: parseInt(e.target.value) })} className="w-full accent-blue-600 cursor-pointer" />
+                    </Field>
+                    <div className="flex justify-end gap-2">
+                      <button onClick={handleCancelEdit} className={cx.btnGhost}>Cancel</button>
+                      <button onClick={handleSaveEdit} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}><Check size={16} />Save</button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleEdit(goal)}
-                      className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-500 transition-colors"
-                      title="Edit goal"
-                    >
-                      <Edit3 size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(goal.id)}
-                      className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
-                      title="Delete goal"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-500/10">
+                        <Target size={18} className="text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className={`font-semibold truncate ${cx.text}`}>{goal.title}</h3>
+                        <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs ${cx.muted}`}>
+                          <Badge>{goal.category}</Badge>
+                          <span className="inline-flex items-center gap-1"><Clock size={12} />{goal.targetDate}</span>
+                          {done ? <span className="inline-flex items-center gap-1 text-amber-500"><Trophy size={12} />Achieved</span> : null}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        <IconBtn label="Edit goal" onClick={() => handleEdit(goal)}><Pencil size={16} /></IconBtn>
+                        <IconBtn label="Delete goal" danger onClick={() => handleDelete(goal.id)}><Trash2 size={16} /></IconBtn>
+                      </div>
+                    </div>
 
-                <div className="flex items-center gap-2 text-xs text-gray-400 mb-4">
-                  <Clock size={12} />
-                  <span>{goal.targetDate}</span>
-                  {goal.progress === 100 && <Trophy size={14} className="text-yellow-500 ml-2" />}
-                </div>
+                    <div className="mt-4">
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span className={cx.muted}>Progress</span>
+                        <span className={`font-medium tabular-nums ${cx.text}`}>{goal.progress}%</span>
+                      </div>
+                      <ProgressBar value={goal.progress} color={done ? GOAL_MET : ACCENT} label={`${goal.title} progress`} />
+                    </div>
 
-                <div className="mt-4">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-500">Progress</span>
-                    <span className="dark:text-white text-gray-900 font-medium">{goal.progress}%</span>
-                  </div>
-                  <div className="h-2 w-full dark:bg-gray-800 bg-gray-200 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full ${goal.progress === 100 ? 'bg-gradient-to-r from-green-500 to-emerald-500' : 'bg-gradient-to-r from-blue-600 to-purple-600'}`}
-                      style={{ width: `${goal.progress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        ))}
-        
-        {/* Add Goal Placeholder */}
-        <div 
+                    <div className={`mt-4 pt-3 border-t ${cx.border}`}>
+                      <p className={`text-xs font-medium mb-1.5 ${cx.muted}`}>Aligned projects</p>
+                      {aligned.length ? (
+                        <ul className="space-y-0.5">
+                          {aligned.map((p) => (
+                            <li key={p.id}>
+                              <a href={`#project/${p.id}?tab=plan`} className={`flex items-center gap-2 px-1.5 py-1 -mx-1.5 rounded-md text-sm ${cx.hover} ${cx.text}`}>
+                                <FolderKanban size={16} style={{ color: projectColor(p) }} />
+                                <span className="flex-1 truncate">{p.title}</span>
+                                <span className={`text-xs tabular-nums ${cx.muted}`}>{p.progress ?? 0}%</span>
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className={`text-xs ${cx.faint}`}>No projects aligned yet — add “{goal.title}” as a strategic goal in a project’s plan.</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </Card>
+            );
+          })}
+
+          <button
             onClick={() => setShowAddModal(true)}
-            className="border border-dashed dark:border-gray-700 border-gray-400 rounded-xl p-6 flex flex-col items-center justify-center text-gray-500 hover:text-gray-800 dark:hover:text-white hover:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 cursor-pointer transition-all min-h-[180px]"
-        >
-           <Target size={32} className="mb-3 opacity-50" />
-           <p className="font-medium">Set a New Goal</p>
-        </div>
-      </div>
-
-      {/* Add Goal Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
-            <h3 className="text-xl font-bold dark:text-white text-gray-900 mb-6">Create New Goal</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Goal Title</label>
-                <input
-                  type="text"
-                  value={newGoal.title}
-                  onChange={(e) => setNewGoal({ ...newGoal, title: e.target.value })}
-                  placeholder="What do you want to achieve?"
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Category</label>
-                  <select
-                    value={newGoal.category}
-                    onChange={(e) => setNewGoal({ ...newGoal, category: e.target.value as Goal['category'] })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {categories.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Target Date</label>
-                  <input
-                    type="date"
-                    value={newGoal.targetDate}
-                    onChange={(e) => setNewGoal({ ...newGoal, targetDate: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Initial Progress: {newGoal.progress}%</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={newGoal.progress}
-                  onChange={(e) => setNewGoal({ ...newGoal, progress: parseInt(e.target.value) })}
-                  className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleAddGoal}
-                disabled={!newGoal.title.trim()}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors"
-              >
-                Create Goal
-              </button>
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setNewGoal({ title: '', targetDate: '', category: 'Personal', progress: 0 });
-                }}
-                className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+            className={`rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-4 min-h-[160px] flex flex-col items-center justify-center gap-2 text-sm ${cx.muted} hover:text-blue-600 dark:hover:text-blue-400 ${cx.hover} transition-colors`}
+          >
+            <span className="w-10 h-10 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center"><Plus size={20} /></span>
+            Set a new goal
+          </button>
         </div>
       )}
-    </div>
+
+      <Modal open={showAddModal} onClose={closeAdd} title="Create new goal">
+        <ModalBody>
+          <Field label="Goal title">
+            <input
+              type="text"
+              autoFocus
+              value={newGoal.title}
+              onChange={(e) => setNewGoal({ ...newGoal, title: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddGoal(); }}
+              placeholder="What do you want to achieve?"
+              className={inputCls}
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Category">
+              <select value={newGoal.category} onChange={(e) => setNewGoal({ ...newGoal, category: e.target.value as Goal['category'] })} className={inputCls}>
+                {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
+            </Field>
+            <Field label="Target date">
+              <input type="date" value={newGoal.targetDate} onChange={(e) => setNewGoal({ ...newGoal, targetDate: e.target.value })} className={inputCls} />
+            </Field>
+          </div>
+          <Field label={`Initial progress: ${newGoal.progress}%`}>
+            <input type="range" min="0" max="100" value={newGoal.progress} onChange={(e) => setNewGoal({ ...newGoal, progress: parseInt(e.target.value) })} className="w-full accent-blue-600 cursor-pointer" />
+          </Field>
+        </ModalBody>
+        <ModalFooter>
+          <button onClick={closeAdd} className={cx.btnGhost}>Cancel</button>
+          <button onClick={handleAddGoal} disabled={!newGoal.title.trim()} className={cx.btnPrimary}>Create goal</button>
+        </ModalFooter>
+      </Modal>
+    </PageShell>
   );
 };
 

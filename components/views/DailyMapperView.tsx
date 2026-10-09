@@ -6,10 +6,8 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Clock, 
-  Edit2, 
-  Trash2, 
-  X, 
-  Save,
+  Pencil,
+  Trash2,
   Check,
   XCircle,
   AlertCircle,
@@ -24,8 +22,12 @@ import {
   Home,
   Building2,
   MapPin,
-  ArrowUpDown
+  ArrowUpDown,
+  CalendarClock,
+  MessageSquare,
+  Zap
 } from 'lucide-react';
+import { PageShell, Modal, ModalBody, ModalFooter, Field, IconBtn, Empty, Badge, inputCls, cx, useTaskToast } from '../ui-kit';
 
 const DailyMapperView: React.FC = () => {
   const [entries, setEntries] = useState<DailyMapperEntry[]>([]);
@@ -37,6 +39,9 @@ const DailyMapperView: React.FC = () => {
   const [moveToDate, setMoveToDate] = useState('');
   const [editingEntry, setEditingEntry] = useState<DailyMapperEntry | null>(null);
   const [sortBy, setSortBy] = useState<'time' | 'location'>('time');
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyTarget, setCopyTarget] = useState('');
+  const toast = useTaskToast();
   const [formData, setFormData] = useState({
     startTime: '08:00',
     endTime: '08:30',
@@ -442,9 +447,16 @@ const DailyMapperView: React.FC = () => {
     setEntries(entries.map(e => e.id === entry.id ? updated : e));
   };
 
+  // "Copy day" asks for the target date in a dialog (was window.prompt).
+  const openCopyModal = () => {
+    setCopyTarget('');
+    setCopyOpen(true);
+  };
+
   const copyTodayToDate = async () => {
-    const targetDate = prompt('Copy today\'s schedule to date (YYYY-MM-DD):');
+    const targetDate = copyTarget;
     if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
+    setCopyOpen(false);
 
     for (const entry of todayEntries) {
       const newEntry: DailyMapperEntry = {
@@ -459,7 +471,7 @@ const DailyMapperView: React.FC = () => {
     }
     
     await loadEntries();
-    alert(`Copied ${todayEntries.length} entries to ${targetDate}`);
+    toast(`Copied ${todayEntries.length} entries to ${targetDate}`, { label: 'View', onClick: () => setSelectedDate(targetDate) });
   };
 
   // Move an entry to a different date
@@ -508,615 +520,517 @@ const DailyMapperView: React.FC = () => {
 
   const isToday = selectedDate === new Date().toISOString().split('T')[0];
 
+  const closeMoveModal = () => {
+    setShowMoveModal(null);
+    setMoveToDate('');
+  };
+
+  const statusTone = (status: 'yes' | 'no' | 'partial') =>
+    status === 'yes'
+      ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400'
+      : status === 'partial'
+      ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+      : 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400';
+
+  const choiceCls = (selected: boolean) =>
+    `flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+      selected
+        ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
+        : `${cx.border} ${cx.muted} ${cx.hover}`
+    }`;
+
   return (
-    <div className="p-8 h-full overflow-y-auto animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Daily To-Do Mapper</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Plan your day with time blocks, like a personal schedule.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button 
+    <PageShell
+      title="Daily To-Do Mapper"
+      subtitle="Plan your day with time blocks, like a personal schedule."
+      wide
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
             onClick={() => setSortBy(sortBy === 'time' ? 'location' : 'time')}
             title={`Sort by ${sortBy === 'time' ? 'location' : 'time'}`}
-            className="px-3 py-2 border dark:border-gray-700 border-gray-300 rounded-lg flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`}
           >
             <ArrowUpDown size={16} />
-            {sortBy === 'time' ? 'By Time' : 'By Location'}
+            <span className="hidden sm:inline">{sortBy === 'time' ? 'By time' : 'By location'}</span>
           </button>
-          <button 
+          <button
             onClick={() => setShowTemplatesModal(true)}
             title="Manage permanent todos"
-            className="px-3 py-2 border dark:border-gray-700 border-gray-300 rounded-lg flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`}
           >
-            <Star size={16} className="text-yellow-500" />
-            Permanents ({templates.length})
+            <Star size={16} className="text-amber-500" />
+            <span className="hidden sm:inline">Permanents</span>
+            <span className={`text-xs tabular-nums ${cx.muted}`}>{templates.length}</span>
           </button>
-          <button 
-            onClick={copyTodayToDate}
+          <button
+            onClick={openCopyModal}
             disabled={todayEntries.length === 0}
             title="Copy schedule to another day"
-            className="px-3 py-2 border dark:border-gray-700 border-gray-300 rounded-lg flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Copy day"
+            className={`inline-flex items-center gap-1.5 ${cx.btnGhost} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             <Copy size={16} />
-            Copy Day
+            <span className="hidden sm:inline">Copy day</span>
           </button>
-          <button 
-            onClick={() => openAddModal()}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium"
-          >
+          <button onClick={() => openAddModal()} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
             <Plus size={16} />
-            Add Time Block
+            Add time block
           </button>
         </div>
-      </div>
-
+      }
+    >
       {/* Date Navigation */}
-      <div className="flex items-center justify-between mb-6 dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-4">
-        <button 
-          onClick={() => navigateDay(-1)}
-          title="Previous day"
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-        >
-          <ChevronLeft size={20} className="text-gray-500" />
-        </button>
-        
-        <div className="flex items-center gap-4">
-          <div className="text-center">
-            <h3 className="text-lg font-bold dark:text-white text-gray-900">{formatDate(selectedDate)}</h3>
-            <div className="flex items-center justify-center gap-2">
-              {isToday && <span className="text-xs text-blue-500 font-medium">Today</span>}
-              <span className={`text-xs font-medium flex items-center gap-1 ${isWeekend(selectedDate) ? 'text-green-500' : 'text-purple-500'}`}>
-                {isWeekend(selectedDate) ? <Coffee size={12} /> : <Briefcase size={12} />}
-                {getDayTypeLabel(selectedDate)}
-              </span>
-            </div>
+      <div className={`flex items-center justify-between gap-2 mb-4 pb-3 border-b ${cx.border}`}>
+        <IconBtn label="Previous day" onClick={() => navigateDay(-1)}>
+          <ChevronLeft size={18} />
+        </IconBtn>
+
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
+          <h2 className={`text-base font-semibold ${cx.text}`}>{formatDate(selectedDate)}</h2>
+          <div className="flex items-center gap-2 text-xs">
+            {isToday && <Badge color="#2563EB">Today</Badge>}
+            <span className={`font-medium inline-flex items-center gap-1 ${cx.muted}`}>
+              {isWeekend(selectedDate) ? <Coffee size={12} /> : <Briefcase size={12} />}
+              {getDayTypeLabel(selectedDate)}
+            </span>
+            {!isToday && (
+              <button onClick={goToToday} className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                Go to today
+              </button>
+            )}
           </div>
-          {!isToday && (
-            <button
-              onClick={goToToday}
-              className="text-sm text-blue-500 hover:text-blue-600 font-medium"
-            >
-              Go to Today
-            </button>
-          )}
         </div>
 
-        <button 
-          onClick={() => navigateDay(1)}
-          title="Next day"
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-        >
-          <ChevronRight size={20} className="text-gray-500" />
-        </button>
+        <IconBtn label="Next day" onClick={() => navigateDay(1)}>
+          <ChevronRight size={18} />
+        </IconBtn>
       </div>
 
       {/* Stats Bar */}
       {todayEntries.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900/50 p-4 rounded-xl text-center">
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{completionStats.total}</p>
-            <p className="text-xs text-gray-500">Total Blocks</p>
-          </div>
-          <div className="bg-green-100 dark:bg-green-900/20 border border-green-200 dark:border-green-900/50 p-4 rounded-xl text-center">
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completionStats.completed}</p>
-            <p className="text-xs text-gray-500">Completed</p>
-          </div>
-          <div className="bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/50 p-4 rounded-xl text-center">
-            <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{completionStats.partial}</p>
-            <p className="text-xs text-gray-500">Partial</p>
-          </div>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <Stat value={completionStats.total} label="Total blocks" />
+          <Stat value={completionStats.completed} label="Completed" color="text-green-600 dark:text-green-400" />
+          <Stat value={completionStats.partial} label="Partial" color="text-amber-600 dark:text-amber-400" />
         </div>
       )}
 
       {/* Auto-moved entries indicator */}
       {isToday && todayEntries.some(e => e.adjustment?.includes('Auto-moved')) && (
-        <div className="mb-4 p-3 bg-purple-100 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg flex items-center gap-2">
-          <ArrowRight size={16} className="text-purple-500" />
-          <p className="text-sm text-purple-600 dark:text-purple-400">
+        <div className={`mb-4 px-3 py-2.5 rounded-lg border ${cx.border} bg-gray-50 dark:bg-white/[0.03] flex items-center gap-2`} role="status">
+          <ArrowRight size={16} className="text-blue-500 shrink-0" />
+          <p className={`text-sm ${cx.muted}`}>
             Some entries were automatically moved from previous days. Look for the "Auto-moved" note.
           </p>
         </div>
       )}
 
-      {/* Quick Add Presets */}
-      {todayEntries.length === 0 && (
-        <div className="mb-6 p-4 dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl">
-          <p className="text-sm text-gray-500 mb-3">Quick start with preset time slots:</p>
-          <div className="flex flex-wrap gap-2">
+      {/* Time Blocks List */}
+      {todayEntries.length === 0 ? (
+        <>
+          <Empty
+            icon={<Clock size={30} className={cx.muted} />}
+            title="No time blocks for this day"
+            subtitle={'Click "Add time block" to start planning your day, or start from a preset slot.'}
+          />
+          {/* Quick Add Presets */}
+          <div className="flex flex-wrap justify-center gap-2 -mt-6">
             {presetTimeSlots.map((slot, idx) => (
               <button
                 key={idx}
                 onClick={() => openAddModal(slot)}
-                className="px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                title={slot.label}
+                className={`px-2.5 py-1 text-xs rounded-md border ${cx.border} ${cx.muted} ${cx.hover} transition-colors`}
               >
-                {formatTime(slot.start)} - {formatTime(slot.end)}
+                {formatTime(slot.start)} – {formatTime(slot.end)}
               </button>
             ))}
           </div>
-        </div>
-      )}
+        </>
+      ) : (
+        <div className={`rounded-xl border ${cx.border} ${cx.card} overflow-hidden`}>
+          {todayEntries.map((entry) => (
+            <div key={entry.id} className={`group relative flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4 px-4 py-3 border-b last:border-b-0 ${cx.border} ${cx.hover} transition-colors`}>
+              {/* Colour bar (user colour) */}
+              <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full" style={{ backgroundColor: entry.color || '#3B82F6' }} aria-hidden />
 
-      {/* Time Blocks List */}
-      <div className="space-y-3">
-        {todayEntries.length === 0 ? (
-          <div className="text-center py-16 text-gray-500">
-            <Clock size={48} className="mx-auto mb-4 opacity-30" />
-            <p className="text-lg font-medium mb-2">No time blocks for this day</p>
-            <p className="text-sm">Click "Add Time Block" to start planning your day</p>
-          </div>
-        ) : (
-          todayEntries.map((entry) => (
-            <div 
-              key={entry.id} 
-              className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-4 hover:border-gray-400 dark:hover:border-gray-600 transition-colors group"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
-                {/* Time Column - horizontal on mobile, vertical on desktop */}
-                <div className="flex sm:flex-col items-center sm:items-start gap-2 sm:gap-0">
-                  <div 
-                    className="w-1 h-8 sm:h-full sm:min-h-[60px] rounded-full hidden sm:block"
-                    style={{ backgroundColor: entry.color || '#3B82F6' }}
-                  />
-                  <div 
-                    className="w-full h-1 sm:hidden rounded-full"
-                    style={{ backgroundColor: entry.color || '#3B82F6' }}
-                  />
-                </div>
-                
-                <div className="flex items-center sm:flex-col sm:items-center gap-2 sm:gap-0 flex-shrink-0 sm:text-center sm:min-w-[100px]">
-                  <p className="text-sm font-bold dark:text-white text-gray-900">
-                    {formatTime(entry.startTime)}
-                  </p>
-                  <p className="text-xs text-gray-500">to</p>
-                  <p className="text-sm font-bold dark:text-white text-gray-900">
-                    {formatTime(entry.endTime)}
-                  </p>
-                </div>
+              <div className="flex items-center sm:flex-col sm:items-start gap-1.5 sm:gap-0 shrink-0 sm:min-w-[84px] tabular-nums">
+                <p className={`text-sm font-semibold ${cx.text}`}>{formatTime(entry.startTime)}</p>
+                <p className={`text-xs ${cx.faint}`}><span className="sm:hidden">–</span><span className="hidden sm:inline">to</span></p>
+                <p className={`text-sm ${cx.muted}`}>{formatTime(entry.endTime)}</p>
+              </div>
 
-                {/* Task Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <h4 className="font-medium dark:text-white text-gray-900">{entry.task}</h4>
-                    {entry.location && (
-                      <span className="flex items-center gap-1 text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded-full">
-                        {getLocationIcon(entry.location)}
-                        {getLocationLabel(entry.location)}
-                      </span>
-                    )}
-                    {entry.isPermanent && entry.permanentType && (
-                      <span className="flex items-center gap-1 text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 rounded-full">
-                        {getPermanentTypeIcon(entry.permanentType)}
-                        {getPermanentTypeLabel(entry.permanentType)}
-                      </span>
-                    )}
-                  </div>
-                  {entry.comment && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-                      💬 {entry.comment}
-                    </p>
+              {/* Task Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className={`text-sm font-medium ${entry.completed === 'yes' ? 'line-through text-gray-400' : cx.text}`}>{entry.task}</h3>
+                  {entry.location && (
+                    <Badge>
+                      {getLocationIcon(entry.location)}
+                      {getLocationLabel(entry.location)}
+                    </Badge>
                   )}
-                  {entry.adjustment && (
-                    <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                      ⚡ Adjustment: {entry.adjustment}
-                    </p>
+                  {entry.isPermanent && entry.permanentType && (
+                    <Badge>
+                      {getPermanentTypeIcon(entry.permanentType)}
+                      {getPermanentTypeLabel(entry.permanentType)}
+                    </Badge>
                   )}
                 </div>
-
-                {/* Status & Actions - always visible on mobile, hover on desktop */}
-                <div className="flex items-center justify-between sm:justify-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-200 dark:border-gray-700">
-                  <button
-                    onClick={() => toggleCompletion(entry)}
-                    title={`Status: ${getCompletionLabel(entry.completed)} - Click to change`}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      entry.completed === 'yes' 
-                        ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' 
-                        : entry.completed === 'partial'
-                        ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400'
-                        : 'bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400'
-                    }`}
-                  >
-                    {getCompletionIcon(entry.completed)}
-                    <span className="hidden xs:inline">{getCompletionLabel(entry.completed)}</span>
-                  </button>
-
-                  <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => {
-                        setShowMoveModal(entry.id);
-                        setMoveToDate(new Date().toISOString().split('T')[0]);
-                      }}
-                      title="Move to another date"
-                      className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-purple-500 transition-colors"
-                    >
-                      <ArrowRight size={14} />
-                    </button>
-                    <button
-                      onClick={() => openEditModal(entry)}
-                      title="Edit time block"
-                      className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-blue-500 transition-colors"
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(entry.id)}
-                      title="Delete time block"
-                      className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Add/Edit Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold dark:text-white text-gray-900">
-                {editingEntry ? 'Edit Time Block' : 'New Time Block'}
-              </h3>
-              <button 
-                onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Time Range */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">Start Time *</label>
-                  <input
-                    type="time"
-                    value={formData.startTime}
-                    onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">End Time *</label>
-                  <input
-                    type="time"
-                    value={formData.endTime}
-                    onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                    className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Task */}
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Task / Activity *</label>
-                <input
-                  type="text"
-                  value={formData.task}
-                  onChange={(e) => setFormData({ ...formData, task: e.target.value })}
-                  placeholder="e.g., Subhi Prayer, Morning Workout, Deep Work..."
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Completion Status */}
-              <div>
-                <label className="block text-sm text-gray-500 mb-2">Completion Status</label>
-                <div className="flex gap-2">
-                  {(['no', 'partial', 'yes'] as const).map((status) => (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, completed: status })}
-                      className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                        formData.completed === status
-                          ? status === 'yes' 
-                            ? 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-600 dark:text-green-400'
-                            : status === 'partial'
-                            ? 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 text-yellow-600 dark:text-yellow-400'
-                            : 'bg-red-100 dark:bg-red-900/30 border-red-500 text-red-500 dark:text-red-400'
-                          : 'dark:border-gray-700 border-gray-300 dark:text-gray-400 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      {getCompletionIcon(status)}
-                      {status === 'yes' ? 'Yes' : status === 'partial' ? 'Partial' : 'No'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Comment */}
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Comment (optional)</label>
-                <textarea
-                  value={formData.comment}
-                  onChange={(e) => setFormData({ ...formData, comment: e.target.value })}
-                  placeholder="Notes about how it went..."
-                  rows={2}
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-
-              {/* Adjustment */}
-              <div>
-                <label className="block text-sm text-gray-500 mb-1">Adjustment (optional)</label>
-                <input
-                  type="text"
-                  value={formData.adjustment}
-                  onChange={(e) => setFormData({ ...formData, adjustment: e.target.value })}
-                  placeholder="e.g., Moved to 6:00 AM, Skipped due to rain..."
-                  className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Location */}
-              <div>
-                <label className="block text-sm text-gray-500 mb-2">Location</label>
-                <div className="flex gap-2">
-                  {(['home', 'work', 'other'] as const).map((loc) => (
-                    <button
-                      key={loc}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, location: loc })}
-                      className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                        formData.location === loc
-                          ? loc === 'home'
-                            ? 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-600 dark:text-green-400'
-                            : loc === 'work'
-                            ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-600 dark:text-blue-400'
-                            : 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-600 dark:text-purple-400'
-                          : 'dark:border-gray-700 border-gray-300 dark:text-gray-400 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      {loc === 'home' ? <Home size={14} /> : loc === 'work' ? <Building2 size={14} /> : <MapPin size={14} />}
-                      {loc === 'home' ? 'Home' : loc === 'work' ? 'Work' : 'Other'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Color */}
-              <div>
-                <label className="block text-sm text-gray-500 mb-2">Color</label>
-                <div className="flex gap-2">
-                  {colors.map(color => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, color })}
-                      title={`Select color`}
-                      className={`w-8 h-8 rounded-full transition-all ${
-                        formData.color === color ? 'ring-2 ring-offset-2 ring-offset-midnight-light ring-white scale-110' : ''
-                      }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Make Permanent */}
-              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <input
-                    type="checkbox"
-                    id="makePermanent"
-                    checked={formData.makePermanent}
-                    onChange={(e) => setFormData({ ...formData, makePermanent: e.target.checked })}
-                    className="w-4 h-4 rounded border-gray-300 text-yellow-500 focus:ring-yellow-500"
-                  />
-                  <label htmlFor="makePermanent" className="text-sm font-medium dark:text-white text-gray-900 flex items-center gap-2">
-                    <Star size={16} className="text-yellow-500" />
-                    Make this a permanent todo
-                  </label>
-                </div>
-                
-                {formData.makePermanent && (
-                  <div className="ml-7 space-y-2">
-                    <p className="text-xs text-gray-500 mb-2">This task will automatically appear on:</p>
-                    <div className="flex gap-2">
-                      {(['daily', 'workday', 'weekend'] as const).map((type) => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setFormData({ ...formData, permanentType: type })}
-                          className={`flex-1 py-2 px-3 rounded-lg border text-xs font-medium transition-colors flex items-center justify-center gap-1.5 ${
-                            formData.permanentType === type
-                              ? type === 'daily'
-                                ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-600 dark:text-purple-400'
-                                : type === 'workday'
-                                ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-600 dark:text-blue-400'
-                                : 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-600 dark:text-green-400'
-                              : 'dark:border-gray-700 border-gray-300 dark:text-gray-400 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800'
-                          }`}
-                        >
-                          {type === 'daily' ? <RefreshCw size={14} /> : type === 'workday' ? <Briefcase size={14} /> : <Coffee size={14} />}
-                          {type === 'daily' ? 'Every Day' : type === 'workday' ? 'Workdays' : 'Weekends'}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-1">
-                      {formData.permanentType === 'daily' && 'This task will appear every day (Mon-Sun)'}
-                      {formData.permanentType === 'workday' && 'This task will appear on workdays only (Mon-Fri)'}
-                      {formData.permanentType === 'weekend' && 'This task will appear on weekends only (Sat-Sun)'}
-                    </p>
-                  </div>
+                {entry.comment && (
+                  <p className={`text-xs mt-1 flex items-start gap-1.5 ${cx.muted}`}>
+                    <MessageSquare size={12} className="mt-0.5 shrink-0" />
+                    <span>{entry.comment}</span>
+                  </p>
+                )}
+                {entry.adjustment && (
+                  <p className="text-xs mt-1 flex items-start gap-1.5 text-amber-700 dark:text-amber-400">
+                    <Zap size={12} className="mt-0.5 shrink-0" />
+                    <span>Adjustment: {entry.adjustment}</span>
+                  </p>
                 )}
               </div>
-            </div>
 
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleSave}
-                disabled={!formData.task.trim() || !formData.startTime || !formData.endTime}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                <Save size={18} />
-                {editingEntry ? 'Update Block' : 'Add Block'}
-              </button>
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
+              {/* Status & Actions - always visible on touch, hover on desktop */}
+              <div className="flex items-center justify-between sm:justify-end gap-2">
+                <button
+                  onClick={() => toggleCompletion(entry)}
+                  title={`Status: ${getCompletionLabel(entry.completed)} - Click to change`}
+                  aria-label={`Status: ${getCompletionLabel(entry.completed)}. Click to change`}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${statusTone(entry.completed)}`}
+                >
+                  {getCompletionIcon(entry.completed)}
+                  <span>{getCompletionLabel(entry.completed)}</span>
+                </button>
+
+                <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+                  <IconBtn
+                    label="Move to another date"
+                    onClick={() => {
+                      setShowMoveModal(entry.id);
+                      setMoveToDate(new Date().toISOString().split('T')[0]);
+                    }}
+                  >
+                    <CalendarClock size={16} />
+                  </IconBtn>
+                  <IconBtn label="Edit time block" onClick={() => openEditModal(entry)}>
+                    <Pencil size={16} />
+                  </IconBtn>
+                  <IconBtn label="Delete time block" danger onClick={() => handleDelete(entry.id)}>
+                    <Trash2 size={16} />
+                  </IconBtn>
+                </div>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
       )}
 
-      {/* Move to Date Modal */}
-      {showMoveModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-sm shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold dark:text-white text-gray-900 flex items-center gap-2">
-                <ArrowRight size={20} className="text-purple-500" />
-                Move to Date
-              </h3>
-              <button 
-                onClick={() => {
-                  setShowMoveModal(null);
-                  setMoveToDate('');
-                }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
-              >
-                <X size={20} />
-              </button>
+      {/* Add/Edit Modal */}
+      <Modal open={showModal} onClose={() => setShowModal(false)} title={editingEntry ? 'Edit time block' : 'New time block'}>
+        <form
+          className="flex flex-col min-h-0"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!formData.task.trim() || !formData.startTime || !formData.endTime) return;
+            handleSave();
+          }}
+        >
+          <ModalBody>
+            {/* Time Range */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Start time *">
+                <input
+                  type="time"
+                  value={formData.startTime}
+                  onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="End time *">
+                <input
+                  type="time"
+                  value={formData.endTime}
+                  onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                  className={inputCls}
+                />
+              </Field>
             </div>
-            
-            <p className="text-sm text-gray-500 mb-4">
+
+            <Field label="Task / activity *">
+              <input
+                type="text"
+                value={formData.task}
+                onChange={(e) => setFormData({ ...formData, task: e.target.value })}
+                placeholder="e.g., Subhi Prayer, Morning Workout, Deep Work..."
+                className={inputCls}
+                autoFocus
+              />
+            </Field>
+
+            <div role="radiogroup" aria-label="Completion status">
+              <span className={`block text-xs font-medium mb-1.5 ${cx.muted}`}>Completion status</span>
+              <div className="flex gap-2">
+                {(['no', 'partial', 'yes'] as const).map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    role="radio"
+                    aria-checked={formData.completed === status}
+                    onClick={() => setFormData({ ...formData, completed: status })}
+                    className={choiceCls(formData.completed === status)}
+                  >
+                    {getCompletionIcon(status)}
+                    {status === 'yes' ? 'Yes' : status === 'partial' ? 'Partial' : 'No'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <Field label="Comment (optional)">
+              <textarea
+                value={formData.comment}
+                onChange={(e) => setFormData({ ...formData, comment: e.target.value })}
+                placeholder="Notes about how it went..."
+                rows={2}
+                className={`${inputCls} resize-none`}
+              />
+            </Field>
+
+            <Field label="Adjustment (optional)">
+              <input
+                type="text"
+                value={formData.adjustment}
+                onChange={(e) => setFormData({ ...formData, adjustment: e.target.value })}
+                placeholder="e.g., Moved to 6:00 AM, Skipped due to rain..."
+                className={inputCls}
+              />
+            </Field>
+
+            <div role="radiogroup" aria-label="Location">
+              <span className={`block text-xs font-medium mb-1.5 ${cx.muted}`}>Location</span>
+              <div className="flex gap-2">
+                {(['home', 'work', 'other'] as const).map((loc) => (
+                  <button
+                    key={loc}
+                    type="button"
+                    role="radio"
+                    aria-checked={formData.location === loc}
+                    onClick={() => setFormData({ ...formData, location: loc })}
+                    className={choiceCls(formData.location === loc)}
+                  >
+                    {loc === 'home' ? <Home size={16} /> : loc === 'work' ? <Building2 size={16} /> : <MapPin size={16} />}
+                    {loc === 'home' ? 'Home' : loc === 'work' ? 'Work' : 'Other'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div role="radiogroup" aria-label="Color">
+              <span className={`block text-xs font-medium mb-1.5 ${cx.muted}`}>Color</span>
+              <div className="flex flex-wrap gap-2">
+                {colors.map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    role="radio"
+                    aria-checked={formData.color === color}
+                    onClick={() => setFormData({ ...formData, color })}
+                    title={`Color ${color}`}
+                    aria-label={`Color ${color}`}
+                    className={`w-7 h-7 rounded-full transition-all flex items-center justify-center ${
+                      formData.color === color ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-[#0F1219] ring-gray-400 dark:ring-gray-500' : ''
+                    }`}
+                    style={{ backgroundColor: color }}
+                  >
+                    {formData.color === color ? <Check size={14} className="text-white" /> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Make Permanent */}
+            <div className={`p-3 rounded-lg border ${cx.border} bg-gray-50 dark:bg-white/[0.03]`}>
+              <label htmlFor="makePermanent" className={`flex items-center gap-2.5 text-sm font-medium cursor-pointer ${cx.text}`}>
+                <input
+                  type="checkbox"
+                  id="makePermanent"
+                  checked={formData.makePermanent}
+                  onChange={(e) => setFormData({ ...formData, makePermanent: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 accent-blue-600"
+                />
+                <Star size={16} className="text-amber-500" />
+                Make this a permanent todo
+              </label>
+
+              {formData.makePermanent && (
+                <div className="mt-3 space-y-2">
+                  <p className={`text-xs ${cx.muted}`}>This task will automatically appear on:</p>
+                  <div className="flex gap-2" role="radiogroup" aria-label="Repeats on">
+                    {(['daily', 'workday', 'weekend'] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        role="radio"
+                        aria-checked={formData.permanentType === type}
+                        onClick={() => setFormData({ ...formData, permanentType: type })}
+                        className={`${choiceCls(formData.permanentType === type)} !text-xs`}
+                      >
+                        {type === 'daily' ? <RefreshCw size={14} /> : type === 'workday' ? <Briefcase size={14} /> : <Coffee size={14} />}
+                        {type === 'daily' ? 'Every Day' : type === 'workday' ? 'Workdays' : 'Weekends'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className={`text-xs ${cx.faint}`}>
+                    {formData.permanentType === 'daily' && 'This task will appear every day (Mon-Sun)'}
+                    {formData.permanentType === 'workday' && 'This task will appear on workdays only (Mon-Fri)'}
+                    {formData.permanentType === 'weekend' && 'This task will appear on weekends only (Sat-Sun)'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </ModalBody>
+
+          <ModalFooter>
+            <button type="button" onClick={() => setShowModal(false)} className={cx.btnGhost}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!formData.task.trim() || !formData.startTime || !formData.endTime}
+              className={cx.btnPrimary}
+            >
+              {editingEntry ? 'Save' : 'Add block'}
+            </button>
+          </ModalFooter>
+        </form>
+      </Modal>
+
+      {/* Move to Date Modal */}
+      <Modal open={!!showMoveModal} onClose={closeMoveModal} title="Move to date">
+        <form
+          className="flex flex-col min-h-0"
+          onSubmit={(e) => { e.preventDefault(); if (showMoveModal) handleMoveToDate(showMoveModal); }}
+        >
+          <ModalBody>
+            <p className={`text-sm ${cx.muted}`}>
               Select a new date for this time block. The entry will be moved and marked with an adjustment note.
             </p>
-
-            <div className="mb-4">
-              <label className="block text-sm text-gray-500 mb-1">New Date</label>
+            <Field label="New date">
               <input
                 type="date"
                 value={moveToDate}
                 onChange={(e) => setMoveToDate(e.target.value)}
                 min={new Date().toISOString().split('T')[0]}
-                className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className={inputCls}
               />
-            </div>
+            </Field>
+          </ModalBody>
+          <ModalFooter>
+            <button type="button" onClick={closeMoveModal} className={cx.btnGhost}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!moveToDate} className={cx.btnPrimary}>
+              Move entry
+            </button>
+          </ModalFooter>
+        </form>
+      </Modal>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleMoveToDate(showMoveModal)}
-                disabled={!moveToDate}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                <ArrowRight size={16} />
-                Move Entry
-              </button>
-              <button
-                onClick={() => {
-                  setShowMoveModal(null);
-                  setMoveToDate('');
-                }}
-                className="px-4 py-2.5 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Copy Day Modal */}
+      <Modal open={copyOpen} onClose={() => setCopyOpen(false)} title="Copy day">
+        <form
+          className="flex flex-col min-h-0"
+          onSubmit={(e) => { e.preventDefault(); void copyTodayToDate(); }}
+        >
+          <ModalBody>
+            <p className={`text-sm ${cx.muted}`}>
+              Copy the {todayEntries.length} time block{todayEntries.length === 1 ? '' : 's'} on {formatDate(selectedDate)} to another day. Status, comments and adjustments are reset.
+            </p>
+            <Field label="Copy to date">
+              <input
+                type="date"
+                value={copyTarget}
+                onChange={(e) => setCopyTarget(e.target.value)}
+                className={inputCls}
+                autoFocus
+              />
+            </Field>
+          </ModalBody>
+          <ModalFooter>
+            <button type="button" onClick={() => setCopyOpen(false)} className={cx.btnGhost}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!/^\d{4}-\d{2}-\d{2}$/.test(copyTarget)} className={cx.btnPrimary}>
+              Copy
+            </button>
+          </ModalFooter>
+        </form>
+      </Modal>
 
       {/* Manage Permanent Templates Modal */}
-      {showTemplatesModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold dark:text-white text-gray-900 flex items-center gap-2">
-                <Star size={20} className="text-yellow-500" />
-                Permanent Todos
-              </h3>
-              <button 
-                onClick={() => setShowTemplatesModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            <p className="text-sm text-gray-500 mb-4">
-              These tasks are automatically added to your daily schedule based on their type.
-            </p>
+      <Modal open={showTemplatesModal} onClose={() => setShowTemplatesModal(false)} title="Permanent todos">
+        <ModalBody className="!space-y-3">
+          <p className={`text-sm ${cx.muted}`}>
+            These tasks are automatically added to your daily schedule based on their type.
+          </p>
 
-            <div className="flex-1 overflow-y-auto">
-              {templates.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Star size={32} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No permanent todos yet</p>
-                  <p className="text-xs mt-1">Create one by checking "Make permanent" when adding a time block</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Group by type */}
-                  {(['daily', 'workday', 'weekend'] as const).map((type) => {
-                    const typeTemplates = templates.filter(t => t.permanentType === type);
-                    if (typeTemplates.length === 0) return null;
-                    
-                    return (
-                      <div key={type} className="mb-4">
-                        <h4 className={`text-xs font-medium uppercase tracking-wider mb-2 flex items-center gap-2 ${
-                          type === 'daily' ? 'text-purple-500' : type === 'workday' ? 'text-blue-500' : 'text-green-500'
-                        }`}>
-                          {type === 'daily' ? <RefreshCw size={12} /> : type === 'workday' ? <Briefcase size={12} /> : <Coffee size={12} />}
-                          {type === 'daily' ? 'Every Day' : type === 'workday' ? 'Workdays (Mon-Fri)' : 'Weekends (Sat-Sun)'}
-                        </h4>
-                        <div className="space-y-2">
-                          {typeTemplates.map((template) => (
-                            <div 
-                              key={template.id}
-                              className="flex items-center gap-3 p-3 dark:bg-gray-800/50 bg-gray-50 rounded-lg group"
-                            >
-                              <div 
-                                className="w-1 h-10 rounded-full flex-shrink-0"
-                                style={{ backgroundColor: template.color || '#3B82F6' }}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium dark:text-white text-gray-900 text-sm truncate">{template.task}</p>
-                                <p className="text-xs text-gray-500">
-                                  {formatTime(template.startTime)} - {formatTime(template.endTime)}
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => handleDeleteTemplate(template.id)}
-                                title="Remove permanent todo"
-                                className="p-1.5 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
+          {templates.length === 0 ? (
+            <Empty
+              icon={<Star size={30} className={cx.muted} />}
+              title="No permanent todos yet"
+              subtitle={'Create one by checking "Make permanent" when adding a time block.'}
+            />
+          ) : (
+            (['daily', 'workday', 'weekend'] as const).map((type) => {
+              const typeTemplates = templates.filter(t => t.permanentType === type);
+              if (typeTemplates.length === 0) return null;
+
+              return (
+                <section key={type}>
+                  <h3 className={`text-xs font-semibold mb-1 pb-1.5 border-b ${cx.border} flex items-center gap-1.5 ${cx.text}`}>
+                    {type === 'daily' ? <RefreshCw size={12} className={cx.muted} /> : type === 'workday' ? <Briefcase size={12} className={cx.muted} /> : <Coffee size={12} className={cx.muted} />}
+                    {type === 'daily' ? 'Every Day' : type === 'workday' ? 'Workdays (Mon-Fri)' : 'Weekends (Sat-Sun)'}
+                  </h3>
+                  {typeTemplates.map((template) => (
+                    <div key={template.id} className={`group flex items-center gap-3 py-2 px-1 border-b ${cx.border}`}>
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: template.color || '#3B82F6' }} aria-hidden />
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm truncate ${cx.text}`}>{template.task}</p>
+                        <p className={`text-xs ${cx.muted}`}>
+                          {formatTime(template.startTime)} - {formatTime(template.endTime)}
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 pt-4 border-t dark:border-gray-700 border-gray-200">
-              <button
-                onClick={() => setShowTemplatesModal(false)}
-                className="w-full py-2.5 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors font-medium"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+                      <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+                        <IconBtn label="Remove permanent todo" danger onClick={() => handleDeleteTemplate(template.id)}>
+                          <Trash2 size={16} />
+                        </IconBtn>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              );
+            })
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <button onClick={() => setShowTemplatesModal(false)} className={cx.btnGhost}>
+            Close
+          </button>
+        </ModalFooter>
+      </Modal>
+    </PageShell>
   );
 };
+
+function Stat({ value, label, color }: { value: number; label: string; color?: string }) {
+  return (
+    <div className={`rounded-xl border ${cx.border} ${cx.card} px-4 py-3`}>
+      <p className={`text-xl font-semibold tabular-nums ${color ?? cx.text}`}>{value}</p>
+      <p className={`text-xs ${cx.muted}`}>{label}</p>
+    </div>
+  );
+}
 
 export default DailyMapperView;

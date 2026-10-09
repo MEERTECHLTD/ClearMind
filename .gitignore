@@ -32,3 +32,21 @@ dist-ssr
 
 # Agent runtime local build output
 dist-agent/
+
+# Credentials — never commit (mobile has its own list in apps/mobile/.gitignore)
+google-services.json
+GoogleService-Info.plist
+service-account*.json
+*-firebase-adminsdk-*.json
+credentials.json
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pem
+.env.*
+!.env.example
+.claude/worktrees/
+# Playwright
+test-results/
+playwright-report/

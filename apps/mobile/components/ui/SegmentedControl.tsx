@@ -18,13 +18,15 @@ export function SegmentedControl<T extends string = string>({
   className?: string;
 }) {
   return (
-    <View className={`flex-row bg-midnight-light rounded-full p-1 border border-hairline ${className}`}>
+    <View className={`flex-row bg-midnight-light rounded-full p-1 border border-line ${className}`}>
       {segments.map((s) => {
         const sel = s.value === value;
         return (
           <Pressable
             key={s.value}
             onPress={() => onChange(s.value)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: sel }}
             className={`flex-1 items-center py-2 rounded-full ${sel ? 'bg-accent' : ''} active:opacity-80`}
           >
             <Text numberOfLines={1} className={`text-sm font-semibold ${sel ? 'text-white' : 'text-ink-muted'}`}>{s.label}</Text>

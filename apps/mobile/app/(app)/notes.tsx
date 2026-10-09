@@ -4,10 +4,10 @@
  * strip, backlink counts. Opens notes in note/[id]; graph in notes-graph.
  * Accepts a `q` route param (e.g. `tag:#idea` from a tapped tag).
  */
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, TextInput, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { FileText, Search, X, NotebookPen, Network, CalendarDays, Star, ArrowUpDown, Link as LinkIcon, Trash2, Folder } from 'lucide-react-native';
+import { FileText, Search, X, NotebookPen, Network, Workflow, CalendarDays, Star, ArrowUpDown, Link as LinkIcon, Trash2, Folder } from 'lucide-react-native';
 import type { Note } from '@clearmind/shared';
 import { searchVault, excerpt } from '@clearmind/shared/notes';
 import { Screen, AppHeader, Fab, EmptyState, Spinner, SegmentedControl, ActionMenu, useToast, type MenuAction } from '../../components/ui';
@@ -152,22 +152,19 @@ export default function NotesScreen() {
     <Screen padded={false}>
       <AppHeader
         title="Notes"
+        onBack={null}
         subtitle={`${notes.length} note${notes.length === 1 ? '' : 's'} · linked thinking`}
-        right={
-          <>
-            <Pressable onPress={today} hitSlop={8} className="p-2 active:opacity-60" accessibilityRole="button" accessibilityLabel="Open today's daily note">
-              <CalendarDays size={22} color={T.ink} />
-            </Pressable>
-            <Pressable onPress={() => router.push('/(app)/notes-graph')} hitSlop={8} className="p-2 -mr-2 active:opacity-60" accessibilityRole="button" accessibilityLabel="Graph view">
-              <Network size={22} color={T.ink} />
-            </Pressable>
-          </>
-        }
       />
+      {/* Labelled entry points (Obsidian-style graph, mind maps, daily note) — not hidden behind look-alike icons. */}
+      <View className="flex-row px-4 pb-2 gap-2">
+        <QuickChip icon={<Network size={16} color={T.accent} />} label="Graph view" onPress={() => router.push('/(app)/notes-graph')} />
+        <QuickChip icon={<Workflow size={16} color={T.accent} />} label="Mind maps" onPress={() => router.push('/(app)/mindmap')} />
+        <QuickChip icon={<CalendarDays size={16} color={T.accent} />} label="Today's note" onPress={today} />
+      </View>
 
       {notes.length === 0 ? (
         <EmptyState
-          icon={<NotebookPen size={40} color={T.accent} />}
+          icon={<NotebookPen size={34} color={T.accent} />}
           title="Your vault is empty"
           subtitle="Write a note, link ideas with [[double brackets]] and tag them with #tags — they’ll grow into a graph."
           ctaTitle="New note"
@@ -250,6 +247,15 @@ function NoteRow({ note, match, tags, backlinks, onPress, onLongPress }: {
           ) : null}
         </View>
       ) : null}
+    </Pressable>
+  );
+}
+
+function QuickChip({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} className="flex-row items-center px-3 py-2 rounded-full bg-midnight-light border border-line active:opacity-70" accessibilityRole="button" accessibilityLabel={label}>
+      {icon}
+      <Text className="text-ink text-[13px] font-semibold ml-1.5">{label}</Text>
     </Pressable>
   );
 }

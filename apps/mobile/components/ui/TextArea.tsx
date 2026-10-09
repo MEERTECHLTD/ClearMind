@@ -16,7 +16,7 @@ export function TextArea({
         textAlignVertical="top"
         placeholderTextColor={T.faint}
         style={{ minHeight }}
-        className="bg-midnight-light text-ink rounded-2xl px-4 py-3.5 text-base border border-hairline"
+        className="bg-midnight-light text-ink rounded-2xl px-4 py-3.5 text-base border border-line"
         {...props}
       />
     </View>

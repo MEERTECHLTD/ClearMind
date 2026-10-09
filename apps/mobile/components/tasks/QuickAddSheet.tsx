@@ -1,7 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { CalendarDays, Flag, Hash, Tag, Inbox, ArrowUp, X, Repeat, FileText, Check } from 'lucide-react-native';
+import { CalendarDays, Flag, Hash, Tag, Inbox, ArrowUp, X, Repeat, FileText, Check, Mic, MicOff
+} from 'lucide-react-native';
 import type { Label, Project, TaskPriority } from '@clearmind/shared';
 import { parseQuickAdd, formatDueDate, formatTime, describeRecurrence, priorityOf } from '@clearmind/shared/tasks';
 import { Sheet } from '../ui/Sheet';
@@ -12,6 +13,8 @@ import {
 } from '../../services/taskActions';
 import { T } from '../../lib/theme';
 
+import { useVoiceInput } from './useVoiceInput';
+
 export interface QuickAddDefaults {
   projectId?: string | null;
   /** Add into this section (kept only while the project stays the same). */
@@ -20,6 +23,9 @@ export interface QuickAddDefaults {
   parentId?: string | null;
   labelIds?: string[];
   priority?: TaskPriority;
+  /** Pre-filled text — used by tools that turn something into a task (rant, log, application, mind-map node…). */
+  title?: string;
+  description?: string;
 }
 
 type Picker = null | 'date' | 'priority' | 'project' | 'labels';
@@ -73,13 +79,26 @@ export function QuickAddSheet({
   const [added, setAdded] = useState<string | null>(null);
   const submitting = useRef(false);
   const input = useRef<TextInput>(null);
+  // Voice: text before the mic was tapped + the live transcript.
+  const voiceBase = useRef('');
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voice = useVoiceInput(
+    (t) => setText(voiceBase.current ? `${voiceBase.current} ${t}` : t),
+    setVoiceError,
+  );
+  const toggleVoice = () => {
+    setVoiceError(null);
+    if (voice.state === 'listening') { voice.stop(); return; }
+    voiceBase.current = text.trim();
+    void voice.start();
+  };
 
   // Reset when (re)opened.
   const [wasVisible, setWasVisible] = useState(false);
   if (visible !== wasVisible) {
     setWasVisible(visible);
     if (visible) {
-      setText(''); setDescription(''); setShowDesc(false); setIgnore([]); setSchedule(null);
+      setText(defaults.title ?? ''); setDescription(defaults.description ?? ''); setShowDesc(!!defaults.description); setIgnore([]); setSchedule(null);
       setPriority(null); setProjectId(undefined); setLabelIds(null); setAdded(null);
     }
   }
@@ -135,7 +154,7 @@ export function QuickAddSheet({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       const where = resolved.projectId ? projectById.get(resolved.projectId)?.title ?? newProjectName ?? 'project' : 'Inbox';
       setAdded(`Added “${parsed.title}” to ${defaults.parentId ? 'subtasks' : where}`);
-      setText(''); setDescription(''); setShowDesc(false); setIgnore([]); setSchedule(null);
+      setText(defaults.title ?? ''); setDescription(defaults.description ?? ''); setShowDesc(!!defaults.description); setIgnore([]); setSchedule(null);
       setPriority(null); setProjectId(undefined); setLabelIds(null);
       input.current?.focus();
     } finally {
@@ -156,20 +175,41 @@ export function QuickAddSheet({
 
   return (
     <Sheet visible={visible} onClose={onClose}>
-      <TextInput
-        ref={input}
-        value={text}
-        onChangeText={(v) => { setText(v); if (added) setAdded(null); }}
-        placeholder={defaults.parentId ? 'Subtask name' : 'e.g. Call Sam tomorrow 4pm p1 #Work'}
-        placeholderTextColor={T.faint}
-        className="text-ink text-[17px] py-2"
-        autoFocus
-        multiline={false}
-        returnKeyType="done"
-        blurOnSubmit={false}
-        onSubmitEditing={submit}
-        accessibilityLabel="Task name"
-      />
+      <View className="flex-row items-center">
+        <View className="flex-1">
+        <TextInput
+          ref={input}
+          value={text}
+          onChangeText={(v) => { setText(v); if (added) setAdded(null); }}
+          placeholder={defaults.parentId ? 'Subtask name' : 'e.g. Call Sam tomorrow 4pm p1 #Work'}
+          placeholderTextColor={T.faint}
+          className="text-ink text-[17px] py-2"
+          autoFocus
+          multiline={false}
+          returnKeyType="done"
+          blurOnSubmit={false}
+          onSubmitEditing={submit}
+          accessibilityLabel="Task name"
+        />
+        </View>
+        {voice.state !== 'unavailable' ? (
+          <Pressable
+            onPress={toggleVoice}
+            hitSlop={8}
+            className={`ml-2 w-10 h-10 rounded-full items-center justify-center ${voice.state === 'listening' ? 'bg-red-500' : 'bg-midnight-lighter'} active:opacity-80`}
+            accessibilityRole="button"
+            accessibilityLabel={voice.state === 'listening' ? 'Stop voice input' : 'Add by voice'}
+            accessibilityState={{ selected: voice.state === 'listening' }}
+          >
+            {voice.state === 'listening' ? <MicOff size={18} color="#fff" /> : <Mic size={18} color={C.accent} />}
+          </Pressable>
+        ) : null}
+      </View>
+      {voice.state === 'listening' ? (
+        <Text className="text-xs mb-1" style={{ color: C.danger }} accessibilityLiveRegion="polite">Listening… try “remind me to call Sam tomorrow at 5pm”</Text>
+      ) : voiceError ? (
+        <Text className="text-xs mb-1" style={{ color: C.danger }} accessibilityLiveRegion="polite">{voiceError}</Text>
+      ) : null}
       {showDesc ? (
         <TextInput
           value={description}
