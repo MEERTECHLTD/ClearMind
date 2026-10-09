@@ -163,6 +163,27 @@ export function parseQuickAdd(input: string, ctx: QuickAddContext = {}): QuickAd
     return true;
   });
 
+  // ---- Spoken reminders (voice input): "remind me 30 minutes before",
+  // "remind me at 5pm", and a leading "remind me to …" (= remind at the due time).
+  let remindAtDue = false;
+  if (smart) {
+    const AMPM = '(am|pm|a\\.m\\.|p\\.m\\.)';
+    take('reminder', `(?:and\\s+)?remind\\s+me\\s+(\\d+|an?|one)\\s*(minutes?|mins?|hours?|hrs?)\\s+(?:before|earlier|ahead)`, (m) => {
+      const n = /^(an?|one)$/i.test(m[1]) ? 1 : Number(m[1]);
+      result.reminders.push({ minutesBefore: /^h/i.test(m[2]) ? n * 60 : n });
+      return n > 0;
+    });
+    take('reminder', `(?:and\\s+)?(?:remind\\s+me|reminder)\\s+at\\s+(\\d{1,2})(?::(\\d{2}))?\\s*${AMPM}?`, (m) => {
+      let h = Number(m[1]);
+      const min = Number(m[2] ?? 0);
+      if (m[3]) { const pm = /p/i.test(m[3]); if (h < 1 || h > 12) return false; h = h === 12 ? (pm ? 12 : 0) : pm ? h + 12 : h; }
+      if (h > 23 || min > 59) return false;
+      result.reminders.push({ time: `${pad(h)}:${pad(min)}` });
+      return true;
+    });
+    take('reminder', `remind\\s+me\\s+to`, () => { remindAtDue = true; return true; });
+  }
+
   // ---- Duration: "for 45 min", "for 2h" ----
   if (smart) take('duration', `for\\s+(\\d+(?:\\.\\d+)?)\\s*(m|min|mins|minutes?|h|hr|hrs|hours?)`, (m) => {
     const n = Number(m[1]);
@@ -273,6 +294,8 @@ export function parseQuickAdd(input: string, ctx: QuickAddContext = {}): QuickAd
   }
   title += input.slice(cursor);
   result.title = title.replace(/\s+/g, ' ').trim();
+  // "Remind me to … at 5pm" with no explicit reminder: remind at the due time.
+  if (remindAtDue && result.dueTime && !result.reminders.length) result.reminders.push({ minutesBefore: 0 });
   return result;
 }
 

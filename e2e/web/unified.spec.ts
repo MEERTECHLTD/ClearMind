@@ -129,6 +129,18 @@ test('project page has a Tasks | Plan switch and the plan is editable', async ({
   await dialog.getByRole('button', { name: 'Save plan' }).click();
   await expect(page.getByText('On Hold', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /Phases/ })).toBeVisible();
+  // Writes persist in the background (optimistic UI) — let the save reach IndexedDB before reloading.
+  await expect.poll(() => page.evaluate(() => new Promise<boolean>((res) => {
+    const open = indexedDB.open('ClearMindDB');
+    open.onsuccess = () => {
+      try {
+        const req = open.result.transaction('projects').objectStore('projects').getAll();
+        req.onsuccess = () => res((req.result as { title: string; status?: string }[]).some((p) => p.title === 'Unified Project' && p.status === 'On Hold'));
+        req.onerror = () => res(false);
+      } catch { res(false); }
+    };
+    open.onerror = () => res(false);
+  })), { timeout: 5000 }).toBe(true);
 
   // Direct load lands on the Plan tab; the portfolio lists the same project.
   await page.reload();

@@ -92,6 +92,8 @@ test.describe('headers and manifest', () => {
     expect(html.headers()['cache-control']).toBe('no-cache');
     expect(html.headers()['x-content-type-options']).toBe('nosniff');
     expect(html.headers()['x-frame-options']).toBe('DENY');
+    // Quick Add voice input needs the mic on our own origin (and nowhere else).
+    expect(html.headers()['permissions-policy']).toContain('microphone=(self)');
     expect(html.headers()['referrer-policy']).toBe('strict-origin-when-cross-origin');
     expect(html.headers()['content-security-policy-report-only']).toContain("frame-ancestors 'none'");
     expect((await request.get('/sw.js')).headers()['cache-control']).toBe('no-cache');
