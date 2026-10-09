@@ -4,7 +4,8 @@ import { dbService, STORES } from '../../services/db';
 import { createTask, toggleTask, deleteTask, createProject, updateProject } from '../tasks/actions';
 import { getStore } from '../tasks/store';
 import { ChatMessage, Project, Task, Note, Habit, Goal, Milestone, LogEntry, UserProfile, Rant, CalendarEvent, Application, IrisConversation, ProjectCategory, DailyMapperEntry, DailyMapperTemplate } from '../../types';
-import { Send, Sparkles, Bot, User, CheckCircle, Trash2, MessageSquare, FileText, Target, Calendar, Briefcase, Activity, Flag, BookOpen, Zap } from 'lucide-react';
+import { Send, Bot, User, CheckCircle, Trash2, MessageSquare, FileText, Target, Calendar, Briefcase, Activity, Flag, BookOpen, Zap } from 'lucide-react';
+import { cx, Card, IconBtn, inputCls } from '../ui-kit';
 
 const CURRENT_CONVERSATION_ID = 'current-iris-conversation';
 
@@ -678,254 +679,143 @@ const IrisView: React.FC = () => {
     }
   };
 
+  const summaryItems = (s: ActionsSummary): { key: string; n: number; label: string; icon: React.ReactNode; danger?: boolean }[] => [
+    { key: 'tc', n: s.tasksCreated.length, label: 'task(s) created', icon: <CheckCircle size={14} /> },
+    { key: 'nc', n: s.notesCreated.length, label: 'note(s) saved', icon: <FileText size={14} /> },
+    { key: 'hc', n: s.habitsCreated.length, label: 'habit(s) added', icon: <Activity size={14} /> },
+    { key: 'gc', n: s.goalsCreated.length, label: 'goal(s) set', icon: <Target size={14} /> },
+    { key: 'pc', n: s.projectsCreated.length, label: 'project(s) created', icon: <BookOpen size={14} /> },
+    { key: 'mc', n: s.milestonesCreated.length, label: 'milestone(s) added', icon: <Flag size={14} /> },
+    { key: 'ec', n: s.eventsCreated.length, label: 'event(s) scheduled', icon: <Calendar size={14} /> },
+    { key: 'ac', n: s.applicationsCreated.length, label: 'application(s) tracked', icon: <Briefcase size={14} /> },
+    { key: 'hd', n: s.habitsCompleted.length, label: 'habit(s) completed', icon: <CheckCircle size={14} /> },
+    { key: 'td', n: s.tasksCompleted.length, label: 'task(s) completed', icon: <CheckCircle size={14} /> },
+    { key: 'dc', n: s.dailyMapperEntriesCreated.length, label: 'time block(s) added', icon: <Calendar size={14} /> },
+    { key: 'dd', n: s.dailyMapperCompleted.length, label: 'time block(s) completed', icon: <CheckCircle size={14} /> },
+    { key: 'du', n: s.dailyMapperUpdated.length, label: 'time block(s) updated', icon: <CheckCircle size={14} /> },
+    { key: 'tx', n: s.tasksDeleted.length, label: 'task(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'nx', n: s.notesDeleted.length, label: 'note(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'hx', n: s.habitsDeleted.length, label: 'habit(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'gx', n: s.goalsDeleted.length, label: 'goal(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'px', n: s.projectsDeleted.length, label: 'project(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'mx', n: s.milestonesDeleted.length, label: 'milestone(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'ex', n: s.eventsDeleted.length, label: 'event(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'ax', n: s.applicationsDeleted.length, label: 'application(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'dx', n: s.dailyMapperEntriesDeleted.length, label: 'daily mapper entry(s) deleted', icon: <Trash2 size={14} />, danger: true },
+    { key: 'dup', n: s.duplicatesRemoved, label: 'duplicate(s) removed', icon: <Trash2 size={14} />, danger: true },
+  ];
+
+  const assistantAvatar = (
+    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400" aria-hidden>
+      <Bot size={16} />
+    </div>
+  );
+
   return (
-    <div className="h-[calc(100vh-64px)] flex flex-col bg-midnight transition-colors duration-300">
-      {/* Header Area */}
-      <div className="p-6 border-b dark:border-gray-800 border-gray-200 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-purple-500/10 rounded-lg">
-             <Sparkles className="text-purple-500" size={24} />
+    <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-[#05050A]">
+      {/* Header */}
+      <div className="shrink-0">
+        <header className="max-w-3xl mx-auto px-4 sm:px-8 pt-6 pb-3 flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <h1 className={`text-2xl font-bold truncate ${cx.text}`}>Iris</h1>
+            <p className={`text-sm mt-0.5 ${cx.muted}`}>Your AI co-pilot for the journey.</p>
           </div>
-          <div>
-            <h2 className="text-xl font-bold dark:text-white text-gray-900">Iris</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Your AI co-pilot for the journey.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
-            <MessageSquare size={12} />
+          <span className={`text-xs flex items-center gap-1 ${cx.muted}`}>
+            <MessageSquare size={14} />
             {messages.length - 1} messages
           </span>
-          <button
-            onClick={clearConversation}
-            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-            title="Clear conversation history"
-          >
+          <IconBtn label="Clear conversation history" danger onClick={clearConversation}>
             <Trash2 size={18} />
-          </button>
-        </div>
+          </IconBtn>
+        </header>
+
+        {/* Actions Performed Notification */}
+        {actionsSummary && hasAnyActions(actionsSummary) && (
+          <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-2">
+            <Card className="animate-fade-in" title="Iris performed actions" right={<Zap size={16} className="text-green-600 dark:text-green-400" aria-hidden />}>
+              <ul className="grid grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-1.5 text-xs" role="status" aria-live="polite">
+                {summaryItems(actionsSummary).filter((i) => i.n > 0).map((i) => (
+                  <li key={i.key} className={`flex items-center gap-1.5 ${i.danger ? 'text-red-500 dark:text-red-400' : cx.text}`}>
+                    <span className={i.danger ? '' : 'text-green-600 dark:text-green-400'}>{i.icon}</span>
+                    <span>{i.n} {i.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+        )}
       </div>
 
-      {/* Actions Performed Notification */}
-      {actionsSummary && hasAnyActions(actionsSummary) && (
-        <div className="mx-6 mt-4 p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-xl animate-fade-in">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap className="text-green-500" size={18} />
-            <p className="text-sm text-green-600 dark:text-green-400 font-semibold">
-              Iris performed actions:
-            </p>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
-            {actionsSummary.tasksCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-blue-400">
-                <CheckCircle size={12} />
-                <span>{actionsSummary.tasksCreated.length} task(s) created</span>
-              </div>
-            )}
-            {actionsSummary.notesCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-yellow-400">
-                <FileText size={12} />
-                <span>{actionsSummary.notesCreated.length} note(s) saved</span>
-              </div>
-            )}
-            {actionsSummary.habitsCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-purple-400">
-                <Activity size={12} />
-                <span>{actionsSummary.habitsCreated.length} habit(s) added</span>
-              </div>
-            )}
-            {actionsSummary.goalsCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-orange-400">
-                <Target size={12} />
-                <span>{actionsSummary.goalsCreated.length} goal(s) set</span>
-              </div>
-            )}
-            {actionsSummary.projectsCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-cyan-400">
-                <BookOpen size={12} />
-                <span>{actionsSummary.projectsCreated.length} project(s) created</span>
-              </div>
-            )}
-            {actionsSummary.milestonesCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-pink-400">
-                <Flag size={12} />
-                <span>{actionsSummary.milestonesCreated.length} milestone(s) added</span>
-              </div>
-            )}
-            {actionsSummary.eventsCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-green-400">
-                <Calendar size={12} />
-                <span>{actionsSummary.eventsCreated.length} event(s) scheduled</span>
-              </div>
-            )}
-            {actionsSummary.applicationsCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-indigo-400">
-                <Briefcase size={12} />
-                <span>{actionsSummary.applicationsCreated.length} application(s) tracked</span>
-              </div>
-            )}
-            {actionsSummary.habitsCompleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-emerald-400">
-                <CheckCircle size={12} />
-                <span>{actionsSummary.habitsCompleted.length} habit(s) completed</span>
-              </div>
-            )}
-            {actionsSummary.tasksCompleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-teal-400">
-                <CheckCircle size={12} />
-                <span>{actionsSummary.tasksCompleted.length} task(s) completed</span>
-              </div>
-            )}
-            {actionsSummary.dailyMapperEntriesCreated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-cyan-400">
-                <Calendar size={12} />
-                <span>{actionsSummary.dailyMapperEntriesCreated.length} time block(s) added</span>
-              </div>
-            )}
-            {actionsSummary.dailyMapperCompleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-lime-400">
-                <CheckCircle size={12} />
-                <span>{actionsSummary.dailyMapperCompleted.length} time block(s) completed</span>
-              </div>
-            )}
-            {actionsSummary.dailyMapperUpdated.length > 0 && (
-              <div className="flex items-center gap-1.5 text-sky-400">
-                <CheckCircle size={12} />
-                <span>{actionsSummary.dailyMapperUpdated.length} time block(s) updated</span>
-              </div>
-            )}
-            {actionsSummary.tasksDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.tasksDeleted.length} task(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.notesDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.notesDeleted.length} note(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.habitsDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.habitsDeleted.length} habit(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.goalsDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.goalsDeleted.length} goal(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.projectsDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.projectsDeleted.length} project(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.milestonesDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.milestonesDeleted.length} milestone(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.eventsDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.eventsDeleted.length} event(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.applicationsDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.applicationsDeleted.length} application(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.dailyMapperEntriesDeleted.length > 0 && (
-              <div className="flex items-center gap-1.5 text-red-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.dailyMapperEntriesDeleted.length} daily mapper entry(s) deleted</span>
-              </div>
-            )}
-            {actionsSummary.duplicatesRemoved > 0 && (
-              <div className="flex items-center gap-1.5 text-orange-400">
-                <Trash2 size={12} />
-                <span>{actionsSummary.duplicatesRemoved} duplicate(s) removed</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {isLoadingConversation ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-sm text-gray-500">Loading conversation...</p>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 sm:px-8 py-4 space-y-5 h-full">
+          {isLoadingConversation ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <p className={`text-sm ${cx.muted}`}>Loading conversation…</p>
             </div>
-          </div>
-        ) : (
-          messages.map((msg) => (
-          <div 
-            key={msg.id} 
-            className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
-          >
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border
-              ${msg.role === 'model' 
-                ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-300 border-purple-200 dark:border-purple-800' 
-                : 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-800'}`}>
-              {msg.role === 'model' ? <Bot size={16} /> : <User size={16} />}
+          ) : (
+            messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+              >
+                {msg.role === 'model' ? assistantAvatar : (
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-300" aria-hidden>
+                    <User size={16} />
+                  </div>
+                )}
+
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap
+                  ${msg.role === 'user'
+                    ? 'bg-blue-600 text-white rounded-tr-md'
+                    : `${cx.card} border ${cx.border} ${cx.text} rounded-tl-md`
+                  }`}>
+                  {msg.text}
+                </div>
+              </div>
+            ))
+          )}
+          {isTyping && (
+            <div className="flex gap-3" aria-live="polite" aria-label="Iris is typing">
+              {assistantAvatar}
+              <div className={`${cx.card} border ${cx.border} px-4 py-3 rounded-2xl rounded-tl-md flex items-center gap-1.5`}>
+                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-100"></div>
+                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-200"></div>
+              </div>
             </div>
-            
-            <div className={`max-w-[80%] rounded-2xl p-4 text-sm leading-relaxed shadow-sm
-              ${msg.role === 'user' 
-                ? 'bg-blue-600 text-white rounded-tr-none' 
-                : 'bg-white dark:bg-midnight-light border dark:border-gray-800 border-gray-200 text-gray-800 dark:text-gray-200 rounded-tl-none'
-              }`}>
-              {msg.text}
-            </div>
-          </div>
-        ))
-        )}
-        {isTyping && (
-           <div className="flex gap-4">
-             <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center justify-center">
-               <Bot size={16} />
-             </div>
-             <div className="bg-white dark:bg-midnight-light border dark:border-gray-800 border-gray-200 p-4 rounded-2xl rounded-tl-none flex items-center gap-2 shadow-sm">
-               <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></div>
-               <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-100"></div>
-               <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-200"></div>
-             </div>
-           </div>
-        )}
-        <div ref={bottomRef} />
+          )}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* Input Area */}
-      <div className="p-6 border-t dark:border-gray-800 border-gray-200 bg-midnight transition-colors duration-300">
-        <div className="relative max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder="Ask Iris for guidance or document a thought..."
-            className="w-full bg-midnight-light border dark:border-gray-700 border-gray-300 dark:text-white text-gray-900 rounded-xl pl-6 pr-14 py-4 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 shadow-sm"
-          />
-          <button 
-            onClick={handleSend}
-            disabled={!input.trim() || isTyping}
-            title="Send message"
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <Send size={18} />
-          </button>
+      <div className={`shrink-0 border-t ${cx.border}`}>
+        <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-3 pb-4">
+          <div className="relative">
+            <label htmlFor="iris-input" className="sr-only">Message Iris</label>
+            <input
+              id="iris-input"
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyPress}
+              placeholder="Ask Iris for guidance or document a thought..."
+              className={`${inputCls} !py-3 !pl-4 !pr-12 !rounded-xl`}
+            />
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isTyping}
+              title="Send message"
+              aria-label="Send message"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Send size={16} />
+            </button>
+          </div>
+          <p className={`text-center text-xs mt-2 ${cx.faint}`}>Iris helps you stay consistent. AI responses can vary.</p>
         </div>
-        <p className="text-center text-xs text-gray-500 dark:text-gray-600 mt-3">Iris helps you stay consistent. AI responses can vary.</p>
       </div>
     </div>
   );

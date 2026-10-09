@@ -26,12 +26,16 @@ import {
   DEFAULT_REMINDER_LEAD_DAYS,
 } from '@clearmind/shared/applications';
 import {
-  Plus, ExternalLink, Edit2, Trash2, X, Save, Calendar, Briefcase, GraduationCap,
+  Plus, ExternalLink, Pencil, Trash2, X, Save, Calendar, Briefcase, GraduationCap,
   FileText, Check, Clock, XCircle, Send, FolderOpen, ArrowUpDown, Layers, Award,
-  Search, Bell, Tag as TagIcon, Users, ListChecks, LayoutGrid, List, ChevronDown,
+  Search, Bell, Tag as TagIcon, Users, ListChecks, ChevronDown, ListPlus, Flag,
   ChevronRight, CircleDollarSign, Hash, Building2,
   Share2, Crown, UserPlus, Globe, Lock, Mail, Link2,
 } from 'lucide-react';
+import {
+  FullPage, Card, Segmented, PageLoading, Empty, Modal, ModalBody, ModalFooter, Field, IconBtn,
+  Badge, ProgressBar, inputCls, cx, useTaskToast, useCreateLinkedTask,
+} from '../ui-kit';
 
 const PREFS_KEY = 'application-preferences';
 
@@ -118,7 +122,14 @@ const ApplicationsView: React.FC = () => {
   const [filter, setFilter] = useState<'all' | AppType>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | AppStatus>('all');
   const [query, setQuery] = useState('');
-  const [toast, setToast] = useState<string | null>(null);
+  // Shared app toast (same as the task views). Kept under the old name so every
+  // existing call site reads unchanged.
+  const showToast = useTaskToast();
+  const setToast = (m: string | null) => { if (m) showToast(m); };
+  const createLinkedTask = useCreateLinkedTask();
+  // Synergy: a real task to prepare this application, due on its deadline.
+  const addPrepTask = (app: Application) =>
+    createLinkedTask({ title: `Prepare: ${app.name}`, dueDate: applicationDeadline(app) ?? null });
 
   // Collaboration: shared workspaces (null active = personal local-first list).
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -142,12 +153,6 @@ const ApplicationsView: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ sortBy, groupBy, viewMode }));
   }, [sortBy, groupBy, viewMode]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2400);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   // Subscribe to the user's workspaces (owned + shared) once auth resolves, and
   // honour an incoming invite link (?joinWorkspace=<id>) by joining + opening it.
@@ -450,54 +455,39 @@ const ApplicationsView: React.FC = () => {
     return groups;
   }, [processedApplications, groupBy, viewMode]);
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-100px)]">
-        <div className="relative w-16 h-16 mb-4">
-          <div className="absolute inset-0 border-4 border-gray-800 rounded-full"></div>
-          <div className="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
-        </div>
-        <p className="text-gray-500 font-medium animate-pulse">Loading applications...</p>
-      </div>
-    );
-  }
+  if (isLoading) return <PageLoading />;
 
-  const selectClass = 'bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-1.5 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500';
+  const selectClass = `${cx.input} !py-1.5`;
   const chip = (active: boolean) =>
-    `inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${active ? 'bg-blue-600 text-white border-blue-600' : 'dark:border-gray-700 border-gray-300 text-gray-400 hover:text-gray-200'}`;
+    `inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border transition-colors ${active ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30' : `${cx.border} ${cx.muted} ${cx.hover}`}`;
   const showWorkspaceBar = isFirebaseConfigured() && (workspaces.length > 0 || workspaceService.supported());
+  const filtered = !!(query || filter !== 'all' || statusFilter !== 'all');
 
   return (
-    <div className="p-8 h-full overflow-y-auto animate-fade-in">
-      <div className="flex justify-between items-center mb-6 gap-4 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-1">Applications</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Track your job, grant, and scholarship applications.</p>
-        </div>
-        <button
-          onClick={openAddModal}
-          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors shadow-lg shadow-blue-600/20"
-        >
-          <Plus size={16} />
-          New Application
+    <FullPage
+      title="Applications"
+      subtitle="Track your job, grant, and scholarship applications."
+      actions={
+        <button onClick={openAddModal} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+          <Plus size={16} /> New application
         </button>
-      </div>
-
+      }
+    >
       {/* Workspace switcher (collaboration) */}
       {showWorkspaceBar && (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <span className="text-xs text-gray-500 mr-1">Workspace</span>
-          <button onClick={() => setActiveWsId(null)} className={chip(!activeWsId)}>
+        <div className="flex items-center gap-2 mb-4 flex-wrap" role="group" aria-label="Workspace">
+          <span className={`text-xs mr-1 ${cx.muted}`}>Workspace</span>
+          <button onClick={() => setActiveWsId(null)} className={chip(!activeWsId)} aria-pressed={!activeWsId}>
             <Lock size={12} /> My Applications
           </button>
           {workspaces.map((ws) => (
-            <button key={ws.id} onClick={() => setActiveWsId(ws.id)} className={chip(activeWsId === ws.id)} title={ws.name}>
+            <button key={ws.id} onClick={() => setActiveWsId(ws.id)} className={chip(activeWsId === ws.id)} aria-pressed={activeWsId === ws.id} title={ws.name}>
               <Users size={12} /> <span className="max-w-[140px] truncate">{ws.name}</span>
             </button>
           ))}
           <button
             onClick={() => setShowNewWorkspace(true)}
-            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border border-dashed dark:border-gray-700 border-gray-300 text-gray-400 hover:text-blue-400 hover:border-blue-400 transition-colors"
+            className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md border border-dashed ${cx.border} ${cx.muted} hover:text-blue-600 dark:hover:text-blue-400`}
           >
             <Share2 size={12} /> Share / New
           </button>
@@ -506,166 +496,159 @@ const ApplicationsView: React.FC = () => {
 
       {/* Active workspace banner */}
       {activeWorkspace && (
-        <div className="mb-5 rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center">
-              <Share2 size={16} className="text-blue-400" />
+        <Card className="mb-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Share2 size={16} className="text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p className={`text-sm font-semibold flex items-center gap-2 ${cx.text}`}>
+                  {activeWorkspace.name}
+                  {workspaceService.isOwner(activeWorkspace) && (
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1"><Crown size={11} /> owner</span>
+                  )}
+                  <span className="text-[11px] text-green-600 dark:text-green-400 inline-flex items-center gap-1"><Globe size={11} /> live</span>
+                </p>
+                <p className={`text-xs ${cx.muted}`}>
+                  {activeWorkspace.memberEmails.length} member{activeWorkspace.memberEmails.length !== 1 ? 's' : ''} · everyone can edit
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold dark:text-white text-gray-900 flex items-center gap-2">
-                {activeWorkspace.name}
-                {workspaceService.isOwner(activeWorkspace) && (
-                  <span className="text-[11px] text-amber-400 inline-flex items-center gap-1"><Crown size={11} /> owner</span>
-                )}
-                <span className="text-[11px] text-emerald-400 inline-flex items-center gap-1"><Globe size={11} /> live</span>
-              </p>
-              <p className="text-xs text-gray-500">
-                {activeWorkspace.memberEmails.length} member{activeWorkspace.memberEmails.length !== 1 ? 's' : ''} · everyone can edit
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={copyInviteLink} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
-              <Link2 size={13} /> Copy link
-            </button>
-            <button onClick={() => setShowMembers(true)} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 hover:bg-gray-200 dark:hover:bg-gray-700">
-              <Users size={13} /> Members
-            </button>
-            {workspaceService.isOwner(activeWorkspace) && (
-              <button onClick={handleDeleteWorkspace} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-red-400 hover:bg-red-500/10">
-                <Trash2 size={13} /> Delete
+            <div className="flex items-center gap-2">
+              <button onClick={copyInviteLink} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+                <Link2 size={16} /> Copy link
               </button>
-            )}
+              <button onClick={() => setShowMembers(true)} className={`inline-flex items-center gap-1.5 ${cx.btnGhost}`}>
+                <Users size={16} /> Members
+              </button>
+              {workspaceService.isOwner(activeWorkspace) && (
+                <button onClick={handleDeleteWorkspace} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10">
+                  <Trash2 size={16} /> Delete
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Search + view toggle */}
-      <div className="flex flex-wrap gap-3 mb-4 items-center">
+      <div className="flex flex-wrap gap-3 mb-3 items-center">
         <div className="relative flex-1 min-w-[220px]">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${cx.faint}`} aria-hidden />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name, organization, funder, tags…"
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-midnight-light border dark:border-gray-700 border-gray-300 text-sm dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
+            aria-label="Search applications"
+            className={`${inputCls} pl-9`}
           />
         </div>
-        <div className="flex items-center rounded-lg border dark:border-gray-700 border-gray-300 overflow-hidden">
-          <button
-            onClick={() => setViewMode('cards')}
-            className={`px-3 py-2 text-sm flex items-center gap-1.5 ${viewMode === 'cards' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-            title="Card view"
-          >
-            <List size={15} /> Cards
-          </button>
-          <button
-            onClick={() => setViewMode('board')}
-            className={`px-3 py-2 text-sm flex items-center gap-1.5 ${viewMode === 'board' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-            title="Board view (by stage)"
-          >
-            <LayoutGrid size={15} /> Board
-          </button>
-        </div>
+        <Segmented
+          label="Layout"
+          value={viewMode}
+          onChange={setViewMode}
+          options={[{ value: 'cards', label: 'Cards' }, { value: 'board', label: 'Board' }]}
+        />
       </div>
 
       {/* Filters and Sorting */}
-      <div className="flex flex-wrap gap-4 mb-6 items-center">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Type:</span>
+      <div className={`flex flex-wrap gap-x-4 gap-y-2 mb-5 items-center text-sm ${cx.muted}`}>
+        <label className="flex items-center gap-2">
+          <span>Type</span>
           <select value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} className={selectClass}>
             <option value="all">All Types</option>
             {APPLICATION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
-        </div>
+        </label>
         {viewMode === 'cards' && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Status:</span>
+          <label className="flex items-center gap-2">
+            <span>Status</span>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className={selectClass}>
               <option value="all">All Statuses</option>
               {APPLICATION_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
-          </div>
+          </label>
         )}
-        <div className="flex items-center gap-2">
-          <ArrowUpDown size={14} className="text-gray-400" />
-          <span className="text-sm text-gray-500">Sort:</span>
+        <label className="flex items-center gap-2">
+          <ArrowUpDown size={16} className={cx.faint} aria-hidden />
+          <span>Sort</span>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className={selectClass}>
             <option value="deadline">Deadline</option>
             <option value="priority">Priority</option>
             <option value="created">Created Date</option>
             <option value="name">Name</option>
           </select>
-        </div>
+        </label>
         {viewMode === 'cards' && (
-          <div className="flex items-center gap-2">
-            <Layers size={14} className="text-gray-400" />
-            <span className="text-sm text-gray-500">Group:</span>
+          <label className="flex items-center gap-2">
+            <Layers size={16} className={cx.faint} aria-hidden />
+            <span>Group</span>
             <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as typeof groupBy)} className={selectClass}>
               <option value="none">No Grouping</option>
               <option value="type">By Type</option>
               <option value="status">By Status</option>
               <option value="priority">By Priority</option>
             </select>
-          </div>
+          </label>
         )}
-        <div className="text-sm text-gray-500 ml-auto">
+        <div className="ml-auto text-xs">
           {processedApplications.length} application{processedApplications.length !== 1 ? 's' : ''}
         </div>
       </div>
 
       {/* BOARD VIEW — pipeline columns by status */}
       {viewMode === 'board' ? (
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="flex gap-3 overflow-x-auto pb-4">
           {STATUS_BOARD_ORDER.map((status) => {
             const colApps = processedApplications.filter((a) => a.status === status);
             return (
-              <div key={status} className="flex-shrink-0 w-72">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
-                  <h3 className="text-sm font-semibold dark:text-white text-gray-900">{STATUS_LABEL[status]}</h3>
-                  <span className="text-xs text-gray-500">({colApps.length})</span>
+              <section key={status} className="flex-shrink-0 w-72 rounded-xl bg-gray-50 dark:bg-white/[0.03] p-2" aria-label={STATUS_LABEL[status]}>
+                <div className="flex items-center gap-2 px-1 pb-2">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
+                  <h3 className={`text-sm font-semibold ${cx.text}`}>{STATUS_LABEL[status]}</h3>
+                  <span className={`text-xs ${cx.muted}`}>{colApps.length}</span>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {colApps.map((app) => <BoardCard key={app.id} app={app} onEdit={() => openEditModal(app)} />)}
                   {colApps.length === 0 && (
-                    <div className="text-xs text-gray-600 border border-dashed dark:border-gray-800 border-gray-200 rounded-lg p-4 text-center">Nothing here</div>
+                    <div className={`text-xs ${cx.faint} border border-dashed ${cx.border} rounded-lg p-4 text-center`}>Nothing here</div>
                   )}
                 </div>
-              </div>
+              </section>
             );
           })}
         </div>
       ) : groupedApplications ? (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {Object.entries(groupedApplications).map(([groupName, apps]) => (
-            <div key={groupName}>
-              <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-4 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                {groupName}
-                <span className="text-sm font-normal text-gray-500">({apps.length})</span>
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <section key={groupName}>
+              <div className={`flex items-baseline gap-2 pb-1.5 mb-3 border-b ${cx.border}`}>
+                <h3 className={`text-sm font-bold ${cx.text}`}>{groupName}</h3>
+                <span className={`text-xs ${cx.muted}`}>{apps.length}</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {apps.map(renderApplicationCard)}
               </div>
-            </div>
+            </section>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {processedApplications.map(renderApplicationCard)}
         </div>
       )}
 
       {processedApplications.length === 0 && viewMode === 'cards' && (
-        <div className="text-center py-12 text-gray-500">
-          <Briefcase size={48} className="mx-auto mb-4 opacity-50" />
-          <p>{query || filter !== 'all' || statusFilter !== 'all' ? 'No applications match your filters.' : 'No applications yet. Add your first application to track!'}</p>
-        </div>
+        filtered ? (
+          <Empty icon={<Search size={30} className={cx.muted} />} title="No matching applications" subtitle="No applications match your filters." />
+        ) : (
+          <Empty icon={<Briefcase size={30} className="text-blue-500" />} title="No applications yet" subtitle="Add your first job, grant or scholarship to track deadlines, requirements and contacts." />
+        )
       )}
 
       {/* Add/Edit Modal */}
-      {showModal && renderModal()}
+      {renderModal()}
 
       {/* Workspace modals */}
       {showNewWorkspace && (
@@ -684,14 +667,7 @@ const ApplicationsView: React.FC = () => {
           onSave={handleSetMembers}
         />
       )}
-
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl animate-fade-in">
-          {toast}
-        </div>
-      )}
-    </div>
+    </FullPage>
   );
 
   // ---------------- Card renderers ----------------
@@ -705,86 +681,77 @@ const ApplicationsView: React.FC = () => {
     const reqTotal = app.requirements?.length ?? 0;
 
     return (
-      <div key={app.id} className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 hover:border-gray-400 dark:hover:border-gray-700 transition-all group shadow-sm dark:shadow-none">
-        <div className="flex justify-between items-start mb-4">
-          <div className="flex items-center gap-2">
+      <article key={app.id} className={`group rounded-xl border ${cx.border} ${cx.card} p-4 hover:border-gray-300 dark:hover:border-gray-700 transition-colors flex flex-col`}>
+        <div className="flex justify-between items-center mb-2">
+          <div className={`flex items-center gap-1.5 ${cx.muted}`}>
             <TypeIcon size={16} />
-            <span className="text-xs uppercase tracking-wider text-gray-500">{app.type}</span>
-            {armed && <Bell size={12} className="text-blue-400" />}
+            <span className="text-xs font-medium capitalize">{app.type}</span>
+            {armed && <span title="Deadline reminder armed" aria-label="Deadline reminder armed" className="text-blue-500 inline-flex"><Bell size={12} /></span>}
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => openEditModal(app)} className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100" title="Edit application">
-              <Edit2 size={14} />
-            </button>
-            <button onClick={() => handleDelete(app)} className="p-2 dark:hover:bg-gray-800 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Delete application">
-              <Trash2 size={14} />
-            </button>
+          <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+            <IconBtn label={`Add task: Prepare ${app.name}`} onClick={() => addPrepTask(app)}><ListPlus size={16} /></IconBtn>
+            <IconBtn label="Edit application" onClick={() => openEditModal(app)}><Pencil size={16} /></IconBtn>
+            <IconBtn label="Delete application" danger onClick={() => handleDelete(app)}><Trash2 size={16} /></IconBtn>
           </div>
         </div>
 
-        <h3 className="text-lg font-semibold dark:text-white text-gray-900 mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{app.name}</h3>
-        {app.organization && <p className="text-sm text-gray-500 mb-1">{app.organization}</p>}
-        {app.funder && <p className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Building2 size={11} /> Funder: {app.funder}</p>}
+        <h3 className={`text-base font-semibold leading-snug ${cx.text}`}>{app.name}</h3>
+        {app.organization && <p className={`text-sm ${cx.muted}`}>{app.organization}</p>}
+        {app.funder && <p className={`text-xs mt-0.5 flex items-center gap-1 ${cx.muted}`}><Building2 size={12} /> Funder: {app.funder}</p>}
 
-        <div className="flex items-center gap-2 mb-3 flex-wrap mt-2">
+        <div className="flex items-center gap-1.5 flex-wrap mt-3">
           <StatusPill status={app.status} />
           {app.priority && <PriorityPill priority={app.priority} />}
-          {app.awardAmount && (
-            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
-              <CircleDollarSign size={11} /> {app.awardAmount}
-            </span>
-          )}
+          {app.awardAmount && <Badge color="#16A34A"><CircleDollarSign size={12} /> {app.awardAmount}</Badge>}
         </div>
 
         {app.referenceNumber && (
-          <p className="text-xs text-gray-500 mb-3 flex items-center gap-1"><Hash size={11} /> {app.referenceNumber}</p>
+          <p className={`text-xs mt-2 flex items-center gap-1 ${cx.muted}`}><Hash size={12} /> {app.referenceNumber}</p>
         )}
 
-        <div className="space-y-2 text-xs text-gray-500 mb-4">
-          {deadline && (
-            <div className={`flex items-center gap-2 ${soon ? 'text-orange-500' : ''}`}>
-              <Calendar size={12} />
-              <span>Deadline: {formatDate(deadline)}</span>
-              <span className={soon ? 'text-orange-500 font-medium' : 'text-gray-500'}>· {relativeDeadline(deadline)}</span>
-            </div>
-          )}
-          {app.openingDate && (
-            <div className="flex items-center gap-2"><Clock size={12} /><span>Opens: {formatDate(app.openingDate)}</span></div>
-          )}
-          {app.submittedDate && (
-            <div className="flex items-center gap-2 text-green-500"><Send size={12} /><span>Submitted: {formatDate(app.submittedDate)}</span></div>
-          )}
-        </div>
+        {(deadline || app.openingDate || app.submittedDate) && (
+          <div className={`space-y-1 text-xs mt-3 ${cx.muted}`}>
+            {deadline && (
+              <div className={`flex items-center gap-1.5 ${soon ? 'text-orange-600 dark:text-orange-400' : ''}`}>
+                <Calendar size={12} />
+                <span>Deadline: {formatDate(deadline)}</span>
+                <span className={soon ? 'font-medium' : ''}>· {relativeDeadline(deadline)}</span>
+              </div>
+            )}
+            {app.openingDate && (
+              <div className="flex items-center gap-1.5"><Clock size={12} /><span>Opens: {formatDate(app.openingDate)}</span></div>
+            )}
+            {app.submittedDate && (
+              <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400"><Send size={12} /><span>Submitted: {formatDate(app.submittedDate)}</span></div>
+            )}
+          </div>
+        )}
 
         {reqTotal > 0 && (
-          <div className="mb-3">
-            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+          <div className="mt-3">
+            <div className={`flex items-center justify-between text-xs mb-1 ${cx.muted}`}>
               <span className="flex items-center gap-1"><ListChecks size={12} /> Requirements</span>
-              <span>{reqDone}/{reqTotal}</span>
+              <span className="tabular-nums">{reqDone}/{reqTotal}</span>
             </div>
-            <div className="h-1.5 rounded-full bg-gray-700/40 overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${reqTotal ? (reqDone / reqTotal) * 100 : 0}%` }} />
-            </div>
+            <ProgressBar value={reqDone} max={reqTotal} label="Requirements done" />
           </div>
         )}
 
         {app.tags && app.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {app.tags.map((t) => (
-              <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-gray-500/15 text-gray-400 flex items-center gap-1"><TagIcon size={10} />{t}</span>
-            ))}
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {app.tags.map((t) => <Badge key={t}><TagIcon size={11} />{t}</Badge>)}
           </div>
         )}
 
         {app.contacts && app.contacts.length > 0 && (
-          <p className="text-xs text-gray-500 mb-3 flex items-center gap-1"><Users size={11} /> {app.contacts.map((c) => c.name).join(', ')}</p>
+          <p className={`text-xs mt-3 flex items-center gap-1 ${cx.muted}`}><Users size={12} /> {app.contacts.map((c) => c.name).join(', ')}</p>
         )}
 
-        {app.notes && <p className="text-sm text-gray-400 line-clamp-2 mb-4">{app.notes}</p>}
+        {app.notes && <p className={`text-sm line-clamp-2 mt-3 ${cx.muted}`}>{app.notes}</p>}
 
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 mt-auto pt-3">
           {app.link ? (
-            <a href={app.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-400 transition-colors">
+            <a href={app.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline">
               <ExternalLink size={14} /> Open
             </a>
           ) : <span />}
@@ -792,13 +759,14 @@ const ApplicationsView: React.FC = () => {
           <select
             value={app.status}
             onChange={(e) => changeStatus(app, e.target.value as AppStatus)}
-            className="text-xs bg-midnight-light border dark:border-gray-700 border-gray-300 rounded-lg px-2 py-1 dark:text-white text-gray-900 focus:outline-none focus:border-blue-500"
+            className={`${cx.input} !py-1 !px-2 !text-xs`}
             title="Change status"
+            aria-label={`Status of ${app.name}`}
           >
             {APPLICATION_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
-      </div>
+      </article>
     );
   }
 
@@ -815,176 +783,179 @@ const ApplicationsView: React.FC = () => {
     };
 
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold dark:text-white text-gray-900">{editingApplication ? 'Edit Application' : 'New Application'}</h3>
-            <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white"><X size={24} /></button>
+      <Modal open={showModal} onClose={() => setShowModal(false)} title={editingApplication ? 'Edit application' : 'New application'}>
+        <ModalBody>
+          {/* Identity first */}
+          <Field label="Application name *">
+            <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Software Engineer at Google" className={inputCls} autoFocus />
+          </Field>
+          <Field label="Organization">
+            <input type="text" value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} placeholder="Company or host organization" className={inputCls} />
+          </Field>
+
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Type">
+              <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as AppType })} className={inputCls}>
+                {APPLICATION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Status">
+              <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as AppStatus })} className={inputCls}>
+                {APPLICATION_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Priority">
+              <select value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: e.target.value as Application['priority'] })} className={inputCls}>
+                {APPLICATION_PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+            </Field>
           </div>
 
-          <div className="space-y-4">
-            {/* Identity first */}
-            <Field label="Application Name *">
-              <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Software Engineer at Google" className={inputClass} autoFocus />
+          {/* Grant identity: opening date right under the type for grants */}
+          {grant && (
+            <Field label="Opening date">
+              <input type="date" value={formData.openingDate} onChange={(e) => setFormData({ ...formData, openingDate: e.target.value })} className={inputCls} />
             </Field>
-            <Field label="Organization">
-              <input type="text" value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} placeholder="Company or host organization" className={inputClass} />
-            </Field>
+          )}
 
-            <div className="grid grid-cols-3 gap-4">
-              <Field label="Type">
-                <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as AppType })} className={inputClass}>
-                  {APPLICATION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </Field>
-              <Field label="Status">
-                <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as AppStatus })} className={inputClass}>
-                  {APPLICATION_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-              </Field>
-              <Field label="Priority">
-                <select value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: e.target.value as Application['priority'] })} className={inputClass}>
-                  {APPLICATION_PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </Field>
-            </div>
-
-            {/* Grant identity: opening date right under the type for grants */}
-            {grant && (
-              <Field label="Opening Date">
-                <input type="date" value={formData.openingDate} onChange={(e) => setFormData({ ...formData, openingDate: e.target.value })} className={inputClass} />
-              </Field>
-            )}
-
-            {/* Type-specific detail block */}
-            {grant && (
-              <div className="rounded-lg border dark:border-gray-700 border-gray-200 p-4 space-y-4">
-                <p className="text-xs uppercase tracking-wider text-gray-500 flex items-center gap-1"><GraduationCap size={13} /> {formData.type === 'grant' ? 'Grant details' : 'Scholarship details'}</p>
-                {funder && (
-                  <Field label="Funder / Awarding Body">
-                    <input type="text" value={formData.funder} onChange={(e) => setFormData({ ...formData, funder: e.target.value })} placeholder="e.g. NSF, Gates Foundation" className={inputClass} />
-                  </Field>
-                )}
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Award Amount">
-                    <input type="text" value={formData.awardAmount} onChange={(e) => setFormData({ ...formData, awardAmount: e.target.value })} placeholder="$50,000" className={inputClass} />
-                  </Field>
-                  <Field label="Reference No.">
-                    <input type="text" value={formData.referenceNumber} onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })} placeholder="NSF-2026-1187" className={inputClass} />
-                  </Field>
-                </div>
-              </div>
-            )}
-
-            <Field label="Application Link">
-              <input type="url" value={formData.link} onChange={(e) => setFormData({ ...formData, link: e.target.value })} placeholder="https://..." className={inputClass} />
-            </Field>
-
-            {/* Deadline + reminder (always visible — reminders hinge on this) */}
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Submission Deadline">
-                <input type="date" value={formData.submissionDeadline} onChange={(e) => setFormData({ ...formData, submissionDeadline: e.target.value })} className={inputClass} />
-              </Field>
-              <Field label="Remind Me">
-                <select
-                  value={reminderPresetKey(formData.reminderLeadDays)}
-                  onChange={(e) => setFormData({ ...formData, reminderLeadDays: reminderDaysForKey(e.target.value) })}
-                  disabled={!hasDeadline}
-                  className={`${inputClass} ${!hasDeadline ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title={hasDeadline ? 'When to alert before the deadline' : 'Set a deadline first'}
-                >
-                  {REMINDER_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-                </select>
-              </Field>
-            </div>
-
-            {/* More dates (collapsed) */}
-            <button type="button" onClick={() => setShowMoreDates((v) => !v)} className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400">
-              {showMoreDates ? <ChevronDown size={15} /> : <ChevronRight size={15} />} More dates
-            </button>
-            {showMoreDates && (
-              <div className="grid grid-cols-2 gap-4">
-                {!grant && (
-                  <Field label="Opening Date">
-                    <input type="date" value={formData.openingDate} onChange={(e) => setFormData({ ...formData, openingDate: e.target.value })} className={inputClass} />
-                  </Field>
-                )}
-                <Field label="Closing Date">
-                  <input type="date" value={formData.closingDate} onChange={(e) => setFormData({ ...formData, closingDate: e.target.value })} className={inputClass} />
+          {/* Type-specific detail block */}
+          {grant && (
+            <div className={`rounded-lg border ${cx.border} p-3 space-y-3`}>
+              <p className={`text-xs font-semibold flex items-center gap-1.5 ${cx.muted}`}><GraduationCap size={14} /> {formData.type === 'grant' ? 'Grant details' : 'Scholarship details'}</p>
+              {funder && (
+                <Field label="Funder / awarding body">
+                  <input type="text" value={formData.funder} onChange={(e) => setFormData({ ...formData, funder: e.target.value })} placeholder="e.g. NSF, Gates Foundation" className={inputCls} />
                 </Field>
-                <Field label="Submitted Date">
-                  <input type="date" value={formData.submittedDate} onChange={(e) => setFormData({ ...formData, submittedDate: e.target.value })} className={inputClass} />
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Award amount">
+                  <input type="text" value={formData.awardAmount} onChange={(e) => setFormData({ ...formData, awardAmount: e.target.value })} placeholder="$50,000" className={inputCls} />
+                </Field>
+                <Field label="Reference no.">
+                  <input type="text" value={formData.referenceNumber} onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })} placeholder="NSF-2026-1187" className={inputCls} />
                 </Field>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Tags */}
-            <Field label="Tags">
+          <Field label="Application link">
+            <input type="url" value={formData.link} onChange={(e) => setFormData({ ...formData, link: e.target.value })} placeholder="https://..." className={inputCls} />
+          </Field>
+
+          {/* Deadline + reminder (always visible — reminders hinge on this) */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Submission deadline">
+              <input type="date" value={formData.submissionDeadline} onChange={(e) => setFormData({ ...formData, submissionDeadline: e.target.value })} className={inputCls} />
+            </Field>
+            <Field label="Remind me">
+              <select
+                value={reminderPresetKey(formData.reminderLeadDays)}
+                onChange={(e) => setFormData({ ...formData, reminderLeadDays: reminderDaysForKey(e.target.value) })}
+                disabled={!hasDeadline}
+                className={`${inputCls} ${!hasDeadline ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={hasDeadline ? 'When to alert before the deadline' : 'Set a deadline first'}
+              >
+                {REMINDER_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+            </Field>
+          </div>
+
+          {/* More dates (collapsed) */}
+          <button type="button" onClick={() => setShowMoreDates((v) => !v)} aria-expanded={showMoreDates} className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline">
+            {showMoreDates ? <ChevronDown size={16} /> : <ChevronRight size={16} />} More dates
+          </button>
+          {showMoreDates && (
+            <div className="grid grid-cols-2 gap-3">
+              {!grant && (
+                <Field label="Opening date">
+                  <input type="date" value={formData.openingDate} onChange={(e) => setFormData({ ...formData, openingDate: e.target.value })} className={inputCls} />
+                </Field>
+              )}
+              <Field label="Closing date">
+                <input type="date" value={formData.closingDate} onChange={(e) => setFormData({ ...formData, closingDate: e.target.value })} className={inputCls} />
+              </Field>
+              <Field label="Submitted date">
+                <input type="date" value={formData.submittedDate} onChange={(e) => setFormData({ ...formData, submittedDate: e.target.value })} className={inputCls} />
+              </Field>
+            </div>
+          )}
+
+          {/* Tags */}
+          <Group label="Tags">
+            {formData.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {formData.tags.map((t) => (
-                  <span key={t} className="text-xs px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 flex items-center gap-1">
+                  <span key={t} className="text-xs px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 flex items-center gap-1">
                     {t}
-                    <button onClick={() => setFormData({ ...formData, tags: formData.tags.filter((x) => x !== t) })} className="hover:text-white"><X size={11} /></button>
+                    <button type="button" onClick={() => setFormData({ ...formData, tags: formData.tags.filter((x) => x !== t) })} className="hover:text-blue-900 dark:hover:text-white" aria-label={`Remove tag ${t}`} title={`Remove tag ${t}`}><X size={12} /></button>
                   </span>
                 ))}
               </div>
-              <input
-                type="text"
-                placeholder="Type a tag and press Enter"
-                className={inputClass}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ',') {
-                    e.preventDefault();
-                    addTag((e.target as HTMLInputElement).value);
-                    (e.target as HTMLInputElement).value = '';
-                  }
-                }}
-              />
-            </Field>
+            )}
+            <input
+              type="text"
+              placeholder="Type a tag and press Enter"
+              aria-label="Add tag"
+              className={inputCls}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault();
+                  addTag((e.target as HTMLInputElement).value);
+                  (e.target as HTMLInputElement).value = '';
+                }
+              }}
+            />
+          </Group>
 
-            {/* Requirements checklist */}
-            <Field label="Requirements / Documents">
-              <div className="space-y-2">
-                {formData.requirements.map((r, i) => (
-                  <div key={r.id} className="flex items-center gap-2">
-                    <button onClick={() => updateReq(i, { done: !r.done })} className="text-gray-400 hover:text-blue-500">
-                      {r.done ? <Check size={16} className="text-emerald-500" /> : <span className="inline-block w-4 h-4 rounded border dark:border-gray-600 border-gray-400" />}
-                    </button>
-                    <input type="text" value={r.label} onChange={(e) => updateReq(i, { label: e.target.value })} placeholder="e.g. CV, cover letter…" className={`${inputClass} py-2 ${r.done ? 'line-through text-gray-500' : ''}`} />
-                    <button onClick={() => setFormData({ ...formData, requirements: formData.requirements.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
-                  </div>
-                ))}
-                <button onClick={() => setFormData({ ...formData, requirements: [...formData.requirements, { id: newId(), label: '', done: false }] })} className="text-sm text-blue-500 hover:text-blue-400 flex items-center gap-1"><Plus size={14} /> Add requirement</button>
-              </div>
-            </Field>
+          {/* Requirements checklist */}
+          <Group label="Requirements / documents">
+            <div className="space-y-2">
+              {formData.requirements.map((r, i) => (
+                <div key={r.id} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateReq(i, { done: !r.done })}
+                    role="checkbox"
+                    aria-checked={r.done}
+                    aria-label={r.label ? `Done: ${r.label}` : 'Done'}
+                    title={r.done ? 'Mark as not done' : 'Mark as done'}
+                    className={`shrink-0 w-[18px] h-[18px] rounded flex items-center justify-center border-2 transition-colors ${r.done ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600 hover:border-blue-500'}`}
+                  >
+                    {r.done ? <Check size={12} strokeWidth={3} /> : null}
+                  </button>
+                  <input type="text" value={r.label} onChange={(e) => updateReq(i, { label: e.target.value })} placeholder="e.g. CV, cover letter…" aria-label="Requirement" className={`${inputCls} ${r.done ? 'line-through !text-gray-400' : ''}`} />
+                  <IconBtn label="Remove requirement" danger onClick={() => setFormData({ ...formData, requirements: formData.requirements.filter((_, j) => j !== i) })}><Trash2 size={16} /></IconBtn>
+                </div>
+              ))}
+              <button type="button" onClick={() => setFormData({ ...formData, requirements: [...formData.requirements, { id: newId(), label: '', done: false }] })} className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"><Plus size={16} /> Add requirement</button>
+            </div>
+          </Group>
 
-            {/* Contacts */}
-            <Field label="Contacts">
-              <div className="space-y-2">
-                {formData.contacts.map((c, i) => (
-                  <div key={c.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
-                    <input type="text" value={c.name} onChange={(e) => updateContact(i, { name: e.target.value })} placeholder="Name" className={`${inputClass} py-2`} />
-                    <input type="text" value={c.email || ''} onChange={(e) => updateContact(i, { email: e.target.value })} placeholder="Email / role" className={`${inputClass} py-2`} />
-                    <button onClick={() => setFormData({ ...formData, contacts: formData.contacts.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
-                  </div>
-                ))}
-                <button onClick={() => setFormData({ ...formData, contacts: [...formData.contacts, { id: newId(), name: '' }] })} className="text-sm text-blue-500 hover:text-blue-400 flex items-center gap-1"><Plus size={14} /> Add contact</button>
-              </div>
-            </Field>
+          {/* Contacts */}
+          <Group label="Contacts">
+            <div className="space-y-2">
+              {formData.contacts.map((c, i) => (
+                <div key={c.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                  <input type="text" value={c.name} onChange={(e) => updateContact(i, { name: e.target.value })} placeholder="Name" aria-label="Contact name" className={inputCls} />
+                  <input type="text" value={c.email || ''} onChange={(e) => updateContact(i, { email: e.target.value })} placeholder="Email / role" aria-label="Contact email or role" className={inputCls} />
+                  <IconBtn label="Remove contact" danger onClick={() => setFormData({ ...formData, contacts: formData.contacts.filter((_, j) => j !== i) })}><Trash2 size={16} /></IconBtn>
+                </div>
+              ))}
+              <button type="button" onClick={() => setFormData({ ...formData, contacts: [...formData.contacts, { id: newId(), name: '' }] })} className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"><Plus size={16} /> Add contact</button>
+            </div>
+          </Group>
 
-            <Field label="Notes">
-              <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Additional notes about this application..." rows={3} className={`${inputClass} resize-none`} />
-            </Field>
-          </div>
-
-          <div className="flex gap-3 mt-6">
-            <button onClick={handleSave} disabled={!formData.name.trim()} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
-              <Save size={18} /> {editingApplication ? 'Update' : 'Create'}
-            </button>
-            <button onClick={() => setShowModal(false)} className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-          </div>
-        </div>
-      </div>
+          <Field label="Notes">
+            <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Additional notes about this application..." rows={3} className={`${inputCls} resize-none`} />
+          </Field>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" onClick={() => setShowModal(false)} className={cx.btnGhost}>Cancel</button>
+          <button type="button" onClick={handleSave} disabled={!formData.name.trim()} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+            <Save size={16} /> {editingApplication ? 'Update' : 'Create'}
+          </button>
+        </ModalFooter>
+      </Modal>
     );
   }
 
@@ -996,11 +967,10 @@ const ApplicationsView: React.FC = () => {
   }
 };
 
-const inputClass = 'w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500';
-
-const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div>
-    <label className="block text-sm text-gray-500 mb-1">{label}</label>
+/** Labelled group of several controls (a <label> would wrap more than one control). */
+const Group: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div role="group" aria-label={label}>
+    <span className={`block text-xs font-medium mb-1 ${cx.muted}`}>{label}</span>
     {children}
   </div>
 );
@@ -1009,20 +979,16 @@ const StatusPill: React.FC<{ status: AppStatus }> = ({ status }) => {
   const color = STATUS_COLOR[status] ?? '#9ca3af';
   const Icon = STATUS_ICON[status] ?? FileText;
   return (
-    <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border" style={{ color, backgroundColor: `${color}22`, borderColor: `${color}55` }}>
+    <Badge color={color}>
       <Icon size={12} />
       {STATUS_LABEL[status] ?? status}
-    </span>
+    </Badge>
   );
 };
 
 const PriorityPill: React.FC<{ priority: Application['priority'] }> = ({ priority }) => {
   const color = PRIORITY_COLOR[priority] ?? '#9ca3af';
-  return (
-    <span className="inline-flex items-center text-xs px-2 py-0.5 rounded border" style={{ color, backgroundColor: `${color}22`, borderColor: `${color}55` }}>
-      {priority}
-    </span>
-  );
+  return <Badge color={color}><Flag size={12} /> {priority}</Badge>;
 };
 
 const BoardCard: React.FC<{ app: Application; onEdit: () => void }> = ({ app, onEdit }) => {
@@ -1030,20 +996,25 @@ const BoardCard: React.FC<{ app: Application; onEdit: () => void }> = ({ app, on
   const deadline = applicationDeadline(app);
   const soon = isDeadlineSoon(deadline);
   return (
-    <div onClick={onEdit} className="cursor-pointer dark:bg-midnight bg-white border dark:border-gray-800 border-gray-200 rounded-lg p-3 hover:border-blue-500/50 transition-colors">
-      <div className="flex items-center gap-1.5 mb-1.5 text-gray-500">
+    <button
+      type="button"
+      onClick={onEdit}
+      aria-label={`Edit ${app.name}`}
+      className={`w-full text-left rounded-lg border ${cx.border} ${cx.card} p-3 hover:border-blue-400 dark:hover:border-blue-500/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40`}
+    >
+      <span className={`flex items-center gap-1.5 mb-1.5 ${cx.muted}`}>
         <TypeIcon size={12} />
-        <span className="text-[10px] uppercase tracking-wider">{app.type}</span>
+        <span className="text-[11px] font-medium capitalize">{app.type}</span>
         {app.priority && <span className="ml-auto"><PriorityPill priority={app.priority} /></span>}
-      </div>
-      <p className="text-sm font-medium dark:text-white text-gray-900 leading-snug">{app.name}</p>
-      {app.organization && <p className="text-xs text-gray-500 mt-0.5">{app.organization}</p>}
+      </span>
+      <span className={`block text-sm font-medium leading-snug ${cx.text}`}>{app.name}</span>
+      {app.organization && <span className={`block text-xs mt-0.5 ${cx.muted}`}>{app.organization}</span>}
       {deadline && (
-        <p className={`text-xs mt-2 flex items-center gap-1 ${soon ? 'text-orange-500' : 'text-gray-500'}`}>
-          <Calendar size={11} /> {relativeDeadline(deadline)}
-        </p>
+        <span className={`text-xs mt-2 flex items-center gap-1 ${soon ? 'text-orange-600 dark:text-orange-400' : cx.muted}`}>
+          <Calendar size={12} /> {relativeDeadline(deadline)}
+        </span>
       )}
-    </div>
+    </button>
   );
 };
 
@@ -1082,37 +1053,37 @@ const NewWorkspaceModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-xl font-bold dark:text-white text-gray-900 flex items-center gap-2"><Share2 size={18} className="text-blue-400" /> Share a workspace</h3>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-white"><X size={22} /></button>
-        </div>
-
-        {!supported ? (
-          <div className="text-sm text-gray-400 space-y-4">
-            <p>Sign in with an email or Google account to create a shared workspace others can join and collaborate in.</p>
-            <button onClick={onCancel} className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-medium">Got it</button>
-          </div>
-        ) : (
-          <div className="space-y-4">
+    <Modal open onClose={onCancel} title="Share a workspace">
+      {!supported ? (
+        <>
+          <ModalBody>
+            <p className={`text-sm ${cx.muted}`}>Sign in with an email or Google account to create a shared workspace others can join and collaborate in.</p>
+          </ModalBody>
+          <ModalFooter>
+            <button type="button" onClick={onCancel} className={cx.btnPrimary}>Got it</button>
+          </ModalFooter>
+        </>
+      ) : (
+        <>
+          <ModalBody>
             <Field label="Workspace name">
-              <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Grants 2026" autoFocus />
+              <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Grants 2026" autoFocus />
             </Field>
-            <Field label="Invite by email (optional)">
+            <Group label="Invite by email (optional)">
               {emails.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {emails.map((e) => (
-                    <span key={e} className="text-xs px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 flex items-center gap-1">
-                      <Mail size={10} /> {e}
-                      <button onClick={() => setEmails(emails.filter((x) => x !== e))} className="hover:text-white"><X size={11} /></button>
+                    <span key={e} className="text-xs px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 flex items-center gap-1">
+                      <Mail size={11} /> {e}
+                      <button type="button" onClick={() => setEmails(emails.filter((x) => x !== e))} className="hover:text-blue-900 dark:hover:text-white" aria-label={`Remove ${e}`} title={`Remove ${e}`}><X size={12} /></button>
                     </span>
                   ))}
                 </div>
               )}
               <input
-                className={inputClass}
+                className={inputCls}
                 placeholder="name@example.com — press Enter"
+                aria-label="Invite by email"
                 onKeyDown={(ev) => {
                   if (ev.key === 'Enter' || ev.key === ',') {
                     ev.preventDefault();
@@ -1121,23 +1092,23 @@ const NewWorkspaceModal: React.FC<{
                   }
                 }}
               />
-              <p className="text-xs text-gray-500 mt-1">They'll see this workspace next time they open ClearMind signed in with that email.</p>
-            </Field>
-            <label className="flex items-center gap-2 text-sm dark:text-gray-300 text-gray-700 cursor-pointer">
+              <p className={`text-xs mt-1 ${cx.faint}`}>They'll see this workspace next time they open ClearMind signed in with that email.</p>
+            </Group>
+            <label className={`flex items-center gap-2 text-sm cursor-pointer ${cx.text}`}>
               <input type="checkbox" checked={seed} onChange={(e) => setSeed(e.target.checked)} className="accent-blue-600" />
               Copy my {personalCount} current application{personalCount !== 1 ? 's' : ''} into it
             </label>
-            {error && <p className="text-sm text-red-400">{error}</p>}
-            <div className="flex gap-3 pt-1">
-              <button onClick={submit} disabled={!name.trim() || busy} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2">
-                <Share2 size={16} /> {busy ? 'Creating…' : 'Create & share'}
-              </button>
-              <button onClick={onCancel} className="px-4 py-3 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700">Cancel</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+            {error && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{error}</p>}
+          </ModalBody>
+          <ModalFooter>
+            <button type="button" onClick={onCancel} className={cx.btnGhost}>Cancel</button>
+            <button type="button" onClick={submit} disabled={!name.trim() || busy} className={`inline-flex items-center gap-1.5 ${cx.btnPrimary}`}>
+              <Share2 size={16} /> {busy ? 'Creating…' : 'Create & share'}
+            </button>
+          </ModalFooter>
+        </>
+      )}
+    </Modal>
   );
 };
 
@@ -1169,24 +1140,20 @@ const MembersModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="dark:bg-midnight-light bg-white border dark:border-gray-800 border-gray-200 rounded-xl p-6 w-full max-w-md shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold dark:text-white text-gray-900 flex items-center gap-2"><Users size={18} className="text-blue-400" /> Members</h3>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-white"><X size={22} /></button>
-        </div>
-        <p className="text-xs text-gray-500 mb-4">{workspace.name} · everyone listed can view and edit every application.</p>
+    <Modal open onClose={onCancel} title="Members">
+      <ModalBody>
+        <p className={`text-xs ${cx.muted}`}>{workspace.name} · everyone listed can view and edit every application.</p>
 
-        <div className="space-y-2 mb-4">
-          <div className="flex items-center justify-between text-sm dark:text-white text-gray-900 px-3 py-2 rounded-lg dark:bg-gray-800/60 bg-gray-100">
-            <span className="flex items-center gap-2"><Mail size={13} className="text-gray-400" /> {workspace.ownerEmail}</span>
-            <span className="text-[11px] text-amber-400 inline-flex items-center gap-1"><Crown size={11} /> owner{currentEmail === workspace.ownerEmail ? ' · you' : ''}</span>
+        <div className={`rounded-lg border ${cx.border} divide-y divide-gray-200 dark:divide-gray-800`}>
+          <div className={`flex items-center justify-between text-sm px-3 py-2 ${cx.text}`}>
+            <span className="flex items-center gap-2 min-w-0"><Mail size={14} className={cx.faint} /> <span className="truncate">{workspace.ownerEmail}</span></span>
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1 shrink-0"><Crown size={11} /> owner{currentEmail === workspace.ownerEmail ? ' · you' : ''}</span>
           </div>
           {invitees.map((e) => (
-            <div key={e} className="flex items-center justify-between text-sm dark:text-white text-gray-900 px-3 py-2 rounded-lg dark:bg-gray-800/40 bg-gray-50">
-              <span className="flex items-center gap-2"><Mail size={13} className="text-gray-400" /> {e}{currentEmail === e ? ' · you' : ''}</span>
+            <div key={e} className={`flex items-center justify-between text-sm px-3 py-1.5 ${cx.text}`}>
+              <span className="flex items-center gap-2 min-w-0"><Mail size={14} className={cx.faint} /> <span className="truncate">{e}{currentEmail === e ? ' · you' : ''}</span></span>
               {isOwner && (
-                <button onClick={() => setInvitees(invitees.filter((x) => x !== e))} className="text-gray-400 hover:text-red-500"><X size={14} /></button>
+                <IconBtn label={`Remove ${e}`} danger onClick={() => setInvitees(invitees.filter((x) => x !== e))}><X size={16} /></IconBtn>
               )}
             </div>
           ))}
@@ -1194,11 +1161,12 @@ const MembersModal: React.FC<{
 
         {isOwner ? (
           <>
-            <div className="flex items-center gap-2 mb-4">
-              <UserPlus size={15} className="text-gray-400" />
+            <div className="flex items-center gap-2">
+              <UserPlus size={16} className={cx.faint} aria-hidden />
               <input
-                className={`${inputClass} py-2`}
+                className={inputCls}
                 placeholder="Invite by email — press Enter"
+                aria-label="Invite by email"
                 onKeyDown={(ev) => {
                   if (ev.key === 'Enter' || ev.key === ',') {
                     ev.preventDefault();
@@ -1208,20 +1176,23 @@ const MembersModal: React.FC<{
                 }}
               />
             </div>
-            {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
-            <div className="flex gap-3">
-              <button onClick={save} disabled={busy} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg font-medium">{busy ? 'Saving…' : 'Save members'}</button>
-              <button onClick={onCancel} className="px-4 py-2.5 dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700">Cancel</button>
-            </div>
+            {error && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{error}</p>}
           </>
         ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-gray-500">Only the owner can change who's in this workspace.</p>
-            <button onClick={onCancel} className="w-full dark:bg-gray-800 bg-gray-200 dark:text-white text-gray-900 px-4 py-2.5 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700">Close</button>
-          </div>
+          <p className={`text-xs ${cx.muted}`}>Only the owner can change who's in this workspace.</p>
         )}
-      </div>
-    </div>
+      </ModalBody>
+      <ModalFooter>
+        {isOwner ? (
+          <>
+            <button type="button" onClick={onCancel} className={cx.btnGhost}>Cancel</button>
+            <button type="button" onClick={save} disabled={busy} className={cx.btnPrimary}>{busy ? 'Saving…' : 'Save members'}</button>
+          </>
+        ) : (
+          <button type="button" onClick={onCancel} className={cx.btnGhost}>Close</button>
+        )}
+      </ModalFooter>
+    </Modal>
   );
 };
 
