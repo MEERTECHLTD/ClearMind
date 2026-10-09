@@ -46,3 +46,4 @@ credentials.json
 *.pem
 .env.*
 !.env.example
+.claude/worktrees/
