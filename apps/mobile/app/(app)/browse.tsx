@@ -146,7 +146,7 @@ export default function BrowseScreen() {
         <View className="w-9 h-9 rounded-full bg-accent items-center justify-center mr-3">
           <Text className="text-white font-extrabold">{name[0]?.toUpperCase() ?? '?'}</Text>
         </View>
-        <Text className="text-ink text-[22px] font-extrabold flex-1" numberOfLines={1} accessibilityRole="header">Browse</Text>
+        <Text className="text-ink text-[26px] font-extrabold flex-1" numberOfLines={1} accessibilityRole="header">Browse</Text>
         <Pressable onPress={() => router.push('/(app)/settings')} hitSlop={8} className="p-2 rounded-full active:bg-midnight-lighter" accessibilityLabel="Settings" accessibilityRole="button">
           <Settings size={22} color={C.ink} />
         </Pressable>

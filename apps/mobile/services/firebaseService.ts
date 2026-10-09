@@ -99,6 +99,8 @@ export const firebaseService = {
     // @react-native-google-signin v13+ returns { type, data: { idToken, user } };
     // older returns { idToken, user }. Handle both.
     const res: any = await GoogleSignin.signIn();
+    // v13+: closing the account picker resolves { type: 'cancelled' } (no throw).
+    if (res?.type === 'cancelled') throw Object.assign(new Error('Google sign-in cancelled'), { code: 'SIGN_IN_CANCELLED' });
     const idToken: string | undefined = res?.data?.idToken ?? res?.idToken;
     if (!idToken) throw new Error('Google sign-in returned no idToken');
     const cred = GoogleAuthProvider.credential(idToken);
