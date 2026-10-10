@@ -10,6 +10,9 @@
         "EXPO_ROUTER_APP_ROOT": "../../apps/mobile/app",
         "EXPO_ROUTER_IMPORT_MODE": "sync",
         "EXPO_NO_TELEMETRY": "1"
+      },
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0"
       }
     },
     "preview": {
