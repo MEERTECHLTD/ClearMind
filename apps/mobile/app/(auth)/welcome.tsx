@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { View, Text, Pressable, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -14,11 +15,14 @@ export default function Welcome() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
-  const [busy, setBusy] = useState<null | 'email' | 'google' | 'guest'>(null);
+  const [busy, setBusy] = useState<null | 'email' | 'google' | 'apple' | 'guest'>(null);
+  // Sign in with Apple (iOS only; App Store guideline 4.8 when Google sign-in is offered).
+  const [appleOk, setAppleOk] = useState(false);
+  useEffect(() => { firebaseService.appleAvailable().then(setAppleOk).catch(() => {}); }, []);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const run = useCallback(async (which: 'email' | 'google' | 'guest', fn: () => Promise<any>) => {
+  const run = useCallback(async (which: 'email' | 'google' | 'apple' | 'guest', fn: () => Promise<any>) => {
     setError(''); setNotice(''); setBusy(which);
     try { await fn(); } catch (e: any) {
       if (isCancel(e)) return;
@@ -90,6 +94,16 @@ export default function Welcome() {
               </>
             )}
           </Pressable>
+
+          {appleOk ? (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+              cornerRadius={999}
+              style={{ height: 54, marginTop: 12, opacity: busy !== null ? 0.6 : 1 }}
+              onPress={() => { if (busy === null) run('apple', () => firebaseService.signInWithApple()); }}
+            />
+          ) : null}
 
           <Pressable onPress={() => run('guest', () => firebaseService.signInAnonymously())} disabled={busy !== null} className="items-center mt-5">
             <Text className="text-ink-muted text-sm">{busy === 'guest' ? 'Please wait…' : 'Continue as guest'}</Text>

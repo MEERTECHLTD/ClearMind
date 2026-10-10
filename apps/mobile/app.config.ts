@@ -32,6 +32,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'tech.meertech.clearmind',
+    // Sign in with Apple entitlement (App Store guideline 4.8 alongside Google sign-in).
+    usesAppleSignIn: true,
     buildNumber: '1', // managed remotely by EAS (appVersionSource: remote)
     // Firebase iOS config (gitignored; EAS file env var GOOGLE_SERVICES_PLIST).
     googleServicesFile: process.env.GOOGLE_SERVICES_PLIST ?? './GoogleService-Info.plist',
@@ -125,6 +127,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       ios: `./assets/icons/${n.toLowerCase()}.png`,
       android: { foregroundImage: `./assets/icons/${n.toLowerCase()}-foreground.png`, backgroundColor: ({ Light: '#FFFFFF', Ocean: '#1E40AF', Sunset: '#EA580C', Forest: '#065F46', Mono: '#111111' } as Record<string, string>)[n] },
     }))],
+    'expo-apple-authentication',
     '@react-native-google-signin/google-signin',
     [
       'expo-notifications',
