@@ -706,7 +706,7 @@ export interface UserProfile {
   // Cloud user fields (optional for local-only users)
   email?: string;
   photoURL?: string;
-  provider?: 'email' | 'google' | 'github' | 'anonymous' | 'local';
+  provider?: 'email' | 'google' | 'apple' | 'github' | 'anonymous' | 'local';
   cloudUserId?: string; // Firebase UID
   lastSyncedAt?: string;
 }
