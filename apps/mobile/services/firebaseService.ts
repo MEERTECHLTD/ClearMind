@@ -17,10 +17,15 @@ import {
   sendPasswordResetEmail,
   signInAnonymously as fbSignInAnonymously,
   GoogleAuthProvider,
+  OAuthProvider,
   signInWithCredential,
+  revokeAccessToken,
   signOut,
   type User,
 } from 'firebase/auth';
+import { Platform } from 'react-native';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import {
@@ -49,7 +54,7 @@ export interface FirebaseUser {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
-  provider: 'email' | 'google' | 'github' | 'anonymous';
+  provider: 'email' | 'google' | 'apple' | 'github' | 'anonymous';
 }
 
 const requireUid = (): string => {
@@ -123,6 +128,57 @@ export const firebaseService = {
       provider: 'google',
     };
   },
+  /** Sign in with Apple is offered on iOS (App Store guideline 4.8: required alongside Google). */
+  async appleAvailable(): Promise<boolean> {
+    if (Platform.OS !== 'ios') return false;
+    try { return await AppleAuthentication.isAvailableAsync(); } catch { return false; }
+  },
+
+  // Native Sign in with Apple -> identity token (+ hashed nonce) -> Firebase apple.com credential.
+  async signInWithApple(): Promise<FirebaseUser> {
+    const rawNonce = Crypto.randomUUID();
+    const hashed = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+    let res: AppleAuthentication.AppleAuthenticationCredential;
+    try {
+      res = await AppleAuthentication.signInAsync({
+        requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
+        nonce: hashed,
+      });
+    } catch (e: any) {
+      if (e?.code === 'ERR_REQUEST_CANCELED') throw Object.assign(new Error('Apple sign-in cancelled'), { code: 'SIGN_IN_CANCELLED' });
+      throw e;
+    }
+    if (!res.identityToken) throw new Error('Apple sign-in returned no identity token');
+    const cred = new OAuthProvider('apple.com').credential({ idToken: res.identityToken, rawNonce });
+    const { user } = await signInWithCredential(auth, cred);
+    // Apple shares the name only on the very first authorization — keep it.
+    const given = [res.fullName?.givenName, res.fullName?.familyName].filter(Boolean).join(' ');
+    const ref = doc(db, 'users', user.uid);
+    if (!(await getDoc(ref)).exists()) {
+      await setDoc(ref, {
+        nickname: given || user.displayName || user.email?.split('@')[0] || 'User',
+        email: user.email ?? res.email ?? null,
+        provider: 'apple',
+        photoURL: null,
+        joinedAt: serverTimestamp(),
+      });
+    }
+    return { uid: user.uid, email: user.email, displayName: given || user.displayName, photoURL: null, provider: 'apple' };
+  },
+
+  /**
+   * Apple requires apps to revoke the Sign in with Apple token when the account is
+   * deleted. Re-prompts Apple for a fresh authorization code, then revokes.
+   * Best-effort: account deletion proceeds even if the user cancels.
+   */
+  async revokeAppleIfLinked(user: User): Promise<void> {
+    if (Platform.OS !== 'ios' || !user.providerData.some((p) => p.providerId === 'apple.com')) return;
+    try {
+      const res = await AppleAuthentication.signInAsync({ requestedScopes: [] });
+      if (res.authorizationCode) await revokeAccessToken(auth, res.authorizationCode);
+    } catch { /* cancelled / offline — deletion continues */ }
+  },
+
   // Phase 3: expo-auth-session GitHub OAuth -> GithubAuthProvider.credential(token) -> signInWithCredential.
   async signInWithGithub(): Promise<FirebaseUser> {
     throw new Error('GitHub sign-in: implement with expo-auth-session in Phase 3');
