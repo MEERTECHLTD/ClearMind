@@ -5,6 +5,12 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
 const MIDNIGHT = '#05050A';
 const ACCENT = '#3B82F6';
 
+// Microphone: used only for voice-to-text in Quick Add. Every plugin that touches the
+// iOS purpose string must get this text — `false` DELETES NSMicrophoneUsageDescription
+// (App Store Connect rejects the binary: ITMS-90683).
+const MIC_PURPOSE = 'ClearMind uses the microphone only while you dictate a task, to turn your speech into task text.';
+const SPEECH_PURPOSE = 'ClearMind turns your speech into task text when you tap the microphone in Quick Add.';
+
 // EAS (Expo Application Services) project — builds, signing and Play submission
 // are managed on expo.dev (see eas.json and DECISIONS.md D12).
 const EAS_OWNER = 'meertech'; // Expo account (renamed from ameer911)
@@ -41,6 +47,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       ITSAppUsesNonExemptEncryption: false,
       NSCameraUsageDescription: 'ClearMind uses the camera only when you choose to take a new profile photo.',
       NSPhotoLibraryUsageDescription: 'ClearMind lets you pick a profile photo from your library.',
+      NSMicrophoneUsageDescription: MIC_PURPOSE,
+      NSSpeechRecognitionUsageDescription: SPEECH_PURPOSE,
       UIBackgroundModes: ['fetch', 'processing', 'remote-notification'],
     },
     config: { usesNonExemptEncryption: false },
@@ -97,12 +105,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-secure-store',
     'expo-sqlite',
     'expo-background-task',
-    ['expo-image-picker', { photosPermission: 'ClearMind lets you pick a profile photo from your library.', cameraPermission: 'ClearMind uses the camera only when you choose to take a new profile photo.', microphonePermission: false }],
-    ['expo-audio', { microphonePermission: false }],
+    ['expo-image-picker', { photosPermission: 'ClearMind lets you pick a profile photo from your library.', cameraPermission: 'ClearMind uses the camera only when you choose to take a new profile photo.', microphonePermission: MIC_PURPOSE }],
+    ['expo-audio', { microphonePermission: MIC_PURPOSE }],
     // Voice-to-text in Quick Add — uses the device's speech service (Google app on Android).
     ['expo-speech-recognition', {
-      microphonePermission: 'ClearMind uses the microphone only while you dictate a task.',
-      speechRecognitionPermission: 'ClearMind turns your speech into task text.',
+      microphonePermission: MIC_PURPOSE,
+      speechRecognitionPermission: SPEECH_PURPOSE,
       androidSpeechServicePackages: ['com.google.android.googlequicksearchbox'],
     }],
     // iOS: Google Sign-In's AppCheckCore (Swift, static) needs module maps for these.
