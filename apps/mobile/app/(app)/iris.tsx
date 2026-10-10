@@ -661,8 +661,8 @@ export default function IrisScreen() {
         <AppHeader title="Iris" subtitle="Your AI co-pilot for the journey" />
         <EmptyState
           icon={<Sparkles size={34} color="#a855f7" />}
-          title="AI not configured"
-          subtitle="Add your Gemini API key (EXPO_PUBLIC_GEMINI_API_KEY) to chat with Iris and let her act on your ClearMind workspace."
+          title="Sign in to use Iris"
+          subtitle="Iris runs through your ClearMind account. Sign in (or continue as guest) to chat with her and let her act on your workspace."
         />
       </Screen>
     );
