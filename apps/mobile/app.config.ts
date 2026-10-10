@@ -18,7 +18,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'clearmind',
   owner: EAS_OWNER,
   scheme: 'clearmind',
-  version: '0.4.0', // versionName — bump per release (see README Play checklist)
+  version: '0.4.2', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
   userInterfaceStyle: 'dark', // the UI is dark-only; keeps native pickers/dialogs consistent
   newArchEnabled: true,
@@ -52,7 +52,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Play requires versionCode to rise per build. EAS manages it remotely
     // (eas.json appVersionSource: remote + autoIncrement); the Gradle workflow
     // still sets it from the run number.
-    versionCode: Number(process.env.ANDROID_VERSION_CODE ?? 1),
+    versionCode: Number(process.env.ANDROID_VERSION_CODE ?? 30), // CI passes its run number (≥ 30)
     // Strip Play-sensitive permissions the app does NOT use (prebuild/RN add these
     // by default): the dev-only overlay SYSTEM_ALERT_WINDOW, and legacy storage —
     // the Excel import/export uses scoped access (document-picker/file-system/sharing),
@@ -106,9 +106,34 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // iOS: Google Sign-In's AppCheckCore (Swift, static) needs module maps for these.
     // Android: Google Play requires targetSdk 36 (Android 16) for new apps/updates.
     ['expo-build-properties', {
-      android: { compileSdkVersion: 36, targetSdkVersion: 36, buildToolsVersion: '36.0.0' },
+      android: {
+        compileSdkVersion: 36, targetSdkVersion: 36, buildToolsVersion: '36.0.0',
+        // R8: shrink/obfuscate release builds; CI publishes mapping.txt next to the AAB.
+        enableProguardInReleaseBuilds: true,
+        enableShrinkResourcesInReleaseBuilds: true,
+        // Keep rules beyond the libraries' own consumer rules (JNI/reflection entry points).
+        extraProguardRules: [
+          '-keep class com.facebook.hermes.unicode.** { *; }',
+          '-keep class com.facebook.jni.** { *; }',
+          '-keep class com.facebook.react.turbomodule.** { *; }',
+          '-keep class com.swmansion.reanimated.** { *; }',
+          '-keep class com.swmansion.gesturehandler.** { *; }',
+          '-keep class expo.modules.** { *; }',
+          '-keep class com.reactnativeandroidwidget.** { *; }',
+          '-keep class com.reactnativecommunity.netinfo.** { *; }',
+          '-keep class com.reactnativecommunity.asyncstorage.** { *; }',
+          '-keep class com.th3rdwave.safeareacontext.** { *; }',
+          '-keep class com.horcrux.svg.** { *; }',
+          '-keep class com.reactnativegooglesignin.** { *; }',
+          '-keep class com.google.android.gms.auth.api.signin.** { *; }',
+          '-keepattributes SourceFile,LineNumberTable',
+          '-renamesourcefileattribute SourceFile',
+        ].join('\n'),
+      },
       ios: { extraPods: [{ name: 'GoogleUtilities', modular_headers: true }, { name: 'RecaptchaInterop', modular_headers: true }] },
     }],
+    // Native debug symbols in the release AAB (see plugins/withReleaseDebugSymbols.js).
+    './plugins/withReleaseDebugSymbols',
     // Android home-screen widgets (see widgets/ and services/widgetData.ts).
     ['react-native-android-widget', {
       widgets: [
