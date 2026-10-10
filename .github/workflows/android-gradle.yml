@@ -144,7 +144,7 @@ jobs:
             --bundle-output /tmp/verify.bundle --assets-dest /tmp/verify-assets
           ok=1
           grep -q "clearmind-b8d2b" /tmp/verify.bundle || { echo "::error::Firebase config NOT embedded (projectId 'clearmind-b8d2b' missing from bundle)"; ok=0; }
-          grep -q "SHA-1 not registered" /tmp/verify.bundle || { echo "::error::app routes NOT enumerated (app/index.tsx missing — check EXPO_ROUTER_APP_ROOT is relative)"; ok=0; }
+          grep -q "Continue as guest" /tmp/verify.bundle && grep -q "Your Inbox is clear" /tmp/verify.bundle || { echo "::error::app routes NOT enumerated (app/index.tsx missing — check EXPO_ROUTER_APP_ROOT is relative)"; ok=0; }
           if [ "$ok" = 1 ]; then echo "Bundle OK: Firebase config embedded AND routes enumerated"; else exit 1; fi
 
       # APK is the directly-installable artifact and signs via apksigner (robust).
