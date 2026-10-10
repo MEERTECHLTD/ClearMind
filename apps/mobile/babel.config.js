@@ -42,7 +42,6 @@ module.exports = function (api) {
           'EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET',
           'EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
           'EXPO_PUBLIC_FIREBASE_APP_ID',
-          'EXPO_PUBLIC_GEMINI_API_KEY',
           'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID',
         ],
       }],
