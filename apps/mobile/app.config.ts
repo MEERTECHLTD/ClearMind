@@ -24,7 +24,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'clearmind',
   owner: EAS_OWNER,
   scheme: 'clearmind',
-  version: '0.4.2', // versionName — bump per release (see README Play checklist)
+  version: '1.0.0', // versionName — bump per release (see README Play checklist)
   orientation: 'portrait',
   userInterfaceStyle: 'dark', // the UI is dark-only; keeps native pickers/dialogs consistent
   newArchEnabled: true,
@@ -36,7 +36,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   assetBundlePatterns: ['**/*'],
   ios: {
-    supportsTablet: true,
+    // iPhone-only for 1.0 (runs on iPad in iPhone mode); no iPad layout/screenshots yet.
+    supportsTablet: false,
     bundleIdentifier: 'tech.meertech.clearmind',
     // Sign in with Apple entitlement (App Store guideline 4.8 alongside Google sign-in).
     usesAppleSignIn: true,
