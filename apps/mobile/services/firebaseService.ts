@@ -65,6 +65,8 @@ const requireUid = (): string => {
 
 export const firebaseService = {
   isConfigured: isFirebaseConfigured,
+  /** False when the build has no Google web client id — the button isn't offered. */
+  googleConfigured: !!googleWebClientId,
 
   async signUpWithEmail(email: string, password: string, nickname: string): Promise<FirebaseUser> {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -99,15 +101,19 @@ export const firebaseService = {
 
   // Native Google sign-in: GoogleSignin -> idToken -> Firebase credential.
   async signInWithGoogle(): Promise<FirebaseUser> {
+    // Without the web client id GoogleSignin returns no idToken, so fail up front.
+    if (!googleWebClientId) throw Object.assign(new Error('Google sign-in not configured'), { code: 'GOOGLE_NOT_CONFIGURED' });
     configureGoogleSignin();
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    if (Platform.OS === 'android') await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
     // @react-native-google-signin v13+ returns { type, data: { idToken, user } };
     // older returns { idToken, user }. Handle both.
     const res: any = await GoogleSignin.signIn();
     // v13+: closing the account picker resolves { type: 'cancelled' } (no throw).
     if (res?.type === 'cancelled') throw Object.assign(new Error('Google sign-in cancelled'), { code: 'SIGN_IN_CANCELLED' });
     const idToken: string | undefined = res?.data?.idToken ?? res?.idToken;
-    if (!idToken) throw new Error('Google sign-in returned no idToken');
+    if (!idToken) throw Object.assign(new Error('Google sign-in returned no idToken'), { code: 'GOOGLE_NO_ID_TOKEN' });
+    // Firebase Auth verifies the Google ID token server-side (signature, audience,
+    // expiry) before issuing a session; the client never asserts its own identity.
     const cred = GoogleAuthProvider.credential(idToken);
     const { user } = await signInWithCredential(auth, cred);
     const ref = doc(db, 'users', user.uid);
