@@ -13,12 +13,12 @@ ul{padding-left:22px}.card{background:var(--card);border:1px solid var(--line);b
 code{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:14px}
 </style></head><body><main>
 <header><img src="/app-icon-256.png" alt=""><a href="/">ClearMind</a></header>
-<h1>Privacy Policy</h1><p class="muted">Effective date: 7 October 2026</p>
+<h1>Privacy Policy</h1><p class="muted">Effective date: 13 October 2026</p>
 <p>This policy explains what information the ClearMind apps (Android, iOS and web at clearmind.meertech.tech) collect, why, and the choices you have. ClearMind is a task, notes and productivity app developed by MEERTECH (“we”).</p>
 
 <h2>Information we collect</h2>
 <ul>
-<li><b>Account information</b> — your email address, display name, optional profile photo, and the sign-in method you use (email and password, Google, or an anonymous guest account).</li>
+<li><b>Account information</b> — your email address, display name, optional profile photo, and the sign-in method you use (email and password, Google, Sign in with Apple, or an anonymous guest account). If you use Sign in with Apple and choose to hide your email, we receive only Apple’s private relay address.</li>
 <li><b>Content you create</b> — tasks, projects, sections, labels, comments, reminders, notes, canvases, files you attach, habits, goals, journal entries, calendar events, applications and other items you add to the app, plus your app settings and preferences.</li>
 <li><b>Activity in the app</b> — records of completed tasks and changes (used for your history, streaks and productivity statistics inside the app).</li>
 <li><b>Connected AI agents</b> — if you choose to connect an AI agent (for example via MCP, the REST API or the CLI), we store a hashed access token, its name and permissions, and an audit log of the actions it performs in your account.</li>
@@ -39,11 +39,12 @@ code{background:var(--card);border:1px solid var(--line);border-radius:6px;paddi
 <h2>Where your data is stored</h2>
 <p>Your account and content are stored with Google Firebase (Firebase Authentication and Cloud Firestore), which acts as our service provider. Data is encrypted in transit (HTTPS/TLS) and encrypted at rest by Google. Reminders and widgets are prepared on your device. In the web app’s optional <i>Local Workspace</i> mode, data stays in your browser and is not uploaded.</p>
 
-<h2>Device permissions (Android)</h2>
+<h2>Device permissions</h2>
 <ul>
 <li><b>Notifications</b> — for task reminders and daily/weekly summaries (you can turn these off in Settings).</li>
 <li><b>Camera / photos</b> — only when you choose to set a profile photo.</li>
-<li><b>Biometrics</b> — version 0.3.0 declares this permission because of a secure-storage library; ClearMind never accesses biometric data, and later versions remove the permission.</li>
+<li><b>Microphone and speech recognition</b> — only when you tap the microphone to dictate a task. Speech is converted to text by your device’s speech service (on iOS, Apple’s speech recognition; on Android, the system speech service). We do not record or store audio; only the resulting text is saved, as part of the item you create.</li>
+<li><b>Biometrics (Android)</b> — version 0.3.0 declares this permission because of a secure-storage library; ClearMind never accesses biometric data, and later versions remove the permission.</li>
 <li><b>Internet / network state</b> — to sync your data.</li>
 </ul>
 
