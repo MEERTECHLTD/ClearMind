@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProfile, deleteUser, sendPasswordResetEmail } from 'firebase/auth';
 import { Camera, ImagePlus, Trash2, Mail, KeyRound, UserRound, Link2, AlertTriangle } from 'lucide-react-native';
 import { deleteAccountData, updateProfileDoc } from '@clearmind/shared/data/account';
+import { firebaseService } from '../../../services/firebaseService';
 import { useAuth } from '../../../hooks/useAuth';
 import { SettingsPage, Group, Row } from '../../../components/settings/ui';
 import { Sheet, Button, ActionMenu, useToast } from '../../../components/ui';
@@ -98,6 +99,8 @@ export default function AccountSettings() {
       stopSync();
       await deleteAccountData(db, user.uid, getSyncableStores().map(getFirestoreCollectionName), setProgress);
       setProgress('Removing sign-in…');
+      // Sign in with Apple accounts: revoke Apple's token too (Apple requirement).
+      await firebaseService.revokeAppleIfLinked(user);
       try {
         await deleteUser(user);
       } catch (e: any) {
