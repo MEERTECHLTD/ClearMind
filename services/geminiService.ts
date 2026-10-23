@@ -42,10 +42,12 @@ export type {
   ApplicationReview,
 } from '@clearmind/shared/ai/geminiCore';
 
-// Same-origin on the Vercel host; every other host (clearmind.expo.app, local
-// dev) has no functions, so it calls the production API (CORS allows them).
+// Same-origin on the Vercel hosts (clearmind.meertech.tech, clearmind.one); every
+// other host (clearmind.expo.app, local dev) has no functions, so it calls the
+// production API (CORS allows them).
+const VERCEL_ORIGINS = ['https://clearmind.meertech.tech', 'https://clearmind.one', 'https://www.clearmind.one'];
 const AI_ENDPOINT =
-  typeof window !== 'undefined' && window.location.origin === 'https://clearmind.meertech.tech'
+  typeof window !== 'undefined' && VERCEL_ORIGINS.includes(window.location.origin)
     ? '/api/v1/ai/generate'
     : DEFAULT_AI_ENDPOINT;
 
