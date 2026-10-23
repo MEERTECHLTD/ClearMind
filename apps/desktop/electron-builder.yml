@@ -1,0 +1,49 @@
+# ClearMind for macOS packaging (electron-builder). See docs/MACOS.md.
+appId: tech.meertech.clearmind.mac
+productName: ClearMind
+copyright: Copyright © 2026 Meertech LTD
+directories:
+  output: dist
+  buildResources: build
+# The shell has no runtime dependencies (the web app is pre-bundled by Vite), so
+# keep the workspace's node_modules (firebase-admin, expo, …) out of app.asar.
+files:
+  - src/**
+  - package.json
+  - "!**/node_modules/**"
+# The web build (vite) ships next to the app code, served by src/server.cjs.
+extraResources:
+  - from: build/web
+    to: web
+asar: true
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  target:
+    - dmg
+    - zip
+  minimumSystemVersion: "12.0"
+  darkModeSupport: true
+  # Hardened runtime is for Developer ID/notarized builds (pass
+  # -c.mac.hardenedRuntime=true with a real identity); an ad-hoc signature with
+  # it on fails library validation.
+  hardenedRuntime: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Ad-hoc signature for local installs (no Apple account needed). For a
+  # Developer ID build pass -c.mac.identity="Developer ID Application: … (TEAMID)".
+  identity: "-"
+  # The zip keeps this name; the dmg overrides it below.
+  artifactName: ${productName}-${version}-mac.${ext}
+  extendInfo:
+    LSApplicationCategoryType: public.app-category.productivity
+    NSHumanReadableCopyright: Copyright © 2026 Meertech LTD
+dmg:
+  artifactName: ${productName}.${ext}
+  title: ${productName}
+  contents:
+    - { x: 130, y: 190 }
+    - { x: 410, y: 190, type: link, path: /Applications }
+  window: { width: 540, height: 380 }
+npmRebuild: false
+publish: null

@@ -8,11 +8,15 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithPopup,
+  signInWithCredential,
   signInAnonymously,
   GoogleAuthProvider,
   GithubAuthProvider,
-  User
+  User,
+  type AuthProvider,
+  type UserCredential,
 } from 'firebase/auth';
+import { desktop } from './desktop';
 import {
   getFirestore,
   doc,
@@ -61,6 +65,19 @@ if (isFirebaseConfigured()) {
 // Auth Providers
 const googleProvider = new GoogleAuthProvider();
 const githubProvider = new GithubAuthProvider();
+
+// Popup in a browser; in the macOS app the provider sign-in runs in the system
+// browser (loopback page served by the desktop shell) and only the resulting
+// credential comes back here.
+async function signInWithProvider(provider: AuthProvider, name: 'google' | 'github'): Promise<UserCredential> {
+  const shell = desktop();
+  if (!shell) return signInWithPopup(auth, provider);
+  const r = await shell.oauthSignIn(name);
+  const credential = r.providerId === 'github.com'
+    ? GithubAuthProvider.credential(r.accessToken ?? '')
+    : GoogleAuthProvider.credential(r.idToken ?? null, r.accessToken ?? null);
+  return signInWithCredential(auth, credential);
+}
 
 // (sanitizeForFirestore moved to @clearmind/shared/data/firestore — the cloud
 // write paths below delegate there, so no local copy is needed.)
@@ -125,7 +142,7 @@ export const firebaseService = {
   async signInWithGoogle(): Promise<FirebaseUser> {
     if (!auth) throw new Error('Firebase not configured');
     
-    const result = await signInWithPopup(auth, googleProvider);
+    const result = await signInWithProvider(googleProvider, 'google');
     const user = result.user;
     
     // Check if user exists in Firestore, if not create profile
@@ -153,7 +170,7 @@ export const firebaseService = {
   async signInWithGithub(): Promise<FirebaseUser> {
     if (!auth) throw new Error('Firebase not configured');
     
-    const result = await signInWithPopup(auth, githubProvider);
+    const result = await signInWithProvider(githubProvider, 'github');
     const user = result.user;
     
     // Check if user exists in Firestore, if not create profile

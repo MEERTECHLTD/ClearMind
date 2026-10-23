@@ -1,0 +1,24 @@
+{
+  "name": "@clearmind/desktop",
+  "productName": "ClearMind",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ClearMind for macOS",
+  "author": "Meertech LTD",
+  "homepage": "https://clearmind.meertech.tech",
+  "main": "src/main.cjs",
+  "scripts": {
+    "build:web": "cd ../.. && vite build --outDir apps/desktop/build/web --emptyOutDir",
+    "icon": "node scripts/make-icon.mjs",
+    "dev": "node scripts/dev.mjs",
+    "start": "npm run build:web && electron .",
+    "build": "npm run build:web && electron-builder --mac --universal --publish never",
+    "build:arm64": "npm run build:web && electron-builder --mac --arm64 --publish never",
+    "test": "node --test \"test/*.test.cjs\"",
+    "test:e2e": "node --test \"e2e/*.test.mjs\""
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3"
+  }
+}

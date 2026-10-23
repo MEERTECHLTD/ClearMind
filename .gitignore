@@ -50,3 +50,6 @@ credentials.json
 # Playwright
 test-results/
 playwright-report/
+
+# macOS desktop: web build copied into the app bundle
+apps/desktop/build/web/

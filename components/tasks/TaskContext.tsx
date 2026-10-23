@@ -114,8 +114,11 @@ function UIProvider({ children }: { children: React.ReactNode }) {
       if (e.metaKey || e.ctrlKey || e.altKey || el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); setQuickAdd({}); }
     };
+    // The macOS app's File › New Task menu item dispatches this event.
+    const onMenu = () => setQuickAdd({});
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('clearmind:quick-add', onMenu);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('clearmind:quick-add', onMenu); };
   }, []);
 
   const value = useMemo<TaskUI>(() => ({

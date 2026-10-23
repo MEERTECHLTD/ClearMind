@@ -21,6 +21,7 @@ import {
 } from '@clearmind/shared/ai/geminiCore';
 import { createProxyTransport, DEFAULT_AI_ENDPOINT } from '@clearmind/shared/ai/transport';
 import { auth, isFirebaseConfigured } from './firebase';
+import { isDesktop } from './desktop';
 
 // Pure, key-independent surface — re-exported verbatim from the shared core.
 export { parseActionCommands, parseTaskCommands } from '@clearmind/shared/ai/geminiCore';
@@ -42,10 +43,11 @@ export type {
   ApplicationReview,
 } from '@clearmind/shared/ai/geminiCore';
 
-// Same-origin on the Vercel host; every other host (clearmind.expo.app, local
-// dev) has no functions, so it calls the production API (CORS allows them).
+// Same-origin on the Vercel host and in the macOS app (its local server forwards
+// /api to production); every other host (clearmind.expo.app, local dev) has no
+// functions, so it calls the production API (CORS allows them).
 const AI_ENDPOINT =
-  typeof window !== 'undefined' && window.location.origin === 'https://clearmind.meertech.tech'
+  typeof window !== 'undefined' && (window.location.origin === 'https://clearmind.meertech.tech' || isDesktop())
     ? '/api/v1/ai/generate'
     : DEFAULT_AI_ENDPOINT;
 

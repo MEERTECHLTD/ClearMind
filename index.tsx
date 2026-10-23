@@ -21,6 +21,9 @@ initInstall();
 // OAuth consent for MCP connectors (claude.ai, ChatGPT) lives outside the app shell.
 const OAuthConsent = lazyWithRetry(() => import('./components/views/OAuthConsent'));
 const isOAuth = window.location.pathname.startsWith('/oauth/authorize');
+// Loopback sign-in page the macOS app opens in the default browser.
+const DesktopAuthBridge = lazyWithRetry(() => import('./components/views/DesktopAuthBridge'));
+const isDesktopAuth = window.location.pathname.startsWith('/desktop-auth');
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -30,6 +33,8 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    {isOAuth ? <React.Suspense fallback={null}><OAuthConsent /></React.Suspense> : <App />}
+    {isOAuth ? <React.Suspense fallback={null}><OAuthConsent /></React.Suspense>
+      : isDesktopAuth ? <React.Suspense fallback={null}><DesktopAuthBridge /></React.Suspense>
+      : <App />}
   </React.StrictMode>
 );

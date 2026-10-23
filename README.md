@@ -297,6 +297,10 @@ ClearMind/
    - Firebase variables (if using cloud sync)
 4. Deploy!
 
+### macOS app
+
+`npm run build:mac` builds a universal `ClearMind.app`, `ClearMind.dmg` and a zip in `apps/desktop/dist/`, and `npm run dev:mac` runs it with hot reload. See [docs/MACOS.md](docs/MACOS.md).
+
 ### Other Platforms
 
 ClearMind can be deployed to any static hosting platform that supports Vite:
