@@ -3,4 +3,4 @@ Allow: /
 Disallow: /api/
 Disallow: /oauth/
 
-Sitemap: https://clearmind.meertech.tech/sitemap.xml
+Sitemap: https://clearmind.one/sitemap.xml

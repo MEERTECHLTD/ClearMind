@@ -1,7 +1,7 @@
 /**
  * Landing page (/welcome/) behaviour. Plain DOM, no framework: the page is
  * static HTML and this only adds the mobile menu, the screenshot tabs, the
- * scroll reveals and the Quick Add demo — which runs the app's real parser
+ * scroll reveals and the Quick Add demo, which runs the app's real parser
  * from @clearmind/shared, so the demo can't drift from the product.
  */
 import { parseQuickAdd, type QuickAddResult } from '@clearmind/shared/tasks/quickAdd';
@@ -112,13 +112,13 @@ function render(r: QuickAddResult) {
   );
 
   const rows: [string, string][] = [
-    ['Due', due || '—'],
-    ['Repeats', repeat || '—'],
-    ['Priority', r.priority ? PRIORITY_LABEL[r.priority] : '—'],
+    ['Due', due || 'None'],
+    ['Repeats', repeat || 'None'],
+    ['Priority', r.priority ? PRIORITY_LABEL[r.priority] : 'None'],
     ['Project', project || 'Inbox'],
-    ['Labels', labels.length ? labels.join(', ') : '—'],
+    ['Labels', labels.length ? labels.join(', ') : 'None'],
   ];
-  fieldsEl.replaceChildren(...rows.flatMap(([k, v]) => [el('dt', '', k), el('dd', v === '—' ? 'is-empty' : '', v)]));
+  fieldsEl.replaceChildren(...rows.flatMap(([k, v]) => [el('dt', '', k), el('dd', v === 'None' ? 'is-empty' : '', v)]));
 }
 
 if (input) {

@@ -1,7 +1,7 @@
 import { expect, type Page, type APIRequestContext } from '@playwright/test';
 
 /** Get past AuthView with a local (guest) workspace — no credentials needed. */
-export async function enterAsGuest(page: Page, hash = '') {
+export async function enterAsGuest(page: Page, hash = '#today') {
   await page.goto(`/${hash}`);
   await page.getByRole('button', { name: /Local Workspace/ }).first().click();
   await page.getByPlaceholder('Enter your nickname').fill('E2E');
