@@ -112,12 +112,13 @@ ClearMind.app
    (or copy `ClearMind.app` to `/Applications`).
 2. Launch it from Launchpad, Spotlight or Finder, and keep it in the Dock.
 
-The local build has an **ad-hoc signature**, not Developer ID, and is not
-notarized. A build made on your own Mac is not quarantined, so it opens directly. If you
-copy the DMG/ZIP to another Mac (AirDrop, download), Gatekeeper blocks the
-first launch. To allow it, right-click the app › **Open** › **Open**, or go to System
-Settings › Privacy & Security › **Open Anyway**. You can also run
-`xattr -dr com.apple.quarantine /Applications/ClearMind.app`.
+Local builds (`npm run build:mac`) have an **ad-hoc signature**. A build made on
+your own Mac is not quarantined, so it opens directly; copied to another Mac it
+would need System Settings › Privacy & Security › **Open Anyway**.
+
+The published download (GitHub Release `desktop-v1.0.0`, linked from the landing
+page) is the **Developer ID** build: signed by MEERTECH LTD (7N86K8Q433),
+hardened runtime, notarized and stapled, so it opens with no warning.
 
 ## Architectures
 
@@ -157,29 +158,36 @@ version is 12.0 (Electron 44's floor). The app has been verified on Apple Silico
 * The loopback server binds `127.0.0.1` only. It serves static files and a
   one-time sign-in endpoint, and forwards `/api/v1` with the caller's own token.
 
-## Future distribution (nothing has been submitted)
+## Distribution
 
-### Outside the App Store (Developer ID + notarization)
+### Direct download (Developer ID + notarization), done for 1.0.0
 
-1. In the Apple Developer account (team of the iOS app), create a **Developer ID
-   Application** certificate and install it in the login keychain. Only an
-   "Apple Development" identity is present today.
-2. Create an app-specific password (or an App Store Connect API key) for notarization.
-3. Build:
-   ```sh
-   APPLE_ID=… APPLE_APP_SPECIFIC_PASSWORD=… APPLE_TEAM_ID=… \
-   npm run build -w apps/desktop -- \
-     -c.mac.identity="Developer ID Application: Meertech LTD (TEAMID)" \
-     -c.mac.hardenedRuntime=true -c.mac.notarize=true
-   ```
-   `build/entitlements.mac.plist` already has the JIT entitlements Electron needs
-   under the hardened runtime.
-4. Check the result with `spctl -a -vv dist/mac-universal/ClearMind.app` (it should say "Notarized
-   Developer ID") and `xcrun stapler validate dist/ClearMind.dmg`.
+Signing assets (never committed) live in `~/.appstoreconnect/certs`: the
+Developer ID Application certificate and key (created 2026-10-23 by the Account
+Holder from a CSR made here; valid to 2027-11-22). Notarization uses the App
+Store Connect API key in `~/.appstoreconnect/private_keys`.
 
-### Mac App Store (later)
+```sh
+APPLE_API_KEY=~/.appstoreconnect/private_keys/AuthKey_324J96Z6R5.p8 \
+APPLE_API_KEY_ID=324J96Z6R5 APPLE_API_ISSUER=<issuer id> \
+npm run release:mac -w apps/desktop
+```
 
-* **Identity:** `tech.meertech.clearmind.mac`, version 1.0.0 (`apps/desktop/package.json`),
+`scripts/release-mac.sh` builds the universal app with the hardened runtime,
+lets electron-builder notarize and staple it, then signs, notarizes and staples
+the DMG and checks both with `spctl` (expect "source=Notarized Developer ID").
+Signing every file with a secure timestamp takes about 15 minutes; Apple's
+notarization took about 40 minutes for the first submission.
+Upload with `gh release upload desktop-v<version> dist/ClearMind.dmg dist/ClearMind-<version>-mac.zip --clobber`.
+
+Sign in with Apple is **not** in the direct download: Apple's Developer ID
+provisioning profile does not carry that entitlement, so the button only
+appears in the Mac App Store build (`process.mas`). Guideline 4.8 applies only
+to App Store apps.
+
+### Mac App Store
+
+* **Identity:** `tech.meertech.clearmind` (Universal Purchase with iOS), version 1.0.0 (`apps/desktop/package.json`),
   category Productivity. To share one App Store record and Universal Purchase
   with iOS, switch to `tech.meertech.clearmind` before the first submission.
 * **Target:** add an electron-builder `mas` target with a "Apple Distribution" cert,

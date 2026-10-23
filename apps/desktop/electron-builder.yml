@@ -42,9 +42,8 @@ mac:
   hardenedRuntime: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Ad-hoc signature for direct downloads until a Developer ID certificate exists
-  # (only the Account Holder can create one). Then pass
-  # -c.mac.identity="Developer ID Application: MEERTECH LTD (7N86K8Q433)".
+  # Ad-hoc signature for local builds. Releases are Developer ID-signed and
+  # notarized by scripts/release-mac.sh (npm run release:mac).
   identity: "-"
   # The zip keeps this name; the dmg overrides it below.
   artifactName: ${productName}-${version}-mac.${ext}

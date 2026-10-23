@@ -19,6 +19,7 @@
     "start": "npm run build:web && npm run native && electron .",
     "build": "npm run build:web && npm run native && electron-builder --mac --universal --publish never",
     "build:arm64": "npm run build:web && npm run native && electron-builder --mac --arm64 --publish never",
+    "release:mac": "sh scripts/release-mac.sh",
     "build:mas": "npm run build:web && npm run native && electron-builder --mac mas --universal --publish never -c.mas.provisioningProfile=\"$CLEARMIND_MAS_PROFILE\" -c.buildVersion=\"${CLEARMIND_BUILD_NUMBER:-1}\"",
     "build:mas-dev": "npm run build:web && npm run native && electron-builder --mac mas-dev --arm64 --publish never -c.masDev.provisioningProfile=\"$CLEARMIND_MAS_DEV_PROFILE\"",
     "build:win": "npm run build:web && electron-builder --win --publish never",
