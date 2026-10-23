@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Mac App Store (sandboxed). Must match the provisioning profile. -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <key>com.apple.application-identifier</key>
+  <string>7N86K8Q433.tech.meertech.clearmind</string>
+  <key>com.apple.developer.team-identifier</key>
+  <string>7N86K8Q433</string>
+  <!-- Electron's helper processes talk over mach ports in this group. -->
+  <key>com.apple.security.application-groups</key>
+  <array>
+    <string>7N86K8Q433.tech.meertech.clearmind</string>
+  </array>
+  <!-- Sign in with Apple (native/apple_signin.mm; guideline 4.8). -->
+  <key>com.apple.developer.applesignin</key>
+  <array>
+    <string>Default</string>
+  </array>
+  <!-- Firebase, the ClearMind API (client) and the loopback server on 127.0.0.1 (server). -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <!-- Excel import/export, note attachments: only files the user picks or saves. -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+  <key>com.apple.security.files.downloads.read-write</key>
+  <true/>
+</dict>
+</plist>

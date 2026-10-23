@@ -1,7 +1,11 @@
-# ClearMind for macOS packaging (electron-builder). See docs/MACOS.md.
-appId: tech.meertech.clearmind.mac
+# ClearMind desktop packaging (electron-builder): macOS (direct + Mac App Store)
+# and Windows. See docs/MACOS.md.
+#
+# appId is the iOS bundle id on purpose: the Mac App Store build joins the iOS
+# app record (Universal Purchase, ASC app 6821241402).
+appId: tech.meertech.clearmind
 productName: ClearMind
-copyright: Copyright © 2026 Meertech LTD
+copyright: Copyright © 2026 Meertech LTD (meertech.tech). Built and licensed by Meertech LTD.
 directories:
   output: dist
   buildResources: build
@@ -10,12 +14,18 @@ directories:
 files:
   - src/**
   - package.json
+  - native/build/*.node
   - "!**/node_modules/**"
+asarUnpack:
+  - native/build/*.node
 # The web build (vite) ships next to the app code, served by src/server.cjs.
 extraResources:
   - from: build/web
     to: web
 asar: true
+npmRebuild: false
+publish: null
+
 mac:
   category: public.app-category.productivity
   icon: build/icon.icns
@@ -24,20 +34,42 @@ mac:
     - zip
   minimumSystemVersion: "12.0"
   darkModeSupport: true
+  # The Sign in with Apple addon is already a fat (arm64 + x86_64) binary.
+  x64ArchFiles: "**/apple_signin.node"
   # Hardened runtime is for Developer ID/notarized builds (pass
   # -c.mac.hardenedRuntime=true with a real identity); an ad-hoc signature with
   # it on fails library validation.
   hardenedRuntime: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Ad-hoc signature for local installs (no Apple account needed). For a
-  # Developer ID build pass -c.mac.identity="Developer ID Application: … (TEAMID)".
+  # Ad-hoc signature for direct downloads until a Developer ID certificate exists
+  # (only the Account Holder can create one). Then pass
+  # -c.mac.identity="Developer ID Application: MEERTECH LTD (7N86K8Q433)".
   identity: "-"
   # The zip keeps this name; the dmg overrides it below.
   artifactName: ${productName}-${version}-mac.${ext}
   extendInfo:
     LSApplicationCategoryType: public.app-category.productivity
-    NSHumanReadableCopyright: Copyright © 2026 Meertech LTD
+    ITSAppUsesNonExemptEncryption: false
+
+# Mac App Store: `npm run build:mas -w apps/desktop` (needs CLEARMIND_MAS_PROFILE).
+mas:
+  type: distribution
+  identity: MEERTECH LTD (7N86K8Q433)
+  entitlements: build/entitlements.mas.plist
+  entitlementsInherit: build/entitlements.mas.inherit.plist
+  hardenedRuntime: false
+  artifactName: ${productName}-${version}-mas.${ext}
+
+# Development-signed sandboxed build to test App Store behaviour (incl. Sign in
+# with Apple) on a registered Mac: `npm run build:mas-dev -w apps/desktop`.
+masDev:
+  type: development
+  identity: Mahmud Sani (D5YR25S22A)
+  entitlements: build/entitlements.mas.plist
+  entitlementsInherit: build/entitlements.mas.inherit.plist
+  hardenedRuntime: false
+
 dmg:
   artifactName: ${productName}.${ext}
   title: ${productName}
@@ -45,5 +77,19 @@ dmg:
     - { x: 130, y: 190 }
     - { x: 410, y: 190, type: link, path: /Applications }
   window: { width: 540, height: 380 }
-npmRebuild: false
-publish: null
+
+# Windows: `npm run build:win -w apps/desktop` (unsigned: SmartScreen warns on first run).
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  executableName: ClearMind
+nsis:
+  artifactName: ${productName}-Setup.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ClearMind

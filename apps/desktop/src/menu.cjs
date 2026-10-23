@@ -28,13 +28,15 @@ const GO = [
 ];
 
 function buildMenu({ navigate, quickAdd, openExternal, apiOrigin }) {
+  const isMac = process.platform === 'darwin';
+  const settings = { label: isMac ? 'Settings…' : 'Settings', accelerator: 'CmdOrCtrl+,', click: () => navigate('settings') };
   const template = [
-    {
+    isMac && {
       label: app.name,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => navigate('settings') },
+        settings,
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -50,7 +52,7 @@ function buildMenu({ navigate, quickAdd, openExternal, apiOrigin }) {
       submenu: [
         { label: 'New Task…', accelerator: 'CmdOrCtrl+N', click: quickAdd },
         { type: 'separator' },
-        { role: 'close' },
+        ...(isMac ? [{ role: 'close' }] : [settings, { type: 'separator' }, { role: 'quit' }]),
       ],
     },
     { role: 'editMenu' },
@@ -79,9 +81,12 @@ function buildMenu({ navigate, quickAdd, openExternal, apiOrigin }) {
         { label: 'ClearMind on the Web', click: () => openExternal(apiOrigin) },
         { label: 'Support', click: () => openExternal(`${apiOrigin}/support.html`) },
         { label: 'Privacy Policy', click: () => openExternal(`${apiOrigin}/privacy.html`) },
+        { type: 'separator' },
+        { label: 'Meertech LTD (meertech.tech)', click: () => openExternal('https://meertech.tech') },
+        ...(isMac ? [] : [{ role: 'about' }]),
       ],
     },
-  ];
+  ].filter(Boolean);
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 

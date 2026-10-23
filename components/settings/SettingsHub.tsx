@@ -16,7 +16,7 @@ import { createAgentToken, revokeAgentToken, revokeAllAgentTokens, subscribeAgen
 import { deleteAccountData, updateProfileDoc } from '../../shared/data/account';
 import { deviceTimeZone } from '../../shared/tasks/time';
 import { WEEKDAY_SHORT } from '../../shared/tasks';
-import { auth, db, isFirebaseConfigured } from '../../services/firebase';
+import { auth, db, isFirebaseConfigured, firebaseService } from '../../services/firebase';
 import { dbService, STORES, getSyncableStores, getFirestoreCollectionName } from '../../services/db';
 import { syncNow, onSyncStatus, stopSync } from '../../services/syncEngine';
 import { applyTheme, type ThemePref } from '../../services/theme';
@@ -472,6 +472,7 @@ function DataSection({ cloud, toast, onDeleted }: { cloud: boolean; toast: Retur
               if (!fb) return;
               setBusy('delete');
               try {
+                await firebaseService.revokeAppleIfLinked(fb);
                 stopSync();
                 await deleteAccountData(db, fb.uid, getSyncableStores().map(getFirestoreCollectionName), setProgress);
                 try { await deleteUser(fb); } catch (e: any) {

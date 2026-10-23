@@ -11,6 +11,13 @@ const path = require('node:path');
 const { createAppServer, listen } = require('./server.cjs');
 const { buildMenu } = require('./menu.cjs');
 
+// Native Sign in with Apple (native/apple_signin.mm). Only usable in a build
+// signed with the Sign in with Apple entitlement — the Mac App Store build
+// (process.mas) or a development build made with `npm run build:mas-dev`.
+let appleAddon = null;
+try { appleAddon = require('../native/build/apple_signin.node'); } catch { /* not built: no Apple button */ }
+const APPLE_SIGN_IN = !!appleAddon?.isAvailable() && (!!process.mas || process.env.CLEARMIND_APPLE_SIGNIN === '1');
+
 const DEV_URL = process.env.CLEARMIND_DEV_URL; // set by `npm run dev:mac` (Vite on :3000)
 // Fixed ports: the origin (and with it the local data and Firebase session) must
 // not change between launches. Dev uses its own port so both can run at once.
@@ -64,7 +71,7 @@ function createWindow() {
       sandbox: true,
       nodeIntegration: false,
       spellcheck: true,
-      additionalArguments: [`--clearmind-version=${app.getVersion()}`],
+      additionalArguments: [`--clearmind-version=${app.getVersion()}`, `--clearmind-apple=${APPLE_SIGN_IN ? 1 : 0}`],
     },
   });
   if (saved?.maximized) win.maximize();
@@ -73,7 +80,8 @@ function createWindow() {
   win.on('close', (e) => {
     saveBounds(win);
     // macOS: closing the window keeps the app (and its state) alive in the Dock.
-    if (!quitting) { e.preventDefault(); win.hide(); }
+    // Windows has no Dock to reopen from, so closing the window quits there.
+    if (!quitting && process.platform === 'darwin') { e.preventDefault(); win.hide(); }
   });
   win.on('closed', () => { mainWindow = null; });
 
@@ -144,6 +152,12 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.setName('ClearMind');
+  app.setAboutPanelOptions({
+    applicationName: 'ClearMind',
+    copyright: 'Built and licensed by Meertech LTD · meertech.tech',
+    website: 'https://meertech.tech',
+    iconPath: app.isPackaged ? undefined : path.join(__dirname, '..', 'build', 'icon.png'),
+  });
   app.on('second-instance', () => showMainWindow());
 
   app.whenReady().then(async () => {
@@ -167,6 +181,14 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((wc, perm) => !!wc && isAppUrl(wc.getURL()) && allowed.has(perm));
 
     ipcMain.handle('clearmind:oauth', (_e, provider) => startOAuth(provider));
+    ipcMain.handle('clearmind:apple', async (e, scopes) => {
+      if (!APPLE_SIGN_IN) throw new Error('Sign in with Apple is not available in this build');
+      const win = BrowserWindow.fromWebContents(e.sender) ?? showMainWindow();
+      const rawNonce = crypto.randomBytes(32).toString('hex');
+      const hashed = crypto.createHash('sha256').update(rawNonce).digest('hex');
+      const r = await appleAddon.signIn(win.getNativeWindowHandle(), hashed, scopes !== false);
+      return { idToken: r.identityToken, rawNonce, authorizationCode: r.authorizationCode, email: r.email, givenName: r.givenName, familyName: r.familyName };
+    });
 
     buildMenu({
       navigate: (hash) => inPage(`location.hash = ${JSON.stringify(hash)}`),

@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld('clearmindDesktop', {
   platform: process.platform,
   version: (process.argv.find((a) => a.startsWith('--clearmind-version=')) ?? '').split('=')[1] ?? '',
   oauthSignIn: (provider) => ipcRenderer.invoke('clearmind:oauth', provider),
+  appleSignInAvailable: process.argv.includes('--clearmind-apple=1'),
+  appleSignIn: (scopes = true) => ipcRenderer.invoke('clearmind:apple', scopes),
 });
