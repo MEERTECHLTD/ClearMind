@@ -24,9 +24,29 @@ interface AuthViewProps {
   onSkip: (nickname?: string) => void;
 }
 
+/**
+ * `/?auth=signin` or `/?auth=signup` (the /welcome/ page's links) opens the
+ * cloud form directly. Read once per page load (AuthView can remount while
+ * auth state settles) and removed from the URL.
+ */
+function initialAuthIntent(): 'login' | 'signup' | null {
+  if (typeof window === 'undefined') return null;
+  const url = new URL(window.location.href);
+  const v = url.searchParams.get('auth');
+  if (!v) return null;
+  url.searchParams.delete('auth');
+  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  return v === 'signup' ? 'signup' : v === 'signin' ? 'login' : null;
+}
+
+const AUTH_INTENT = initialAuthIntent();
+
+// The desktop shell (Electron preload) never shows the marketing page.
+const isDesktopShell = typeof window !== 'undefined' && 'clearmindDesktop' in window;
+
 const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
-  const [authType, setAuthType] = useState<'choose' | 'cloud' | 'local'>('choose');
-  const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
+  const [authType, setAuthType] = useState<'choose' | 'cloud' | 'local'>(AUTH_INTENT && isFirebaseConfigured() ? 'cloud' : 'choose');
+  const [mode, setMode] = useState<'login' | 'signup' | 'reset'>(AUTH_INTENT ?? 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
@@ -337,6 +357,9 @@ const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onSkip }) => {
           {/* Footer */}
           <p className="mt-8 text-center text-xs text-slate-500 dark:text-slate-600">
             ClearMind v1.0 • Your productivity companion
+            {!isDesktopShell && (
+              <> • <a href="/welcome/" className="underline underline-offset-2 hover:text-slate-700 dark:hover:text-slate-400">What is ClearMind?</a></>
+            )}
           </p>
         </div>
       </div>

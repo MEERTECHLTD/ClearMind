@@ -97,7 +97,7 @@ test.describe('headers and manifest', () => {
     expect(html.headers()['referrer-policy']).toBe('strict-origin-when-cross-origin');
     expect(html.headers()['content-security-policy-report-only']).toContain("frame-ancestors 'none'");
     expect((await request.get('/sw.js')).headers()['cache-control']).toBe('no-cache');
-    await page.goto('/');
+    await page.goto('/#today');
     const entry = await page.evaluate(() => document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]')!.getAttribute('src')!);
     expect((await request.get(entry)).headers()['cache-control']).toBe('public, max-age=31536000, immutable');
   });

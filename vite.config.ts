@@ -24,6 +24,13 @@ export default defineConfig(() => {
       },
       build: {
         rollupOptions: {
+          // The app (index.html) and the /welcome/ marketing page are separate
+          // entries: the landing page ships no React/Firebase, and the app's
+          // shell, routes and service worker are unchanged.
+          input: {
+            index: path.resolve(__dirname, 'index.html'),
+            welcome: path.resolve(__dirname, 'welcome/index.html'),
+          },
           output: {
             // Stable vendor chunks: app-code deploys don't change their hashes, so
             // returning visitors keep them cached (and fewer chunk URLs churn).

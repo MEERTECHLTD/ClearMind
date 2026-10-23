@@ -29,6 +29,10 @@
       "destination": "/api/v1?path=:path*"
     },
     {
+      "source": "/welcome",
+      "destination": "/welcome/index.html"
+    },
+    {
       "source": "/((?!api/|\\.well-known/|assets/).*)",
       "destination": "/index.html"
     }
