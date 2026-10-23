@@ -243,7 +243,10 @@ kbd, code {
 
 /* ---------------------------------------------------------------- platforms */
 .lp-platforms { display: grid; gap: 16px; }
-@media (min-width: 900px) { .lp-platforms { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 700px) { .lp-platforms { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .lp-platforms { grid-template-columns: repeat(3, 1fr); } }
+.lp-platform-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.lp-platform p.lp-platform-note { flex: 0; font-size: 0.8125rem; }
 .lp-platform { padding: 28px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
 .lp-platform p { color: var(--muted); flex: 1; }
 .lp-platform-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
