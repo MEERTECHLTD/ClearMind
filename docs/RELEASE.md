@@ -22,6 +22,13 @@ Web deploys on merge to `main`:
 
 If `shared/`, `server/`, `api-src/` or `cli/` changed, run `npm run build:agent` before committing so `api/*.js` is current.
 
+**Landing page.** The marketing page is a second Vite entry, `welcome/index.html`, served at `/welcome/`. The app stays at `/` (the desktop shell and PWA load `index.html` and never see the landing page). The landing page has no React or Firebase. Its only shared code is the real Quick Add parser from `shared/tasks`, which powers the demo. Its files are kept out of the service-worker precache and build id, so a landing-only deploy doesn't prompt app users to update. Its links `/?auth=signin` and `/?auth=signup` open the app's cloud sign-in or sign-up form. The product screenshots in `public/landing/` come from the real app; regenerate them after UI changes:
+```bash
+npm run build && E2E_PORT=4199 node e2e/web/server.mjs &   # production bundle, Vercel-like routing
+node scripts/capture-landing-shots.mjs                      # Local Workspace + Quick Add → public/landing/*.webp
+```
+Tests: `e2e/web/landing.spec.ts` (part of `npm run test:e2e:web`). On `clearmind.expo.app` (no `vercel.json`) link to `/welcome/` with the trailing slash.
+
 Caching, the service-worker update flow, PWA install, and the "stale bundle" runbook are in [WEB_CACHING_AND_PWA.md](WEB_CACHING_AND_PWA.md). `clearmind.expo.app` ignores `vercel.json` (no 404 for missing assets, no security headers). See section 5 there.
 
 ## Android

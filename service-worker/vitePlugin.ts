@@ -4,6 +4,10 @@
  * index.html, the entry chunk(s), their static imports and CSS, and the PWA
  * icons. The build id is a hash of every emitted file name (+ index.html), so
  * any change to the app produces a new sw.js and the browser sees an update.
+ *
+ * The /welcome/ landing page is a separate HTML entry. Its files are neither
+ * precached nor part of the build id, so a landing-only deploy doesn't prompt
+ * app users to update.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,23 +28,39 @@ const PUBLIC_PRECACHE = [
   '/icon-maskable-512.png',
 ];
 
-export function appShell(bundle: OutputBundle): string[] {
-  const shell = new Set<string>();
+const isLandingEntry = (c: OutputChunk) => !!c.facadeModuleId && /[\\/]welcome[\\/]/.test(c.facadeModuleId);
+
+/** Files reachable from the entries `pick` selects: chunks, their static imports and CSS. */
+function reachable(bundle: OutputBundle, pick: (c: OutputChunk) => boolean): Set<string> {
+  const seen = new Set<string>();
   const visit = (fileName: string) => {
-    if (shell.has(fileName)) return;
+    if (seen.has(fileName)) return;
     const item = bundle[fileName];
     if (!item) return;
-    shell.add(fileName);
+    seen.add(fileName);
     if (item.type === 'chunk') {
       item.imports.forEach(visit);
       const css = (item as OutputChunk & { viteMetadata?: { importedCss: Set<string> } }).viteMetadata?.importedCss;
-      css?.forEach((f) => shell.add(f));
+      css?.forEach((f) => seen.add(f));
     }
   };
   for (const item of Object.values(bundle)) {
-    if (item.type === 'chunk' && item.isEntry) visit(item.fileName);
+    if (item.type === 'chunk' && item.isEntry && pick(item)) visit(item.fileName);
   }
-  return [...shell].sort().map((f) => `/${f}`);
+  return seen;
+}
+
+export function appShell(bundle: OutputBundle): string[] {
+  return [...reachable(bundle, (c) => !isLandingEntry(c))].sort().map((f) => `/${f}`);
+}
+
+/** Landing-page-only files (its HTML, entry chunk and CSS; anything shared with the app is excluded). */
+export function landingOnly(bundle: OutputBundle): Set<string> {
+  const app = reachable(bundle, (c) => !isLandingEntry(c));
+  const landing = reachable(bundle, isLandingEntry);
+  const only = new Set([...landing].filter((f) => !app.has(f)));
+  Object.keys(bundle).filter((f) => f.startsWith('welcome/')).forEach((f) => only.add(f));
+  return only;
 }
 
 export function serviceWorkerPlugin(): Plugin {
@@ -50,7 +70,8 @@ export function serviceWorkerPlugin(): Plugin {
     enforce: 'post',
     generateBundle(_options, bundle) {
       const template = fs.readFileSync(path.resolve(__dirname, 'sw.js'), 'utf8');
-      const files = Object.keys(bundle).filter((f) => f !== 'sw.js').sort();
+      const landing = landingOnly(bundle);
+      const files = Object.keys(bundle).filter((f) => f !== 'sw.js' && !landing.has(f)).sort();
       const hash = createHash('sha256').update(files.join('\n'));
       const html = bundle['index.html'];
       if (html && html.type === 'asset') hash.update(String(html.source));
