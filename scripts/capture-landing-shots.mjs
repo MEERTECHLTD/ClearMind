@@ -13,6 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:4199';
+// THEME=light|dark (default dark); the landing page picks one with prefers-color-scheme.
+const THEME = process.env.THEME === 'light' ? 'light' : 'dark';
 const OUT = path.resolve(import.meta.dirname, '../public/landing');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -25,7 +27,7 @@ const TASKS = [
 ];
 
 async function enter(page) {
-  await page.goto(`${BASE}/`);
+  await page.goto(`${BASE}/#today`);
   await page.getByRole('button', { name: /Local Workspace/ }).first().click();
   await page.getByPlaceholder('Enter your nickname').fill('Ada');
   await page.getByRole('button', { name: /Start Local Workspace/ }).click();
@@ -48,26 +50,25 @@ async function save(buf, name, widths) {
   }
 }
 
-// Dark only: the landing page uses ClearMind's midnight brand surface.
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'dark' });
-await page.addInitScript(() => { try { localStorage.setItem('cm.themePref', 'dark'); } catch {} });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: THEME });
+await page.addInitScript((THEME_PREF) => { try { localStorage.setItem('cm.themePref', THEME_PREF); } catch {} }, THEME);
 await enter(page);
-await save(await page.screenshot(), 'today-dark', [640, 1280, 2560]);
+await save(await page.screenshot(), `today-${THEME}`, [640, 1280, 2560]);
 
 await page.getByRole('button', { name: 'Upcoming', exact: true }).first().click();
 await page.waitForTimeout(800);
-await save(await page.screenshot(), 'upcoming-dark', [640, 1280]);
+await save(await page.screenshot(), `upcoming-${THEME}`, [640, 1280]);
 
 await page.getByRole('button', { name: 'Notes', exact: true }).first().click();
 await page.getByRole('button', { name: 'Create sample notes' }).first().click();
 await page.getByText('Sample notes created').waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
 await page.waitForTimeout(500);
-await save(await page.screenshot(), 'notes-dark', [640, 1280]);
+await save(await page.screenshot(), `notes-${THEME}`, [640, 1280]);
 
 await page.getByRole('button', { name: 'Open graph view' }).first().click();
 await page.waitForTimeout(2500); // let the force layout settle
-await save(await page.screenshot(), 'graph-dark', [640, 1280]);
+await save(await page.screenshot(), `graph-${THEME}`, [640, 1280]);
 
 await browser.close();
 console.log(`wrote ${fs.readdirSync(OUT).length} files to ${OUT}`);

@@ -19,6 +19,7 @@ type OutputChunk = Rollup.OutputChunk;
 
 const PUBLIC_PRECACHE = [
   '/manifest.json',
+  '/landing-gate.js',
   '/favicon.png',
   '/apple-touch-icon.png',
   '/clearmindlogo-256.png',

@@ -26,7 +26,7 @@ test('landing renders at /welcome/ with no console errors or broken assets', asy
   const broken = await page.locator('img').evaluateAll((imgs) => (imgs as HTMLImageElement[]).filter((i) => i.complete && i.naturalWidth === 0).map((i) => i.src));
   expect(broken).toEqual([]);
   await expect(page).toHaveTitle(/ClearMind/);
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://clearmind.meertech.tech/welcome/');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://clearmind.one/welcome/');
 });
 
 test('/welcome without a trailing slash serves the landing page', async ({ page }) => {
@@ -115,4 +115,37 @@ test('Sign in / Create account CTAs open the app auth form, and / still boots th
     await expect(page.getByRole('heading', { name: configured ? heading : 'Welcome to ClearMind', exact: true })).toBeVisible();
     await expect(page).not.toHaveURL(/auth=/);
   }
+});
+
+test('first visit to / shows the landing page; returning visitors and deep links get the app', async ({ page }) => {
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/welcome\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+  // Deep links and sign-in links never bounce to the landing page.
+  await page.goto('/#today');
+  await expect(page.getByRole('heading', { name: 'Welcome to ClearMind' })).toBeVisible();
+  // Having opened the app once, bare / stays in the app.
+  await page.goto('/');
+  await expect(page).not.toHaveURL(/welcome/);
+  await expect(page.getByRole('heading', { name: 'Welcome to ClearMind' })).toBeVisible();
+});
+
+test('landing page follows the system light/dark setting', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/welcome/');
+  const light = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const heroLight = await page.locator('.lp-window img').evaluate((i: HTMLImageElement) => i.currentSrc);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.reload();
+  const dark = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(light).toBe('rgb(248, 250, 252)');
+  expect(dark).toBe('rgb(5, 5, 10)');
+  expect(heroLight).toContain('-light-');
+});
+
+test('landing copy has no em or en dashes', async ({ page }) => {
+  await page.goto('/welcome/');
+  const text = await page.evaluate(() => document.body.innerText + document.title);
+  expect(text).not.toMatch(/[–—]/);
 });
