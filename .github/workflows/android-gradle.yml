@@ -144,7 +144,7 @@ jobs:
             --bundle-output /tmp/verify.bundle --assets-dest /tmp/verify-assets
           ok=1
           grep -q "clearmind-b8d2b" /tmp/verify.bundle || { echo "::error::Firebase config NOT embedded (projectId 'clearmind-b8d2b' missing from bundle)"; ok=0; }
-          grep -q "SHA-1 not registered" /tmp/verify.bundle || { echo "::error::app routes NOT enumerated (app/index.tsx missing — check EXPO_ROUTER_APP_ROOT is relative)"; ok=0; }
+          grep -q "Continue as guest" /tmp/verify.bundle && grep -q "Your Inbox is clear" /tmp/verify.bundle || { echo "::error::app routes NOT enumerated (app/index.tsx missing — check EXPO_ROUTER_APP_ROOT is relative)"; ok=0; }
           if [ "$ok" = 1 ]; then echo "Bundle OK: Firebase config embedded AND routes enumerated"; else exit 1; fi
 
       # APK is the directly-installable artifact and signs via apksigner (robust).
@@ -187,6 +187,12 @@ jobs:
           cp "$APK" "$GITHUB_WORKSPACE/out/clearmind-${{ github.run_number }}.apk"
           AAB=$(find android/app/build/outputs/bundle/release -name '*.aab' 2>/dev/null | head -1)
           if [ -n "$AAB" ]; then cp "$AAB" "$GITHUB_WORKSPACE/out/clearmind-${{ github.run_number }}.aab"; echo "AAB included"; else echo "::warning::AAB not produced (bundletool signing) — APK only"; fi
+          # R8 deobfuscation map for THIS build (Play Console → App bundle explorer → Downloads).
+          MAP=android/app/build/outputs/mapping/release/mapping.txt
+          if [ -f "$MAP" ]; then cp "$MAP" "$GITHUB_WORKSPACE/out/clearmind-${{ github.run_number }}-mapping.txt"; echo "mapping.txt included"; else echo "::error::R8 is enabled but no mapping.txt was produced"; exit 1; fi
+          # Native debug symbols (also embedded in the AAB; the zip is for manual upload / APK crashes).
+          SYM=$(find android/app/build/outputs/native-debug-symbols -name '*.zip' 2>/dev/null | head -1)
+          if [ -n "$SYM" ]; then cp "$SYM" "$GITHUB_WORKSPACE/out/clearmind-${{ github.run_number }}-native-debug-symbols.zip"; echo "native symbols included"; else echo "::notice::no separate native-debug-symbols.zip (symbols are inside the AAB)"; fi
           ls -la "$GITHUB_WORKSPACE/out"
 
       - name: Verify APK signature (apksigner)
@@ -210,5 +216,5 @@ jobs:
           # Attach whatever was produced (APK always; AAB if bundletool succeeded).
           gh release create "${GITHUB_REF_NAME}" out/* \
             --title "ClearMind Mobile ${GITHUB_REF_NAME}" \
-            --notes "Signed Android build (Gradle CI). clearmind-*.apk = direct install (sideload); clearmind-*.aab = Google Play upload. Includes all views, local-first + cloud sync, AI, deadline reminders, and collaborative shared workspaces (Applications & Projects)." \
+            --notes "Signed Android build (Gradle CI). clearmind-*.apk = direct install (sideload); clearmind-*.aab = Google Play upload; clearmind-*-mapping.txt = R8 deobfuscation file for that AAB (upload it in Play Console if it isn't picked up automatically). Includes all views, local-first + cloud sync, AI, deadline reminders, and collaborative shared workspaces (Applications & Projects)." \
             --target "${GITHUB_SHA}"

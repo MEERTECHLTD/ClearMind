@@ -3,6 +3,7 @@ import { Search, Moon, Sun, Download, Bell, Menu, LogOut, Settings, Clock } from
 import { UserProfile, ViewState, Task, Project, Note } from '../types';
 import { dbService, STORES } from '../services/db';
 import { Avatar } from './Avatar';
+import { isDesktop } from '../services/desktop';
 
 interface SearchResult {
   type: 'task' | 'project' | 'note';
@@ -147,8 +148,8 @@ const TopBar: React.FC<TopBarProps> = ({
       </button>
 
       {/* Search */}
-      {/* Brand mark: links to the landing page. */}
-      <a href="/welcome/" className="mr-4 md:mr-6 flex items-center gap-2 shrink-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label="ClearMind home">
+      {/* Brand mark: links to the landing page (to Today inside the desktop app). */}
+      <a href={isDesktop() ? '#today' : '/welcome/'} className="mr-4 md:mr-6 flex items-center gap-2 shrink-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label="ClearMind home">
         <img src="/icon-192.png" alt="" width={28} height={28} className="w-7 h-7 rounded-lg" />
         <span className="hidden lg:inline text-[15px] font-bold tracking-tight dark:text-white text-gray-900">ClearMind</span>
       </a>

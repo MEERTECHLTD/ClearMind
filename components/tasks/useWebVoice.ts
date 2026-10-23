@@ -12,8 +12,10 @@ type Rec = {
   start(): void; stop(): void; abort(): void;
 };
 
+// The macOS app (Electron) exposes webkitSpeechRecognition but has no speech
+// service behind it, so the mic is hidden there too.
 export const speechCtor = (w: any = typeof window !== 'undefined' ? window : undefined): (new () => Rec) | null =>
-  (w && (w.SpeechRecognition || w.webkitSpeechRecognition)) || null;
+  (w && !w.clearmindDesktop && (w.SpeechRecognition || w.webkitSpeechRecognition)) || null;
 
 /** Join a SpeechRecognition result list into one transcript. */
 export const transcriptOf = (results: ArrayLike<ArrayLike<{ transcript: string }>>): string =>

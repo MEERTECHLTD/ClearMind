@@ -4,6 +4,7 @@
  * See docs/WEB_CACHING_AND_PWA.md.
  */
 import { useSyncExternalStore } from 'react';
+import { isDesktop } from './desktop';
 
 // ------------------------------------------------------------------ service worker
 
@@ -32,7 +33,8 @@ function setWaiting(sw: ServiceWorker | null) {
  */
 export function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (registration) return registration;
-  if (!import.meta.env.PROD || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+  // The macOS app ships its own copy of the build, so no service worker there.
+  if (!import.meta.env.PROD || typeof navigator === 'undefined' || !('serviceWorker' in navigator) || isDesktop()) {
     registration = Promise.resolve(null);
     return registration;
   }
@@ -116,6 +118,7 @@ const subscribeInstall = (l: () => void) => { installListeners.add(l); return ()
 export function isStandalone(): boolean {
   if (typeof window === 'undefined') return false;
   return (
+    isDesktop() || // the macOS app is already installed
     window.matchMedia?.('(display-mode: standalone)').matches ||
     window.matchMedia?.('(display-mode: window-controls-overlay)').matches ||
     (window.navigator as Navigator & { standalone?: boolean }).standalone === true

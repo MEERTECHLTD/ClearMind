@@ -1,8 +1,8 @@
-import { View, Text, Pressable, Image } from 'react-native';
+import { View, Text, Pressable, Image, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import Constants from 'expo-constants';
 import {
-  User, SlidersHorizontal, Palette, LayoutPanelLeft, Zap, Flame, Bell, Bot, ShieldCheck, Database, Info, LogOut, CloudOff, CloudAlert, Cloud,
+  User, SlidersHorizontal, Palette, LayoutPanelLeft, Zap, Flame, Bell, Bot, ShieldCheck, Database, Info, LogOut, CloudOff, CloudAlert, Cloud, FileText, LifeBuoy,
 } from 'lucide-react-native';
 import { useAuth } from '../../../hooks/useAuth';
 import { useSyncStatus } from '../../../hooks/useSyncStatus';
@@ -12,6 +12,11 @@ import { confirmDialog } from '../../../components/ui';
 import { T } from '../../../lib/theme';
 
 const ICON = 20;
+const PRIVACY_URL = 'https://clearmind.meertech.tech/privacy.html';
+const SUPPORT_URL = 'https://clearmind.meertech.tech/support.html';
+// No custom terms: Apple's standard EULA applies.
+const TERMS_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+const open = (url: string) => { Linking.openURL(url).catch(() => {}); };
 
 export default function SettingsHome() {
   const router = useRouter();
@@ -59,6 +64,12 @@ export default function SettingsHome() {
         <Row icon={<User size={ICON} color={T.accent} />} label="Account" detail="Profile, photo, email, delete account" onPress={() => go('/(app)/settings/account')} />
         <Row icon={<ShieldCheck size={ICON} color={T.accent} />} label="Security" detail="Sign-in, agent access, activity" onPress={() => go('/(app)/settings/security')} />
         <Row icon={<Database size={ICON} color={T.accent} />} label="Data & privacy" detail="Sync, export, local data" onPress={() => go('/(app)/settings/data')} />
+      </Group>
+
+      <Group title="About">
+        <Row icon={<ShieldCheck size={ICON} color={T.accent} />} label="Privacy Policy" onPress={() => open(PRIVACY_URL)} />
+        <Row icon={<FileText size={ICON} color={T.accent} />} label="Terms of Use" onPress={() => open(TERMS_URL)} />
+        <Row icon={<LifeBuoy size={ICON} color={T.accent} />} label="Help & Support" onPress={() => open(SUPPORT_URL)} />
       </Group>
 
       <Group>

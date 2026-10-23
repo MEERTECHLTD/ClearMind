@@ -18,7 +18,12 @@
     "deploy:web:preview": "vite build && cd apps/mobile && eas deploy --export-dir ../../dist",
     "build:agent": "node scripts/build-agent.mjs",
     "test:e2e:agent": "node scripts/e2e-agent.mjs",
-    "test:e2e:web": "vite build && playwright test -c e2e/web"
+    "test:e2e:web": "vite build && playwright test -c e2e/web",
+    "dev:mac": "npm run dev -w apps/desktop",
+    "start:mac": "npm run start -w apps/desktop",
+    "build:mac": "npm run build -w apps/desktop",
+    "test:mac": "npm test -w apps/desktop",
+    "test:e2e:mac": "npm run test:e2e -w apps/desktop"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

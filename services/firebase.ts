@@ -8,11 +8,17 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithPopup,
+  signInWithCredential,
   signInAnonymously,
   GoogleAuthProvider,
   GithubAuthProvider,
-  User
+  User,
+  OAuthProvider,
+  revokeAccessToken,
+  type AuthProvider,
+  type UserCredential,
 } from 'firebase/auth';
+import { desktop } from './desktop';
 import {
   getFirestore,
   doc,
@@ -62,6 +68,19 @@ if (isFirebaseConfigured()) {
 const googleProvider = new GoogleAuthProvider();
 const githubProvider = new GithubAuthProvider();
 
+// Popup in a browser; in the macOS app the provider sign-in runs in the system
+// browser (loopback page served by the desktop shell) and only the resulting
+// credential comes back here.
+async function signInWithProvider(provider: AuthProvider, name: 'google' | 'github'): Promise<UserCredential> {
+  const shell = desktop();
+  if (!shell) return signInWithPopup(auth, provider);
+  const r = await shell.oauthSignIn(name);
+  const credential = r.providerId === 'github.com'
+    ? GithubAuthProvider.credential(r.accessToken ?? '')
+    : GoogleAuthProvider.credential(r.idToken ?? null, r.accessToken ?? null);
+  return signInWithCredential(auth, credential);
+}
+
 // (sanitizeForFirestore moved to @clearmind/shared/data/firestore — the cloud
 // write paths below delegate there, so no local copy is needed.)
 
@@ -70,7 +89,7 @@ export interface FirebaseUser {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
-  provider: 'email' | 'google' | 'github';
+  provider: 'email' | 'google' | 'github' | 'apple';
 }
 
 export const firebaseService = {
@@ -125,7 +144,7 @@ export const firebaseService = {
   async signInWithGoogle(): Promise<FirebaseUser> {
     if (!auth) throw new Error('Firebase not configured');
     
-    const result = await signInWithPopup(auth, googleProvider);
+    const result = await signInWithProvider(googleProvider, 'google');
     const user = result.user;
     
     // Check if user exists in Firestore, if not create profile
@@ -149,11 +168,51 @@ export const firebaseService = {
     };
   },
 
+  /** Sign in with Apple is offered in the macOS App Store build (guideline 4.8: required alongside Google). */
+  appleAvailable(): boolean {
+    return !!desktop()?.appleSignInAvailable;
+  },
+
+  // Native Sign in with Apple (macOS app) -> identity token + raw nonce -> Firebase apple.com credential.
+  async signInWithApple(): Promise<FirebaseUser> {
+    const shell = desktop();
+    if (!auth || !shell?.appleSignInAvailable) throw new Error('Sign in with Apple is not available here');
+    const res = await shell.appleSignIn(true);
+    const { user } = await signInWithCredential(auth, new OAuthProvider('apple.com').credential({ idToken: res.idToken, rawNonce: res.rawNonce }));
+    // Apple shares the name only on the very first authorization — keep it.
+    const given = [res.givenName, res.familyName].filter(Boolean).join(' ');
+    const ref = doc(db, 'users', user.uid);
+    if (!(await getDoc(ref)).exists()) {
+      await setDoc(ref, {
+        nickname: given || user.displayName || user.email?.split('@')[0] || 'User',
+        email: user.email ?? (res.email || null),
+        provider: 'apple',
+        photoURL: null,
+        joinedAt: serverTimestamp(),
+      });
+    }
+    return { uid: user.uid, email: user.email, displayName: given || user.displayName, photoURL: null, provider: 'apple' };
+  },
+
+  /**
+   * Apple requires apps to revoke the Sign in with Apple token when the account is
+   * deleted. Re-prompts Apple for a fresh authorization code, then revokes.
+   * Best-effort: account deletion proceeds even if the user cancels.
+   */
+  async revokeAppleIfLinked(user: User): Promise<void> {
+    const shell = desktop();
+    if (!shell?.appleSignInAvailable || !user.providerData.some((p) => p.providerId === 'apple.com')) return;
+    try {
+      const res = await shell.appleSignIn(false);
+      if (res.authorizationCode) await revokeAccessToken(auth, res.authorizationCode);
+    } catch { /* cancelled / offline — deletion continues */ }
+  },
+
   // Sign in with GitHub
   async signInWithGithub(): Promise<FirebaseUser> {
     if (!auth) throw new Error('Firebase not configured');
     
-    const result = await signInWithPopup(auth, githubProvider);
+    const result = await signInWithProvider(githubProvider, 'github');
     const user = result.user;
     
     // Check if user exists in Firestore, if not create profile

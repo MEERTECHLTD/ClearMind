@@ -1,0 +1,32 @@
+{
+  "name": "@clearmind/desktop",
+  "productName": "ClearMind",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ClearMind for macOS",
+  "author": {
+    "name": "Meertech LTD",
+    "email": "secure@meertech.tech",
+    "url": "https://meertech.tech"
+  },
+  "homepage": "https://clearmind.meertech.tech",
+  "main": "src/main.cjs",
+  "scripts": {
+    "build:web": "cd ../.. && vite build --outDir apps/desktop/build/web --emptyOutDir",
+    "native": "sh scripts/build-native.sh",
+    "icon": "node scripts/make-icon.mjs",
+    "dev": "node scripts/dev.mjs",
+    "start": "npm run build:web && npm run native && electron .",
+    "build": "npm run build:web && npm run native && electron-builder --mac --universal --publish never",
+    "build:arm64": "npm run build:web && npm run native && electron-builder --mac --arm64 --publish never",
+    "build:mas": "npm run build:web && npm run native && electron-builder --mac mas --universal --publish never -c.mas.provisioningProfile=\"$CLEARMIND_MAS_PROFILE\" -c.buildVersion=\"${CLEARMIND_BUILD_NUMBER:-1}\"",
+    "build:mas-dev": "npm run build:web && npm run native && electron-builder --mac mas-dev --arm64 --publish never -c.masDev.provisioningProfile=\"$CLEARMIND_MAS_DEV_PROFILE\"",
+    "build:win": "npm run build:web && electron-builder --win --publish never",
+    "test": "node --test \"test/*.test.cjs\"",
+    "test:e2e": "node --test \"e2e/*.test.mjs\""
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3"
+  }
+}
