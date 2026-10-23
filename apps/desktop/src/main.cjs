@@ -101,7 +101,7 @@ function errorPage(desc, url) {
   return `<!doctype html><meta charset="utf-8"><title>ClearMind</title>
 <body style="font:15px -apple-system,system-ui;background:#05050A;color:#e5e7eb;display:grid;place-items:center;height:100vh;margin:0">
 <div style="max-width:420px;text-align:center"><h1 style="font-size:20px">ClearMind couldn't load</h1>
-<p style="color:#9ca3af">${String(desc).replace(/[<>&]/g, '')} — ${String(url).replace(/[<>&]/g, '')}</p>
+<p style="color:#9ca3af">${String(desc).replace(/[<>&]/g, '')} (${String(url).replace(/[<>&]/g, '')})</p>
 <p style="color:#9ca3af">Choose View › Reload (⌘R) to try again.</p></div>`;
 }
 

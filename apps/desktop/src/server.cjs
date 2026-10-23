@@ -79,7 +79,7 @@ function serveStatic(root, req, res) {
     if (path.extname(urlPath)) return send(res, 404, 'Not found');
     file = path.join(root, 'index.html');
     stat = fs.statSync(file, { throwIfNoEntry: false });
-    if (!stat) return send(res, 500, 'Web build missing — run `npm run build:web -w apps/desktop`.');
+    if (!stat) return send(res, 500, 'Web build missing. Run `npm run build:web -w apps/desktop`.');
   }
   const ext = path.extname(file).toLowerCase();
   res.writeHead(200, {

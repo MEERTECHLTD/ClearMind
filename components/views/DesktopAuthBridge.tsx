@@ -45,12 +45,12 @@ export default function DesktopAuthBridge() {
     <main className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-midnight p-6">
       <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-8 text-center">
         <img src="/clearmindlogo-256.png" alt="" width={64} height={64} className="mx-auto mb-4 rounded-2xl" />
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Sign in to ClearMind for Mac</h1>
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Sign in to ClearMind</h1>
         {phase === 'done' ? (
-          <p role="status" className="mt-4 text-sm text-slate-600 dark:text-slate-300">You're signed in. Return to the ClearMind app — you can close this tab.</p>
+          <p role="status" className="mt-4 text-sm text-slate-600 dark:text-slate-300">You're signed in. Return to the ClearMind app. You can close this tab.</p>
         ) : (
           <>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Continue with {label} in your browser; ClearMind on your Mac finishes signing you in.</p>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Continue with {label} in your browser; the ClearMind desktop app finishes signing you in.</p>
             {phase === 'error' && message ? <p role="alert" className="mt-4 text-sm text-red-600 dark:text-red-400">{message}</p> : null}
             <button
               type="button"
