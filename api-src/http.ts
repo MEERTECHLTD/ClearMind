@@ -161,7 +161,7 @@ export function withRequest<R extends Req>(
  * both hosts + local dev). Extend with CORS_ALLOWED_ORIGINS (comma-separated).
  * Never combined with credentials: every API is bearer-token, no cookies.
  */
-export const FIRST_PARTY_ORIGINS = ['https://clearmind.meertech.tech', 'https://clearmind.expo.app', 'http://localhost:3000', 'http://localhost:8081'];
+export const FIRST_PARTY_ORIGINS = ['https://clearmind.meertech.tech', 'https://clearmind.one', 'https://www.clearmind.one', 'https://clearmind.expo.app', 'http://localhost:3000', 'http://localhost:8081'];
 
 export function allowedOrigins(): string[] {
   const extra = (process.env.CORS_ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
