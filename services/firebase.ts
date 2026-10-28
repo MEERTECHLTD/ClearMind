@@ -39,7 +39,7 @@ import {
 } from '@clearmind/shared/data/firestore';
 
 // Firebase config - Replace with your Firebase project config
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
@@ -69,8 +69,8 @@ const googleProvider = new GoogleAuthProvider();
 const githubProvider = new GithubAuthProvider();
 
 // Popup in a browser; in the macOS app the provider sign-in runs in the system
-// browser (loopback page served by the desktop shell) and only the resulting
-// credential comes back here.
+// browser (/desktop-auth on the web host, see services/desktopAuthSeal.ts) and
+// only the resulting credential comes back here.
 async function signInWithProvider(provider: AuthProvider, name: 'google' | 'github'): Promise<UserCredential> {
   const shell = desktop();
   if (!shell) return signInWithPopup(auth, provider);

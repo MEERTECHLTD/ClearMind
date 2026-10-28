@@ -18,13 +18,19 @@ files:
   - "!**/node_modules/**"
 asarUnpack:
   - native/build/*.node
-# The web build (vite) ships next to the app code, served by src/server.cjs.
+# The web build (vite) ships next to the app code, served in-process by src/protocol.cjs.
 extraResources:
   - from: build/web
     to: web
 asar: true
 npmRebuild: false
 publish: null
+# The system-browser sign-in returns here (src/authlink.cjs). Becomes
+# CFBundleURLTypes on macOS (all targets, including the Mac App Store).
+protocols:
+  - name: ClearMind sign-in
+    schemes:
+      - clearmind-desktop
 
 mac:
   category: public.app-category.productivity

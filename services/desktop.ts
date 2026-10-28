@@ -12,7 +12,7 @@ export type DesktopAppleResult = { idToken: string; rawNonce: string; authorizat
 export interface ClearMindDesktop {
   platform: 'darwin' | string;
   version: string;
-  /** Opens the default browser on the loopback sign-in page and resolves with the provider credential. */
+  /** Opens the default browser on /desktop-auth and resolves with the provider credential (sealed clearmind-desktop:// link). */
   oauthSignIn(provider: 'google' | 'github'): Promise<DesktopOAuthResult>;
   /** True when this build can run native Sign in with Apple (signed with the entitlement). */
   appleSignInAvailable: boolean;
