@@ -153,22 +153,41 @@ There are no native Node modules, so both slices are complete. The minimum macOS
 version is 12.0 (Electron 44's floor). The app has been verified on Apple Silicon
 (macOS 26.7). The Intel slice is built but has not been run on Intel hardware.
 
-## Tests (run on 2026-10-23, macOS 26.7.2 arm64, Xcode 27.0)
+## Tests (run on 2026-10-28, macOS 26.7.2 arm64, Node 24.14)
 
-* `npm run test:mac`: 6/6 pass (static serving, SPA fallback, path traversal,
-  API forwarding without cookies, OAuth callback state/origin/provider checks,
-  port-in-use error).
-* `npm run test:e2e:mac`: 7/7 pass, both unpackaged and against the packaged
-  universal `.app`. Covered: window size limits, localhost origin, the bridge is the only
-  exposed API (no `require`/`process`), the app renders with no page errors and no
-  service worker, the Go menu changes the route, `/api/v1` reaches the real production API
-  (401 when signed out), the sign-in page renders, and close-to-Dock then reopen works.
-* A real Chromium popup from `http://localhost/desktop-auth` reaches
-  `accounts.google.com`, so Firebase accepts the localhost origin. A full
-  Google/GitHub/email sign-in needs a human with an account and has not been automated.
-* Existing suite: `npx vitest run`, 36 files / 343 tests pass.
-* `codesign --verify --deep --strict` passes (ad-hoc). The DMG mounts with
-  `ClearMind.app` and an Applications link.
+* `npm run test:mac`: 18/18 pass (also in CI on Linux). In-process handler: MIME
+  types, SPA fallback, missing assets 404, path traversal (encoded, NUL,
+  backslash, symlink out of the build), GET/HEAD only, `/api/v1` forwarding without
+  cookies, 413 and offline 502, other http passed through. Sign-in link: key only
+  in the fragment, round trip, expired state, tampering, wrong key, swapped
+  state, bad provider, malformed links. Entitlements guard: no `network.server`
+  in any plist, the MAS plist keeps sandbox and `network.client`, and nothing in
+  `src/` opens a listening socket.
+* `npx vitest run`: 37 files / 347 tests. `services/desktopAuthSeal.test.ts`
+  runs the browser seal against the real app module.
+* `npm run test:e2e:mac` (Playwright, unpackaged Electron): 9/9. Covered: window
+  limits, origin `http://localhost:<port>`, the bridge is the only exposed API, the
+  app renders with no page errors and no service worker, Go menu routes, no
+  listening socket apart from Playwright's own debugger ports, `/api/v1` reaches
+  the real production API (401 signed out), the sign-in page renders, the full
+  sign-in loop (browser URL out, sealed link back, forged and replayed links
+  refused), and close-to-Dock then reopen.
+* By hand:
+  * Data carry-over: the 1.0.0 build (loopback server) wrote localStorage and an
+    IndexedDB record; this build read both back from the same profile.
+  * Email sign-in from the app origin reaches Firebase Auth, which answers
+    `INVALID_LOGIN_CREDENTIALS` for a probe account (so no referrer or CORS block).
+  * In Chromium, the new `/desktop-auth` page opens the real accounts.google.com
+    and github.com popups. Finishing a Google/GitHub/Apple sign-in needs a person
+    with an account and has not been automated.
+  * The sandboxed `mas-dev` build (same entitlements as the store build) runs:
+    the page loads from the bundled build, `lsof` shows no listening socket, and
+    only outgoing 443 connections. In that sandbox even Playwright's debugger
+    port fails with `bind() failed: Operation not permitted`, which confirms the
+    sandbox blocks listening without `network.server`. Playwright cannot drive a
+    sandboxed build for the same reason.
+  * A distribution-signed `mas` build does not start outside the App Store
+    (its profile lists no devices); use `build:mas-dev` to test locally.
 
 ## Mac App Store rejection 2.4.5 (24 Oct 2026) and the fix
 
@@ -296,3 +315,7 @@ to App Store apps.
   dependencies out. The shell has no runtime dependencies.
 * **"ClearMind is damaged" on another Mac**: this is quarantine on an unsigned build. See Install.
 * **Developer tools**: View › Toggle Developer Tools (⌥⌘I).
+* **A sandboxed test build quits at once**: another sandboxed ClearMind shares the
+  container and its single-instance lock (`Data/tmp/S`). Quit it, or start the test
+  build with `TMPDIR` and `CLEARMIND_USER_DATA` pointing at a folder inside
+  `~/Library/Containers/tech.meertech.clearmind/Data/tmp/`.
