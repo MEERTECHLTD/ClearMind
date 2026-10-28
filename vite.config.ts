@@ -10,10 +10,9 @@ export default defineConfig(() => {
         port: 3000,
         host: '0.0.0.0',
         // `npm run dev:mac`: the Electron shell loads this dev server, so route its
-        // same-origin calls the way the packaged app's local server does.
+        // same-origin API calls the way the packaged app's in-process handler does.
         proxy: process.env.CLEARMIND_DESKTOP_DEV ? {
           '/api/v1': { target: 'https://clearmind.meertech.tech', changeOrigin: true },
-          '/desktop-auth/complete': { target: 'http://127.0.0.1:47816' },
         } : undefined,
       },
       plugins: [react(), serviceWorkerPlugin()],

@@ -4,11 +4,12 @@
  * same React build as clearmind.meertech.tech) in a native window with macOS
  * menus, window-state memory and system-browser OAuth. See docs/MACOS.md.
  */
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, session, net } = require('electron');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createAppServer, listen } = require('./server.cjs');
+const { createAppHandler } = require('./protocol.cjs');
+const { AUTH_SCHEME, newAuthRequest, openAuthLink, isAuthLink } = require('./authlink.cjs');
 const { buildMenu } = require('./menu.cjs');
 
 // Native Sign in with Apple (native/apple_signin.mm). Only usable in a build
@@ -19,17 +20,21 @@ try { appleAddon = require('../native/build/apple_signin.node'); } catch { /* no
 const APPLE_SIGN_IN = !!appleAddon?.isAvailable() && (!!process.mas || process.env.CLEARMIND_APPLE_SIGNIN === '1');
 
 const DEV_URL = process.env.CLEARMIND_DEV_URL; // set by `npm run dev:mac` (Vite on :3000)
-// Fixed ports: the origin (and with it the local data and Firebase session) must
-// not change between launches. Dev uses its own port so both can run at once.
-const PORT = Number(process.env.CLEARMIND_PORT ?? (DEV_URL ? 47816 : 47815));
+// The app origin. Nothing listens on this port: protocol.cjs answers it inside
+// the process (no network.server entitlement). It stays the 1.0.0 origin
+// because IndexedDB, localStorage and the Firebase session are stored per
+// origin, so existing local data carries over untouched.
+const PORT = Number(process.env.CLEARMIND_PORT ?? 47815);
 const API_ORIGIN = process.env.CLEARMIND_API_ORIGIN ?? 'https://clearmind.meertech.tech';
+// Where the system-browser sign-in page runs (the deployed web app). Dev: Vite.
+const AUTH_ORIGIN = process.env.CLEARMIND_AUTH_ORIGIN ?? (DEV_URL ? new URL(DEV_URL).origin : API_ORIGIN);
 const APP_ORIGIN = DEV_URL ? new URL(DEV_URL).origin : `http://localhost:${PORT}`;
 const WEB_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, '..', 'build', 'web');
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
 let mainWindow = null;
 let quitting = false;
-const pendingAuth = new Map(); // state -> { resolve, reject, timer }
+const pendingAuth = new Map(); // state -> { key, resolve, reject, timer }
 
 // ------------------------------------------------------------------ window state
 
@@ -120,33 +125,50 @@ function inPage(js) {
 
 // ------------------------------------------------------------------ system-browser OAuth
 
+// The browser page returns the credential sealed in a clearmind-desktop:// link
+// (src/authlink.cjs); no local server is involved.
 function startOAuth(provider) {
-  if (provider !== 'google' && provider !== 'github') return Promise.reject(new Error('Unsupported provider'));
-  const state = crypto.randomBytes(24).toString('hex');
+  let req;
+  try { req = newAuthRequest(AUTH_ORIGIN, provider); } catch (e) { return Promise.reject(e); }
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingAuth.delete(state);
+      pendingAuth.delete(req.state);
       reject(new Error('Sign-in timed out. Try again.'));
     }, OAUTH_TIMEOUT_MS);
-    pendingAuth.set(state, { resolve, reject, timer });
-    shell.openExternal(`${APP_ORIGIN}/desktop-auth?provider=${provider}&state=${state}`);
+    pendingAuth.set(req.state, { key: req.key, resolve, reject, timer });
+    shell.openExternal(req.url).catch((e) => {
+      clearTimeout(timer);
+      pendingAuth.delete(req.state);
+      reject(new Error(`Could not open your browser: ${e?.message ?? e}`));
+    });
   });
 }
 
-function completeOAuth(state, result) {
-  const p = pendingAuth.get(state);
-  if (!p) return false;
-  pendingAuth.delete(state);
-  clearTimeout(p.timer);
-  p.resolve(result);
-  showMainWindow(); // bring ClearMind back in front of the browser
-  return true;
+function handleAuthLink(link) {
+  try {
+    const { state, result } = openAuthLink(link, (s) => pendingAuth.get(s)?.key);
+    const p = pendingAuth.get(state);
+    pendingAuth.delete(state); // one use only
+    clearTimeout(p.timer);
+    p.resolve(result);
+  } catch (e) {
+    console.warn(`[clearmind] sign-in link refused: ${e?.code ?? e?.message ?? e}`);
+  }
+  if (app.isReady()) showMainWindow(); // bring ClearMind back in front of the browser
 }
 
 // ------------------------------------------------------------------ app lifecycle
 
 // Tests run against a throwaway profile.
 if (process.env.CLEARMIND_USER_DATA) app.setPath('userData', process.env.CLEARMIND_USER_DATA);
+
+// Packaged builds declare the scheme in Info.plist (electron-builder `protocols`).
+// An unpackaged `electron .` registers itself so `npm run dev:mac` can sign in.
+if (!app.isPackaged && !process.env.CLEARMIND_NO_SCHEME) {
+  app.setAsDefaultProtocolClient(AUTH_SCHEME, process.execPath, [path.resolve(process.argv[1] ?? '.')]);
+}
+// macOS delivers the sign-in link here, also when it is what launches the app.
+app.on('open-url', (e, url) => { if (isAuthLink(url)) { e.preventDefault(); handleAuthLink(url); } });
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -158,21 +180,24 @@ if (!app.requestSingleInstanceLock()) {
     website: 'https://meertech.tech',
     iconPath: app.isPackaged ? undefined : path.join(__dirname, '..', 'build', 'icon.png'),
   });
-  app.on('second-instance', () => showMainWindow());
+  // Windows passes the sign-in link to a second instance on its command line.
+  app.on('second-instance', (_e, argv) => {
+    const link = argv.find(isAuthLink);
+    if (link) handleAuthLink(link); else showMainWindow();
+  });
 
   app.whenReady().then(async () => {
-    const server = createAppServer({
-      webRoot: DEV_URL ? null : WEB_ROOT,
-      apiOrigin: API_ORIGIN,
-      onAuthComplete: completeOAuth,
-      allowedOrigins: [APP_ORIGIN],
-    });
-    try {
-      await listen(server, PORT);
-    } catch (e) {
-      dialog.showErrorBox('ClearMind could not start', `${e.message}\n\nClearMind keeps its data on http://localhost:${PORT}. Quit the other program using that port and open ClearMind again.`);
-      app.exit(1);
-      return;
+    if (!DEV_URL) {
+      // Answer the app origin in-process (no socket). Every other http URL goes
+      // to the network as before; https is not intercepted at all.
+      const handler = createAppHandler({
+        webRoot: WEB_ROOT,
+        appOrigin: APP_ORIGIN,
+        apiOrigin: API_ORIGIN,
+        fetchImpl: (url, init) => net.fetch(url, { ...init, bypassCustomProtocolHandlers: true }),
+        passthrough: (req) => net.fetch(req, { bypassCustomProtocolHandlers: true }),
+      });
+      session.defaultSession.protocol.handle('http', handler);
     }
 
     // Only what the web app uses: notifications and clipboard. No camera/mic/location.

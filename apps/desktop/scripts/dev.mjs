@@ -1,5 +1,5 @@
 // `npm run dev:mac`: Vite (hot reload) on :3000 + Electron pointed at it.
-// Electron's own server runs on :47816 for the sign-in callback only.
+// No local server: the sign-in page runs on Vite and returns via clearmind-desktop://.
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

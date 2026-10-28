@@ -6,6 +6,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { webcrypto } from 'node:crypto';
 import { _electron as electron } from 'playwright';
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,7 +16,7 @@ const profile = mkdtempSync(path.join(tmpdir(), 'cm-desktop-e2e-'));
 let app, page;
 
 before(async () => {
-  const env = { ...process.env, CLEARMIND_PORT: PORT, CLEARMIND_USER_DATA: profile };
+  const env = { ...process.env, CLEARMIND_PORT: PORT, CLEARMIND_USER_DATA: profile, CLEARMIND_NO_SCHEME: '1' };
   delete env.CLEARMIND_DEV_URL;
   const packaged = process.env.CLEARMIND_APP;
   app = packaged
@@ -83,7 +85,27 @@ test('Go menu and ⌘-shortcuts drive the hash routes', async () => {
   assert.equal(accel, 'CmdOrCtrl+1');
 });
 
-test('local server forwards the API to production', async () => {
+test('nothing listens on a socket (no network.server needed)', async () => {
+  const pids = [app.process().pid];
+  let out = '';
+  try {
+    out = execFileSync('/usr/sbin/lsof', ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN'], { encoding: 'utf8' });
+  } catch (e) { out = e.stdout ?? ''; } // lsof exits 1 when nothing matches
+  // Playwright itself opens the Node inspector and the DevTools port to drive the
+  // app; both answer /json/version. Any other listener would be the app's own.
+  const ports = [...out.matchAll(/TCP [^:]+:(\d+) \(LISTEN\)/g)].map((m) => m[1]);
+  for (const p of ports) {
+    const ok = await fetch(`http://127.0.0.1:${p}/json/version`).then((r) => r.ok, () => false);
+    assert.ok(ok, `port ${p} is not a debugger endpoint, so the app opened it:\n${out}`);
+  }
+  assert.ok(ports.length <= 2, out);
+  // And the port is free on the machine: the origin is answered in-process.
+  let port = '';
+  try { port = execFileSync('/usr/sbin/lsof', ['-nP', `-iTCP:${PORT}`, '-sTCP:LISTEN'], { encoding: 'utf8' }); } catch (e) { port = e.stdout ?? ''; }
+  assert.equal(port.trim(), '');
+});
+
+test('in-process handler forwards the API to production', async () => {
   const r = await page.evaluate(async () => {
     const res = await fetch('/api/v1/ai/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     return { status: res.status, body: await res.text() };
@@ -96,10 +118,40 @@ test('the system-browser sign-in page is served and wired to Firebase', async ()
   // In real use this page opens in Safari/Chrome; here a second window loads it.
   const opened = app.waitForEvent('window');
   await app.evaluate(({ BrowserWindow }, url) => { new BrowserWindow({ show: false }).loadURL(url); },
-    `http://localhost:${PORT}/desktop-auth?provider=google&state=test`);
+    `http://localhost:${PORT}/desktop-auth?provider=google&state=${'a'.repeat(48)}#k=${'A'.repeat(43)}`);
   const p = await opened;
-  await p.getByRole('button', { name: /Continue with Google/ }).waitFor({ timeout: 15000 });
+  const button = p.getByRole('button', { name: /Continue with Google/ });
+  await button.waitFor({ timeout: 15000 });
+  assert.equal(await button.isEnabled(), true);
   await p.close();
+});
+
+test('system-browser sign-in: browser URL out, sealed clearmind-desktop:// link back', async () => {
+  // Stand in for the browser: capture the URL the app opens instead of opening it.
+  await app.evaluate(({ shell }) => { globalThis.__opened = []; shell.openExternal = async (u) => { globalThis.__opened.push(u); }; });
+  const pending = page.evaluate(() => window.clearmindDesktop.oauthSignIn('github'));
+  let opened;
+  for (let i = 0; i < 50 && !opened; i++) { opened = (await app.evaluate(() => globalThis.__opened))[0]; if (!opened) await new Promise((r) => setTimeout(r, 100)); }
+  const u = new URL(opened);
+  assert.equal(u.origin + u.pathname, 'https://clearmind.meertech.tech/desktop-auth');
+  const state = u.searchParams.get('state');
+  const key = Buffer.from(u.hash.slice(3), 'base64url');
+
+  const seal = async (obj, st) => {
+    const iv = webcrypto.getRandomValues(new Uint8Array(12));
+    const k = await webcrypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt']);
+    const ct = Buffer.from(await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: Buffer.from(st) }, k, Buffer.from(JSON.stringify(obj))));
+    return `clearmind-desktop://auth?state=${st}&iv=${Buffer.from(iv).toString('base64url')}&ct=${ct.toString('base64url')}`;
+  };
+  const emit = (link) => app.evaluate(({ app }, l) => app.emit('open-url', { preventDefault() {} }, l), link);
+  await emit(await seal({ providerId: 'github.com', accessToken: 'forged' }, 'b'.repeat(48))); // unknown state: ignored
+  await emit(await seal({ providerId: 'github.com', accessToken: 'gho_test' }, state));
+  assert.deepEqual(await pending, { providerId: 'github.com', idToken: undefined, accessToken: 'gho_test' });
+  // One use only: a replay of the same state is refused (the promise already settled).
+  const pending2 = page.evaluate(() => window.clearmindDesktop.oauthSignIn('google').then(() => 'resolved', (e) => e.message));
+  await emit(await seal({ providerId: 'github.com', accessToken: 'again' }, state));
+  const raced = await Promise.race([pending2, new Promise((r) => setTimeout(() => r('still pending'), 500))]);
+  assert.equal(raced, 'still pending');
 });
 
 test('closing the window keeps the app alive; activate reopens it', async () => {

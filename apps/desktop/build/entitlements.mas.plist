@@ -19,10 +19,10 @@
   <array>
     <string>Default</string>
   </array>
-  <!-- Firebase, the ClearMind API (client) and the loopback server on 127.0.0.1 (server). -->
+  <!-- Outgoing only: Firebase and the ClearMind API. There is no incoming-network
+       (network.server) entitlement: the bundled web app is served in-process by
+       src/protocol.cjs and nothing listens on a socket (guideline 2.4.5). -->
   <key>com.apple.security.network.client</key>
-  <true/>
-  <key>com.apple.security.network.server</key>
   <true/>
   <!-- Excel import/export, note attachments: only files the user picks or saves. -->
   <key>com.apple.security.files.user-selected.read-write</key>

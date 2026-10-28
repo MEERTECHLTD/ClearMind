@@ -44,7 +44,7 @@ export type {
 } from '@clearmind/shared/ai/geminiCore';
 
 // Same-origin on the Vercel hosts (clearmind.meertech.tech, clearmind.one) and in
-// the desktop app (its local server forwards /api to production); every other
+// the desktop app (its in-process handler forwards /api to production); every other
 // host (clearmind.expo.app, local dev) has no functions, so it calls the
 // production API (CORS allows them).
 const VERCEL_ORIGINS = ['https://clearmind.meertech.tech', 'https://clearmind.one', 'https://www.clearmind.one'];
