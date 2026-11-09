@@ -15,6 +15,9 @@ import {
   User,
   OAuthProvider,
   revokeAccessToken,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  EmailAuthProvider,
   type AuthProvider,
   type UserCredential,
 } from 'firebase/auth';
@@ -80,6 +83,24 @@ async function signInWithProvider(provider: AuthProvider, name: 'google' | 'gith
     : GoogleAuthProvider.credential(r.idToken ?? null, r.accessToken ?? null);
   return signInWithCredential(auth, credential);
 }
+
+// Same as signInWithProvider, for an already signed-in user (before account deletion).
+async function reauthenticateWithProvider(user: User, provider: AuthProvider, name: 'google' | 'github'): Promise<void> {
+  const shell = desktop();
+  if (!shell) { await reauthenticateWithPopup(user, provider); return; }
+  const r = await shell.oauthSignIn(name);
+  const credential = r.providerId === 'github.com'
+    ? GithubAuthProvider.credential(r.accessToken ?? '')
+    : GoogleAuthProvider.credential(r.idToken ?? null, r.accessToken ?? null);
+  await reauthenticateWithCredential(user, credential);
+}
+
+/**
+ * Firebase deletes a login only if it signed in during the last 5 minutes. Account
+ * deletion confirms the sign-in first when it is older than this, so the
+ * deletion never stops halfway (data gone, login still there).
+ */
+export const RECENT_LOGIN_MS = 3 * 60 * 1000;
 
 // (sanitizeForFirestore moved to @clearmind/shared/data/firestore — the cloud
 // write paths below delegate there, so no local copy is needed.)
@@ -196,16 +217,56 @@ export const firebaseService = {
 
   /**
    * Apple requires apps to revoke the Sign in with Apple token when the account is
-   * deleted. Re-prompts Apple for a fresh authorization code, then revokes.
+   * deleted. Re-prompts Apple for a fresh authorization code (unless the caller
+   * already has one from confirming the sign-in), then revokes.
    * Best-effort: account deletion proceeds even if the user cancels.
    */
-  async revokeAppleIfLinked(user: User): Promise<void> {
+  async revokeAppleIfLinked(user: User, authorizationCode?: string): Promise<void> {
     const shell = desktop();
     if (!shell?.appleSignInAvailable || !user.providerData.some((p) => p.providerId === 'apple.com')) return;
     try {
-      const res = await shell.appleSignIn(false);
-      if (res.authorizationCode) await revokeAccessToken(auth, res.authorizationCode);
+      const code = authorizationCode || (await shell.appleSignIn(false)).authorizationCode;
+      if (code) await revokeAccessToken(auth, code);
     } catch { /* cancelled / offline — deletion continues */ }
+  },
+
+  /** True when the sign-in is too old for Firebase to delete the login (server clock, no device skew). */
+  async needsRecentLogin(user: User): Promise<boolean> {
+    if (user.isAnonymous) return false; // a guest has no credential to confirm with
+    const t = await user.getIdTokenResult(true);
+    return Date.parse(t.issuedAtTime) - Date.parse(t.authTime) > RECENT_LOGIN_MS;
+  },
+
+  /** How deleteAccountReauth will confirm this user: a password field, or the provider's own sign-in. */
+  reauthMethod(user: User): 'password' | 'apple' | 'google' | 'github' | null {
+    const ids = user.providerData.map((p) => p.providerId);
+    if (ids.includes('password') && user.email) return 'password';
+    if (ids.includes('apple.com') && desktop()?.appleSignInAvailable) return 'apple';
+    if (ids.includes('google.com')) return 'google';
+    if (ids.includes('github.com')) return 'github';
+    return null;
+  },
+
+  /**
+   * Confirms the account owner again (before deletion). Sign in with Apple
+   * returns its fresh authorization code, which then revokes the Apple token, so
+   * the user sees Apple's sheet once.
+   */
+  async reauthenticate(user: User, password?: string): Promise<{ appleAuthorizationCode?: string }> {
+    switch (firebaseService.reauthMethod(user)) {
+      case 'password':
+        if (!password) throw Object.assign(new Error('Enter your password to continue.'), { code: 'auth/missing-password' });
+        await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email!, password));
+        return {};
+      case 'apple': {
+        const r = await desktop()!.appleSignIn(false);
+        await reauthenticateWithCredential(user, new OAuthProvider('apple.com').credential({ idToken: r.idToken, rawNonce: r.rawNonce }));
+        return { appleAuthorizationCode: r.authorizationCode };
+      }
+      case 'google': await reauthenticateWithProvider(user, googleProvider, 'google'); return {};
+      case 'github': await reauthenticateWithProvider(user, githubProvider, 'github'); return {};
+      default: throw new Error('Sign out, sign in again, then delete your account.');
+    }
   },
 
   // Sign in with GitHub

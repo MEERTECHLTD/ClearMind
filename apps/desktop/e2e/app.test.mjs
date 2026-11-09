@@ -85,6 +85,16 @@ test('Go menu and ⌘-shortcuts drive the hash routes', async () => {
   assert.equal(accel, 'CmdOrCtrl+1');
 });
 
+test('ClearMind › Delete Account… opens Settings › Account (guideline 5.1.1(v))', async () => {
+  const items = await app.evaluate(({ Menu, app }) =>
+    Menu.getApplicationMenu().items.find((i) => i.label === app.name).submenu.items.map((i) => i.label));
+  assert.deepEqual(items.slice(2, 4), ['Settings…', 'Delete Account…']);
+  await app.evaluate(({ Menu, app }) => {
+    Menu.getApplicationMenu().items.find((i) => i.label === app.name).submenu.items.find((i) => i.label === 'Delete Account…').click();
+  });
+  await page.waitForFunction(() => location.hash.startsWith('#settings'));
+});
+
 test('nothing listens on a socket (no network.server needed)', async () => {
   const pids = [app.process().pid];
   let out = '';

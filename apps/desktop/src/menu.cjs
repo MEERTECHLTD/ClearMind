@@ -30,6 +30,8 @@ const GO = [
 function buildMenu({ navigate, quickAdd, openExternal, apiOrigin }) {
   const isMac = process.platform === 'darwin';
   const settings = { label: isMac ? 'Settings…' : 'Settings', accelerator: 'CmdOrCtrl+,', click: () => navigate('settings') };
+  // Settings › Account › Delete account, with the confirmation dialog open (guideline 5.1.1(v)).
+  const deleteAccount = { label: 'Delete Account…', click: () => navigate('settings?s=account&delete=1') };
   const template = [
     isMac && {
       label: app.name,
@@ -37,6 +39,7 @@ function buildMenu({ navigate, quickAdd, openExternal, apiOrigin }) {
         { role: 'about' },
         { type: 'separator' },
         settings,
+        deleteAccount,
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -52,7 +55,7 @@ function buildMenu({ navigate, quickAdd, openExternal, apiOrigin }) {
       submenu: [
         { label: 'New Task…', accelerator: 'CmdOrCtrl+N', click: quickAdd },
         { type: 'separator' },
-        ...(isMac ? [{ role: 'close' }] : [settings, { type: 'separator' }, { role: 'quit' }]),
+        ...(isMac ? [{ role: 'close' }] : [settings, deleteAccount, { type: 'separator' }, { role: 'quit' }]),
       ],
     },
     { role: 'editMenu' },

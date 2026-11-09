@@ -6,19 +6,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User, SlidersHorizontal, Palette, Flame, Bell, Bot, ShieldCheck, Database, LogOut, Camera, Trash2, KeyRound, Copy, Check,
-  RefreshCw, Download, CloudOff, Cloud, AlertTriangle, Plus, ShieldAlert, CheckCircle2, XCircle, Monitor, Sun, Moon,
+  RefreshCw, Download, CloudOff, Cloud, Plus, ShieldAlert, CheckCircle2, XCircle, Monitor, Sun, Moon,
 } from 'lucide-react';
-import { sendPasswordResetEmail, deleteUser, updateProfile } from 'firebase/auth';
+import { sendPasswordResetEmail, updateProfile, type User as FirebaseAuthUser } from 'firebase/auth';
 import type { UserProfile, Preferences, AgentScope, AgentToken, AgentAudit, Project } from '../../types';
 import { resolvePreferences, NAV_DESTINATIONS } from '../../shared/domain';
 import { SCOPES, SCOPE_PRESETS } from '../../shared/agents/tokens';
 import { createAgentToken, revokeAgentToken, revokeAllAgentTokens, subscribeAgentTokens, subscribeAgentAudit, connectionSnippets } from '../../shared/data/agentTokens';
-import { deleteAccountData, updateProfileDoc } from '../../shared/data/account';
+import { updateProfileDoc } from '../../shared/data/account';
 import { deviceTimeZone } from '../../shared/tasks/time';
 import { WEEKDAY_SHORT } from '../../shared/tasks';
 import { auth, db, isFirebaseConfigured, firebaseService } from '../../services/firebase';
-import { dbService, STORES, getSyncableStores, getFirestoreCollectionName } from '../../services/db';
-import { syncNow, onSyncStatus, stopSync } from '../../services/syncEngine';
+import { DeleteAccountDialog } from './DeleteAccount';
+import { dbService, STORES, getSyncableStores } from '../../services/db';
+import { syncNow, onSyncStatus } from '../../services/syncEngine';
 import { applyTheme, type ThemePref } from '../../services/theme';
 import { useStore } from '../tasks/store';
 import { savePreferences } from '../tasks/actions';
@@ -111,10 +112,26 @@ export default function SettingsHub({ user, onUpdateUser, onLogout, onAccountDel
   const prefs = resolvePreferences(prefsSnap.items[0]);
   const set = (patch: Partial<Preferences>) => savePreferences(patch);
   const toast = useTaskToast();
-  const cloud = isFirebaseConfigured() && !!auth?.currentUser;
-  // Follow #settings?s=<section> links while already on Settings.
+  // Re-render when the Firebase session restores or ends (Settings can open before it does).
+  const [fbUser, setFbUser] = useState<FirebaseAuthUser | null>(() => auth?.currentUser ?? null);
+  useEffect(() => firebaseService.onAuthChange(setFbUser), []);
+  const cloud = isFirebaseConfigured() && !!fbUser;
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  // Follow #settings?s=<section> links while already on Settings. `&delete=1`
+  // (ClearMind › Delete Account… in the macOS menu) opens the delete dialog.
   useEffect(() => {
-    const onHash = () => { const s = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('s') as Section | null; if (s && NAV.some((n) => n.id === s)) setSection(s); };
+    const onHash = () => {
+      const q = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+      const s = q.get('s') as Section | null;
+      if (s && NAV.some((n) => n.id === s)) setSection(s);
+      if (q.get('delete') === '1') {
+        q.delete('delete');
+        const rest = q.toString();
+        window.history.replaceState(window.history.state, '', `#settings${rest ? `?${rest}` : ''}`);
+        setDeleteOpen(true);
+      }
+    };
+    onHash();
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -139,7 +156,7 @@ export default function SettingsHub({ user, onUpdateUser, onLogout, onAccountDel
           </ul>
         </nav>
         <main className="flex-1 min-w-0 md:pt-12">
-          {section === 'account' ? <AccountSection user={user} onUpdateUser={onUpdateUser} toast={toast} cloud={cloud} /> : null}
+          {section === 'account' ? <AccountSection user={user} onUpdateUser={onUpdateUser} toast={toast} cloud={cloud} onDelete={() => setDeleteOpen(true)} /> : null}
           {section === 'general' ? (
             <>
               <Group title="Start">
@@ -199,16 +216,31 @@ export default function SettingsHub({ user, onUpdateUser, onLogout, onAccountDel
           {section === 'notifications' ? <NotificationsSection prefs={prefs} set={set} /> : null}
           {section === 'integrations' ? <IntegrationsSection cloud={cloud} toast={toast} /> : null}
           {section === 'security' ? <SecuritySection cloud={cloud} toast={toast} /> : null}
-          {section === 'data' ? <DataSection cloud={cloud} toast={toast} onDeleted={onAccountDeleted ?? onLogout} /> : null}
+          {section === 'data' ? <DataSection cloud={cloud} toast={toast} onDelete={() => setDeleteOpen(true)} /> : null}
         </main>
       </div>
+      <DeleteAccountDialog open={deleteOpen} available={cloud} onClose={() => setDeleteOpen(false)} onDeleted={() => { setDeleteOpen(false); (onAccountDeleted ?? onLogout)(); }} />
     </div>
+  );
+}
+
+const DANGER_FOOTER = 'Deleting your account permanently removes your login, all your data on every device, your profile, agent access and shared workspaces you own. This can’t be undone.';
+
+function DeleteAccountGroup({ onDelete }: { onDelete: () => void }) {
+  return (
+    <Group title="Danger zone" footer={DANGER_FOOTER}>
+      <Row label="Delete account" detail="Permanently delete your ClearMind account and its data">
+        <button className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700" onClick={onDelete}>
+          <span className="inline-flex items-center gap-1.5"><Trash2 size={15} />Delete account…</span>
+        </button>
+      </Row>
+    </Group>
   );
 }
 
 // ------------------------------------------------------------------ account
 
-function AccountSection({ user, onUpdateUser, toast, cloud }: { user: UserProfile | null; onUpdateUser: (u: UserProfile) => void; toast: ReturnType<typeof useTaskToast>; cloud: boolean }) {
+function AccountSection({ user, onUpdateUser, toast, cloud, onDelete }: { user: UserProfile | null; onUpdateUser: (u: UserProfile) => void; toast: ReturnType<typeof useTaskToast>; cloud: boolean; onDelete: () => void }) {
   const [name, setName] = useState(user?.nickname ?? '');
   const [busy, setBusy] = useState(false);
   const file = useRef<HTMLInputElement>(null);
@@ -252,6 +284,7 @@ function AccountSection({ user, onUpdateUser, toast, cloud }: { user: UserProfil
           </Row>
         </Group>
       ) : null}
+      {cloud ? <DeleteAccountGroup onDelete={onDelete} /> : null}
     </>
   );
 }
@@ -425,12 +458,9 @@ function SecuritySection({ cloud, toast }: { cloud: boolean; toast: ReturnType<t
 
 // ------------------------------------------------------------------ data
 
-function DataSection({ cloud, toast, onDeleted }: { cloud: boolean; toast: ReturnType<typeof useTaskToast>; onDeleted: () => void }) {
+function DataSection({ cloud, toast, onDelete }: { cloud: boolean; toast: ReturnType<typeof useTaskToast>; onDelete: () => void }) {
   const [status, setStatus] = useState<{ state: string; pending: number; lastSyncedAt: string | null; error: string | null }>({ state: 'idle', pending: 0, lastSyncedAt: null, error: null });
   const [busy, setBusy] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmText, setConfirmText] = useState('');
-  const [progress, setProgress] = useState('');
   useEffect(() => onSyncStatus(setStatus), []);
   return (
     <>
@@ -455,37 +485,7 @@ function DataSection({ cloud, toast, onDeleted }: { cloud: boolean; toast: Retur
           }}><span className="inline-flex items-center gap-1.5"><Download size={15} />Export</span></button>
         </Row>
       </Group>
-      {cloud ? (
-        <Group title="Danger zone" footer="Deleting your account permanently removes all your data on every device, your profile, agent access and shared workspaces you own. This can’t be undone.">
-          <Row label="Delete account"><button className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700" onClick={() => { setConfirmText(''); setDeleting(true); }}>Delete…</button></Row>
-        </Group>
-      ) : null}
-      <Modal open={deleting} onClose={() => !busy && setDeleting(false)} title="Delete account">
-        <div className="p-5 space-y-3">
-          <p className={`text-sm flex gap-2 ${cx.muted}`}><AlertTriangle size={18} className="text-red-500 shrink-0" />This permanently deletes everything in your ClearMind account on all devices. Type DELETE to confirm.</p>
-          <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} className={`${cx.input} w-full`} placeholder="DELETE" aria-label="Type DELETE to confirm" />
-          {progress ? <p className={`text-xs ${cx.muted}`}>{progress}</p> : null}
-          <div className="flex justify-end gap-2">
-            <button className={cx.btnGhost} onClick={() => setDeleting(false)} disabled={!!busy}>Cancel</button>
-            <button className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white disabled:opacity-40" disabled={confirmText.trim() !== 'DELETE' || !!busy} onClick={async () => {
-              const fb = auth?.currentUser;
-              if (!fb) return;
-              setBusy('delete');
-              try {
-                await firebaseService.revokeAppleIfLinked(fb);
-                stopSync();
-                await deleteAccountData(db, fb.uid, getSyncableStores().map(getFirestoreCollectionName), setProgress);
-                try { await deleteUser(fb); } catch (e: any) {
-                  if (e?.code === 'auth/requires-recent-login') { alert('Your data was deleted. For security, sign in again and repeat to remove the login itself.'); }
-                  else throw e;
-                }
-                await dbService.wipeAll();
-                onDeleted();
-              } catch (e: any) { toast(e?.message ?? 'Deletion failed'); } finally { setBusy(null); setProgress(''); }
-            }}>Delete my account</button>
-          </div>
-        </div>
-      </Modal>
+      {cloud ? <DeleteAccountGroup onDelete={onDelete} /> : null}
     </>
   );
 }
