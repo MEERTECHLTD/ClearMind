@@ -120,7 +120,7 @@ export function DeleteAccountDialog({ open, available, onClose, onDeleted }: { o
           ) : null}
           <label className="block">
             <span className={`text-xs ${cx.muted}`}>Type DELETE to confirm</span>
-            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} className={`${cx.input} w-full mt-1`} placeholder="DELETE" aria-label="Type DELETE to confirm" autoFocus={!pwField} disabled={busy} />
+            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} className={`${cx.input} w-full mt-1`} aria-label="Type DELETE to confirm" autoCapitalize="characters" spellCheck={false} autoFocus={!pwField} disabled={busy} />
           </label>
           {progress ? <p className={`text-xs ${cx.muted}`} aria-live="polite">{progress}</p> : null}
           {error ? <p className="text-xs text-red-600 dark:text-red-400" role="alert">{error}</p> : null}
