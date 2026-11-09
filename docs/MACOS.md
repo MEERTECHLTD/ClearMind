@@ -85,7 +85,7 @@ Store build has no `com.apple.security.network.server` entitlement (see
   state are remembered (`~/Library/Application Support/ClearMind/window-state.json`).
 * Closing the window keeps ClearMind in the Dock, and clicking the Dock icon brings it
   back. ⌘Q quits. Only one instance runs at a time.
-* Menus: ClearMind (About, Settings… ⌘,), File (New Task… ⌘N), Edit, Go (Today
+* Menus: ClearMind (About, Settings… ⌘,, Delete Account…), File (New Task… ⌘N), Edit, Go (Today
   ⌘1, Inbox ⌘2, Upcoming ⌘3, Projects ⌘4, Notes ⌘5, Calendar ⌘6, Journal ⌘7,
   Iris ⌘8, Insights ⌘9, the other tools, Search ⇧⌘F), View (reload, zoom,
   full screen, developer tools), Window, Help (web, support, privacy).
@@ -93,8 +93,13 @@ Store build has no `com.apple.security.network.server` entitlement (see
   note, and ⌘, in Notes opens Notes settings.
 * Light, dark and system themes follow the existing in-app setting.
 * File pickers (`<input type=file>`, e.g. Excel import) use the native open
-  panel, downloads use the native save panel, and drag-and-drop works as on web.
+  panel, and every download (data export, Excel export, saving an attachment)
+  asks where to save in the native save panel (`will-download` in
+  `src/main.cjs`; never `setSavePath`). Drag-and-drop works as on web.
   Reminders use macOS notifications.
+* **Delete account:** Settings › Account › Danger zone › Delete account… (also
+  in Settings › Data & privacy, and ClearMind › Delete Account… in the menu bar,
+  which opens the dialog directly). See "Mac App Store rejection 5.1.1(v)" below.
 
 ## Prerequisites
 
@@ -224,6 +229,37 @@ Decisions:
 * `test/entitlements.test.cjs` fails if `network.server` returns to any entitlements
   file, or if any file in `src/` opens a listening socket.
 
+## Mac App Store rejection of build 2 (3 Nov 2026) and the fix
+
+**Guideline 5.1.1(v), account deletion.** The web app (and so the Mac app) had
+Delete account only under Settings › Data & privacy, shown only once the Firebase
+session had restored, so the reviewer did not find it under Account. Now:
+
+* Settings › **Account** › Danger zone › **Delete account…**, as on iOS (Settings ›
+  Account › Delete account). Still also in Data & privacy.
+* ClearMind › **Delete Account…** in the menu bar opens Settings › Account with the
+  dialog open (`#settings?s=account&delete=1`).
+* The dialog (`components/settings/DeleteAccount.tsx`): type DELETE, then the
+  deletion runs to the end and shows an "Account deleted" confirmation; Done
+  returns to the welcome screen. Order: Firestore data (`shared/data/account.ts`,
+  the same code as iOS), Sign in with Apple token revoked, Firebase Auth login
+  deleted, local copy wiped.
+* Firebase deletes a login only if it signed in during the last 5 minutes. When
+  the sign-in is older than 3 minutes (server clock: fresh token `issuedAtTime`
+  minus `authTime`), the dialog first confirms it is the owner: password field
+  for email accounts, Apple's sheet (Mac App Store build; its authorization code
+  is then reused to revoke the Apple token, so one sheet), or the browser
+  Google/GitHub sign-in. A failed or cancelled confirmation deletes nothing.
+  Before this, a stale session deleted the data but kept the login.
+
+**Guideline 2.4.5(i), `com.apple.security.files.downloads.read-write`.** Nothing
+needs it: every download already went through the save panel, which the
+sandbox grants through `files.user-selected.read-write`. Removed; the
+`will-download` handler now sets the save panel title and default name
+explicitly, and the entitlements test pins the exact MAS entitlement list.
+
+Build 3 carries both fixes.
+
 ## Security notes
 
 * No secrets ship in the app. The Firebase web config is public by design
@@ -280,11 +316,13 @@ to App Store apps.
   (`build/embedded.provisionprofile`).
 * **Sandbox entitlements (`build/entitlements.mas.plist`):** `com.apple.security.app-sandbox`,
   `com.apple.security.network.client` (Firebase/API), Sign in with Apple, the
-  application group, and `com.apple.security.files.user-selected.read-write` /
-  `downloads.read-write` (Excel import/export, attachments). No `network.server`
-  (see the 2.4.5 section above).
-* **Build number:** `npm run build:mas` takes `CLEARMIND_BUILD_NUMBER` (default 2;
-  build 1 was rejected). Every upload needs a higher number.
+  application group (Electron helper processes), and
+  `com.apple.security.files.user-selected.read-write` (open and save panels). Plus
+  the application and team identifiers the provisioning profile requires. No
+  `network.server` and no `files.downloads.read-write` (see the rejection sections
+  below); `test/entitlements.test.cjs` fails if the list changes.
+* **Build number:** `npm run build:mas` takes `CLEARMIND_BUILD_NUMBER` (default 3;
+  builds 1 and 2 were rejected). Every upload needs a higher number.
 * **Review risks:**
   * Guideline 4.2 (minimum functionality / web wrappers): the bundled
     offline build, menus and Dock behaviour help.

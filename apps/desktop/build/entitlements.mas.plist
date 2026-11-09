@@ -24,10 +24,12 @@
        src/protocol.cjs and nothing listens on a socket (guideline 2.4.5). -->
   <key>com.apple.security.network.client</key>
   <true/>
-  <!-- Excel import/export, note attachments: only files the user picks or saves. -->
+  <!-- Only files the user picks in an open panel (Excel import, attachments,
+       profile photo) or names in a save panel (data export, Excel export,
+       saving an attachment). There is no Downloads-folder entitlement
+       (files.downloads.read-write): every download goes through the save panel
+       (guideline 2.4.5, rejection of 3 Nov 2026). -->
   <key>com.apple.security.files.user-selected.read-write</key>
-  <true/>
-  <key>com.apple.security.files.downloads.read-write</key>
   <true/>
 </dict>
 </plist>

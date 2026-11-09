@@ -205,6 +205,19 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(isAppUrl(wc.getURL()) && allowed.has(perm)));
     session.defaultSession.setPermissionCheckHandler((wc, perm) => !!wc && isAppUrl(wc.getURL()) && allowed.has(perm));
 
+    // Every download (data export, Excel export, saving an attachment) asks
+    // where to save with the native save panel; the sandbox then grants that one
+    // file (files.user-selected.read-write). Never setSavePath(): writing
+    // without the panel would need the Downloads-folder entitlement, which the
+    // Mac App Store build does not have.
+    session.defaultSession.on('will-download', (_e, item) => {
+      item.setSaveDialogOptions({
+        title: 'Save',
+        defaultPath: path.join(app.getPath('downloads'), item.getFilename()),
+        buttonLabel: 'Save',
+      });
+    });
+
     ipcMain.handle('clearmind:oauth', (_e, provider) => startOAuth(provider));
     ipcMain.handle('clearmind:apple', async (e, scopes) => {
       if (!APPLE_SIGN_IN) throw new Error('Sign in with Apple is not available in this build');

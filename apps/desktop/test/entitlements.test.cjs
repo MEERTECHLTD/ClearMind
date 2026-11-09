@@ -1,6 +1,7 @@
 'use strict';
-// Guards the fix for the Mac App Store rejection of 24 Oct 2026 (guideline 2.4.5):
-// the app must not ask for, or need, the incoming-network entitlement.
+// Guards the fixes for the Mac App Store rejections under guideline 2.4.5:
+// 24 Oct 2026, the incoming-network entitlement (network.server); 3 Nov 2026, the
+// Downloads-folder entitlement (files.downloads.read-write).
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -25,6 +26,31 @@ test('no entitlements file asks for network.server', () => {
   for (const p of PLISTS) {
     assert.ok(!allKeys(read(p)).has('com.apple.security.network.server'), `${p} must not contain com.apple.security.network.server`);
   }
+});
+
+// Guideline 2.4.5 again (3 Nov 2026): files.downloads.read-write had no matching
+// feature. Downloads go through the save panel, so the MAS build asks for exactly this.
+test('the MAS app asks for exactly the entitlements its features use', () => {
+  assert.deepEqual([...allKeys(read('build/entitlements.mas.plist'))].sort(), [
+    'com.apple.application-identifier', // provisioning
+    'com.apple.developer.applesignin', // Sign in with Apple
+    'com.apple.developer.team-identifier', // provisioning
+    'com.apple.security.app-sandbox',
+    'com.apple.security.application-groups', // Electron helper processes (mach ports)
+    'com.apple.security.files.user-selected.read-write', // open and save panels
+    'com.apple.security.network.client', // Firebase, the ClearMind API
+  ]);
+  for (const p of PLISTS) {
+    assert.ok(!allKeys(read(p)).has('com.apple.security.files.downloads.read-write'), `${p} must not contain files.downloads.read-write`);
+  }
+});
+
+test('downloads always ask where to save (no silent writes to Downloads)', () => {
+  const src = path.join(desktop, 'src');
+  for (const f of fs.readdirSync(src)) {
+    assert.doesNotMatch(fs.readFileSync(path.join(src, f), 'utf8'), /\.setSavePath\(/, `${f} saves a download without the save panel`);
+  }
+  assert.match(read('src/main.cjs'), /on\('will-download'[\s\S]*?setSaveDialogOptions\(/);
 });
 
 test('the MAS app keeps the sandbox, outgoing network and its other entitlements', () => {
