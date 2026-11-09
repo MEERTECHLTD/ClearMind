@@ -260,6 +260,23 @@ explicitly, and the entitlements test pins the exact MAS entitlement list.
 
 Build 3 carries both fixes.
 
+Tested on 2026-11-09 (macOS 26.7, sandboxed `mas-dev` build with the build 3
+entitlements, throwaway email accounts, driven through the accessibility API):
+
+* New account → ClearMind › Settings… → Account shows Danger zone › Delete
+  account…; ClearMind › Delete Account… opens the dialog.
+* Sign-in older than 3 minutes: the dialog asks for the password; a wrong
+  password is refused with nothing deleted; the right one deletes everything and
+  shows "Account deleted"; Done returns to the welcome screen; signing in again
+  fails ("Invalid email or password"). Firebase Auth REST confirms the login is
+  gone (old password refused, a new sign-up with the same email succeeds).
+* Fresh sign-in: no password step; the same result. Recorded for App Review
+  (`PROJECTS/_app-builds/ClearMind/ClearMind-AppStore/ClearMind-Mac-account-deletion-2026-11-09.mp4`).
+  Deleting an empty account takes about 45 seconds (one Firestore query per
+  collection); the dialog shows each step.
+* Without `files.downloads.read-write`, Settings › Data & privacy › Export opens
+  the save panel (default folder Downloads) and the file is written.
+
 ## Security notes
 
 * No secrets ship in the app. The Firebase web config is public by design
