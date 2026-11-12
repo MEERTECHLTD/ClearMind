@@ -13,7 +13,6 @@ import { cx, useTaskToast } from '../tasks/ui';
 import { projectNotesFolder, isProjectNote } from '../../shared/projects/notes';
 import { excerpt } from '../../shared/notes';
 import { createNote } from '../vault/useVault';
-import { AppIcon } from '../ui-kit/AppIcon';
 
 const ago = (iso?: string) => {
   if (!iso) return '';
@@ -40,7 +39,7 @@ export function ProjectNotes({ project }: { project: Project }) {
   return (
     <section className="mt-6 rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white dark:bg-white/[0.02] p-4" aria-label="Project notes">
       <div className="flex items-center gap-2.5">
-        <AppIcon icon={FileText} tint="amber" size={24} />
+        <FileText size={18} className="text-amber-500" aria-hidden />
         <h2 className={`flex-1 text-sm font-semibold ${cx.text}`}>Project notes <span className={`font-normal ${cx.muted}`}>{notes.length ? `· ${notes.length}` : ''}</span></h2>
         <button type="button" onClick={add} disabled={busy} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300 disabled:opacity-50">
           <Plus size={14} />New note
