@@ -67,6 +67,12 @@ export class FirestoreAgentRepo implements AgentRepo {
     };
   }
 
+  async loadCollections(uid: string, colls: string[]): Promise<Record<string, any[]>> {
+    const uniq = [...new Set(colls)];
+    const snaps = await Promise.all(uniq.map((c) => this.col(uid, c).get()));
+    return Object.fromEntries(uniq.map((c, i) => [c, snaps[i].docs.map((d) => ({ id: d.id, ...strip(d.data()) }))]));
+  }
+
   async commit(uid: string, edits: Edit[], meta: { clientId: string; mutationId: string }): Promise<void> {
     if (!edits.length) return;
     for (let i = 0; i < edits.length; i += 200) {

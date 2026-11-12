@@ -15,9 +15,9 @@ const ACCENT = '#3B82F6';
 const GOAL_MET = '#16A34A';
 
 export const SOURCE_LABEL: Record<string, string> = {
-  android: 'Android', ios: 'iPhone', web: 'Web', mcp: 'AI agents (MCP)', api: 'API', cli: 'CLI', widget: 'Widget', notification: 'Notification', system: 'System', unknown: 'Earlier',
+  android: 'Android', ios: 'iPhone', web: 'Web', mcp: 'AI agents (MCP)', api: 'API', cli: 'CLI', widget: 'Widget', notification: 'Notification', system: 'System', ai: 'ClearMind AI', unknown: 'Earlier',
 };
-const AGENT_SOURCES = new Set(['mcp', 'api', 'cli']);
+const AGENT_SOURCES = new Set(['mcp', 'api', 'cli', 'ai']);
 
 /** Single-series bar chart: one hue, goal-met days in green (with a legend line below). */
 function Bars({ data, max, goal, ariaLabel }: { data: { key: string; value: number; label: string; sub?: string; met?: boolean; title: string }[]; max: number; goal?: number; ariaLabel: string }) {

@@ -439,7 +439,7 @@ function searchVault(index, q, limit = 200) {
   const hits = [];
   for (const n of index.notes) {
     const body = searchableText(n);
-    const lc = body.toLowerCase();
+    const lc2 = body.toLowerCase();
     const lines = body.split("\n");
     const title = n.title.toLowerCase();
     const path = normPath(notePath(n));
@@ -456,7 +456,7 @@ function searchVault(index, q, limit = 200) {
         case "file":
           return title.includes(v);
         case "content":
-          return lc.includes(v);
+          return lc2.includes(v);
         case "line": {
           let ok2 = false;
           lines.forEach((l, i) => {
@@ -547,15 +547,15 @@ function applyTemplateVars(text, ctx) {
 }
 var dailyTitle = (date, s = {}) => formatDate(date, s.format || "YYYY-MM-DD");
 function prepareNote(n, now = /* @__PURE__ */ new Date()) {
-  const iso2 = now.toISOString();
+  const iso3 = now.toISOString();
   return {
     ...n,
     title: n.title.trim(),
     content: n.content,
     tags: extractTags(n.content),
     folder: n.folder ? n.folder.replace(/^\/+|\/+$/g, "") || null : null,
-    createdAt: n.createdAt ?? iso2,
-    lastEdited: iso2
+    createdAt: n.createdAt ?? iso3,
+    lastEdited: iso3
   };
 }
 var excerpt = (n, len = 160) => plainText(searchableText(n)).slice(0, len);
@@ -674,10 +674,10 @@ function deleteNotesOp(notes, refs, ctx = {}) {
   return { deleted: found, edits: found.map((n) => ({ coll: "notes", id: n.id, edit: { deleted: true, deletedAt: now, ...stamp(ctx) } })) };
 }
 function dailyNoteOp(notes, date, opts = {}, ctx = {}) {
-  const iso2 = formatDate(date, "YYYY-MM-DD");
+  const iso3 = formatDate(date, "YYYY-MM-DD");
   const folder = opts.folder === void 0 ? "Daily" : cleanFolder(opts.folder);
   const title = dailyTitle(date, { format: opts.format });
-  const existing = live2(notes).find((n) => n.kind === "daily" && n.dailyDate === iso2) ?? clash(notes, title, folder);
+  const existing = live2(notes).find((n) => n.kind === "daily" && n.dailyDate === iso3) ?? clash(notes, title, folder);
   if (existing) {
     if (!opts.append) return { note: existing, edits: [], created: false };
     const r2 = updateNoteOp(notes, existing.id, { append: opts.append }, ctx);
@@ -685,7 +685,7 @@ function dailyNoteOp(notes, date, opts = {}, ctx = {}) {
   }
   const body = opts.template ? applyTemplateVars(opts.template, { title, now: date }) : "";
   const content = opts.append ? (body ? body.replace(/\n*$/, "\n") : "") + opts.append : body;
-  const r = createNoteOp(notes, { title, folder, content, kind: "daily", dailyDate: iso2 }, ctx);
+  const r = createNoteOp(notes, { title, folder, content, kind: "daily", dailyDate: iso3 }, ctx);
   return { note: r.note, edits: r.edits, created: true };
 }
 function importNotesOp(notes, items, ifExists, ctx = {}) {
@@ -795,8 +795,8 @@ function diffDays(a, b) {
 var WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 var WEEKDAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 var MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function formatDueDate(iso2, now = /* @__PURE__ */ new Date()) {
-  const d = parseISODate(iso2);
+function formatDueDate(iso3, now = /* @__PURE__ */ new Date()) {
+  const d = parseISODate(iso3);
   if (!d) return "";
   const delta = diffDays(now, d);
   if (delta === 0) return "Today";
@@ -892,22 +892,22 @@ function step(r, d, originDay) {
       return addMonths(d, 12 * r.interval);
   }
 }
-function nextOccurrence(rule, fromISO, today = /* @__PURE__ */ new Date()) {
+function nextOccurrence(rule, fromISO, today2 = /* @__PURE__ */ new Date()) {
   const r = normalizeRecurrence(rule);
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayStart = new Date(today2.getFullYear(), today2.getMonth(), today2.getDate());
   const from = r.anchor === "completion" ? todayStart : parseISODate(fromISO) ?? todayStart;
   const originDay = from.getDate();
   let next = step(r, from, originDay);
   if (r.anchor !== "completion") {
     for (let guard = 0; next < todayStart && guard < 2e3; guard++) next = step(r, next, originDay);
   }
-  const iso2 = toISODate(next);
-  if (r.until && iso2 > r.until) return null;
-  return iso2;
+  const iso3 = toISODate(next);
+  if (r.until && iso3 > r.until) return null;
+  return iso3;
 }
-function firstOccurrence(rule, today = /* @__PURE__ */ new Date()) {
+function firstOccurrence(rule, today2 = /* @__PURE__ */ new Date()) {
   const r = normalizeRecurrence(rule);
-  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const t = new Date(today2.getFullYear(), today2.getMonth(), today2.getDate());
   if (r.freq === "weekly" && r.weekdays && r.weekdays.length) {
     for (let i = 0; i < 7; i++) {
       const c = addDays(t, i);
@@ -964,7 +964,7 @@ var B = "(^|\\s)";
 var E = "(?=$|\\s|[,.;!?])";
 function parseQuickAdd(input, ctx = {}) {
   const now = ctx.now ?? /* @__PURE__ */ new Date();
-  const today = startOfDay(now);
+  const today2 = startOfDay(now);
   const ignore = new Set([...ctx.ignore ?? []].map((s) => s.toLowerCase()));
   const tokens = [];
   let work = input;
@@ -1107,12 +1107,12 @@ function parseQuickAdd(input, ctx = {}) {
       return true;
     };
     const PRE = "(?:(?:on|by|due)\\s+)?";
-    take("date", `${PRE}(?:today|tod|tonight)`, () => setDate(today)) || take("date", `${PRE}(?:tomorrow|tmrw?|tmr)`, () => setDate(addDays(today, 1))) || take("date", `${PRE}next\\s+week`, () => setDate(ctx.nextWeek === "plus7" ? addDays(today, 7) : addDays(startOfWeek(today), 7))) || take("date", `${PRE}next\\s+month`, () => setDate(addMonths(today, 1))) || take("date", `${PRE}(?:this\\s+)?weekend`, () => setDate(addDays(today, ((ctx.weekend === "sunday" ? 0 : 6) - today.getDay() + 7) % 7))) || take("date", `${PRE}next\\s+(${WD})`, (m) => setDate(addDays(addDays(startOfWeek(today), 7), (wdIndex(m[1]) + 6) % 7))) || take("date", `in\\s+(\\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(day|week|month)s?`, (m) => {
+    take("date", `${PRE}(?:today|tod|tonight)`, () => setDate(today2)) || take("date", `${PRE}(?:tomorrow|tmrw?|tmr)`, () => setDate(addDays(today2, 1))) || take("date", `${PRE}next\\s+week`, () => setDate(ctx.nextWeek === "plus7" ? addDays(today2, 7) : addDays(startOfWeek(today2), 7))) || take("date", `${PRE}next\\s+month`, () => setDate(addMonths(today2, 1))) || take("date", `${PRE}(?:this\\s+)?weekend`, () => setDate(addDays(today2, ((ctx.weekend === "sunday" ? 0 : 6) - today2.getDay() + 7) % 7))) || take("date", `${PRE}next\\s+(${WD})`, (m) => setDate(addDays(addDays(startOfWeek(today2), 7), (wdIndex(m[1]) + 6) % 7))) || take("date", `in\\s+(\\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(day|week|month)s?`, (m) => {
       const n = toNum(m[1]);
       if (!Number.isFinite(n)) return false;
       const u = m[2].toLowerCase();
-      return setDate(u === "day" ? addDays(today, n) : u === "week" ? addDays(today, 7 * n) : addMonths(today, n));
-    }) || take("date", `(\\d{4})-(\\d{2})-(\\d{2})`, (m) => validDate(Number(m[1]), Number(m[2]) - 1, Number(m[3]), setDate)) || take("date", `${PRE}(${MONTH})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?`, (m) => monthDay(monthIndex(m[1]), Number(m[2]), m[3], today, setDate)) || take("date", `${PRE}(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH})(?:,?\\s+(\\d{4}))?`, (m) => monthDay(monthIndex(m[2]), Number(m[1]), m[3], today, setDate)) || take("date", `${PRE}(?:this\\s+)?(${WD})`, (m) => setDate(addDays(today, (wdIndex(m[1]) - today.getDay() + 7) % 7)));
+      return setDate(u === "day" ? addDays(today2, n) : u === "week" ? addDays(today2, 7 * n) : addMonths(today2, n));
+    }) || take("date", `(\\d{4})-(\\d{2})-(\\d{2})`, (m) => validDate(Number(m[1]), Number(m[2]) - 1, Number(m[3]), setDate)) || take("date", `${PRE}(${MONTH})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?`, (m) => monthDay(monthIndex(m[1]), Number(m[2]), m[3], today2, setDate)) || take("date", `${PRE}(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH})(?:,?\\s+(\\d{4}))?`, (m) => monthDay(monthIndex(m[2]), Number(m[1]), m[3], today2, setDate)) || take("date", `${PRE}(?:this\\s+)?(${WD})`, (m) => setDate(addDays(today2, (wdIndex(m[1]) - today2.getDay() + 7) % 7)));
   }
   if (smart) {
     const setTime = (h, min) => {
@@ -1134,8 +1134,8 @@ function parseQuickAdd(input, ctx = {}) {
       return setTime(h >= 1 && h <= 7 ? h + 12 : h, 0);
     });
   }
-  if (result.recurrence && !result.dueDate) result.dueDate = firstOccurrence(result.recurrence, today);
-  if (result.dueTime && !result.dueDate) result.dueDate = toISODate(today);
+  if (result.recurrence && !result.dueDate) result.dueDate = firstOccurrence(result.recurrence, today2);
+  if (result.dueTime && !result.dueDate) result.dueDate = toISODate(today2);
   tokens.sort((a, b) => a.start - b.start);
   let title = "";
   let cursor = 0;
@@ -1157,13 +1157,13 @@ function validDate(y, m, d, set) {
   if (dt.getFullYear() !== y || dt.getMonth() !== m || dt.getDate() !== d) return false;
   return set(dt);
 }
-function monthDay(month, day, year, today, set) {
+function monthDay(month, day, year, today2, set) {
   if (month < 0) return false;
   if (year) return validDate(Number(year), month, day, set);
-  const y = today.getFullYear();
+  const y = today2.getFullYear();
   const cand = new Date(y, month, day);
   if (cand.getMonth() !== month) return false;
-  return validDate(cand < today ? y + 1 : y, month, day, set);
+  return validDate(cand < today2 ? y + 1 : y, month, day, set);
 }
 
 // shared/tasks/selectors.ts
@@ -1174,9 +1174,9 @@ var isSubtask = (t) => !!t.parentId;
 var isOpen = (t) => !t.completed;
 function isOverdue(t, now = /* @__PURE__ */ new Date()) {
   if (t.completed || !t.dueDate) return false;
-  const today = toISODate(now);
-  if (t.dueDate < today) return true;
-  if (t.dueDate === today && t.dueTime) {
+  const today2 = toISODate(now);
+  if (t.dueDate < today2) return true;
+  if (t.dueDate === today2 && t.dueTime) {
     const [h, m] = t.dueTime.split(":").map(Number);
     const due = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h || 0, m || 0);
     return due.getTime() < now.getTime();
@@ -1214,11 +1214,11 @@ function projectTasks(tasks, projectId) {
   return tasks.filter((t) => isOpen(t) && !isSubtask(t) && t.projectId === projectId).sort(compareByOrder);
 }
 function todayView(tasks, now = /* @__PURE__ */ new Date()) {
-  const today = toISODate(now);
+  const today2 = toISODate(now);
   const open = tasks.filter((t) => isOpen(t) && t.dueDate);
   return {
-    overdue: open.filter((t) => t.dueDate < today).sort(compareTasks),
-    today: open.filter((t) => t.dueDate === today).sort(compareTasks)
+    overdue: open.filter((t) => t.dueDate < today2).sort(compareTasks),
+    today: open.filter((t) => t.dueDate === today2).sort(compareTasks)
   };
 }
 function upcomingView(tasks, from, days) {
@@ -1861,7 +1861,7 @@ function tokenize(q) {
 }
 function termPredicate(term, ctx) {
   const now = ctx.now ?? /* @__PURE__ */ new Date();
-  const today = toISODate(now);
+  const today2 = toISODate(now);
   const t = term.trim();
   const lower = t.toLowerCase();
   const byName = (list, name) => list.filter((x) => !x.deleted && (x.title ?? x.name ?? "").toLowerCase() === name.toLowerCase());
@@ -1869,7 +1869,7 @@ function termPredicate(term, ctx) {
     const p = ["High", "Medium", "Low", "None"][Number(lower[1]) - 1];
     return (x) => priorityOf(x) === p;
   }
-  if (lower === "today") return (x) => x.dueDate === today;
+  if (lower === "today") return (x) => x.dueDate === today2;
   if (lower === "tomorrow") return (x) => x.dueDate === toISODate(addDays(now, 1));
   if (lower === "yesterday") return (x) => x.dueDate === toISODate(addDays(now, -1));
   if (lower === "overdue" || lower === "od") return (x) => isOverdue(x, now);
@@ -1891,7 +1891,7 @@ function termPredicate(term, ctx) {
   let m = /^next (\d+) days?$/.exec(lower) || /^(\d+) days?$/.exec(lower);
   if (m) {
     const b = toISODate(addDays(now, Number(m[1]) - 1));
-    return (x) => !!x.dueDate && x.dueDate >= today && x.dueDate <= b;
+    return (x) => !!x.dueDate && x.dueDate >= today2 && x.dueDate <= b;
   }
   m = /^due (before|after):\s*(\d{4}-\d{2}-\d{2})$/.exec(lower);
   if (m) {
@@ -2007,32 +2007,32 @@ function weekStartDate(day, weekStart) {
 }
 function resolveInterval(iv, prefs, now = /* @__PURE__ */ new Date()) {
   const local = nowInZone(prefs?.timezone ?? null, now);
-  const today = new Date(local.getFullYear(), local.getMonth(), local.getDate());
+  const today2 = new Date(local.getFullYear(), local.getMonth(), local.getDate());
   const ws = prefs?.weekStart ?? 1;
   if (typeof iv === "object") return { ...iv, label: `${iv.from} \u2192 ${iv.to}` };
   switch (iv) {
     case "today":
-      return { from: toISODate(today), to: toISODate(today), label: "Today" };
+      return { from: toISODate(today2), to: toISODate(today2), label: "Today" };
     case "yesterday": {
-      const y = addDays(today, -1);
+      const y = addDays(today2, -1);
       return { from: toISODate(y), to: toISODate(y), label: "Yesterday" };
     }
     case "this_week": {
-      const s = weekStartDate(today, ws);
+      const s = weekStartDate(today2, ws);
       return { from: toISODate(s), to: toISODate(addDays(s, 6)), label: "This week" };
     }
     case "last_week": {
-      const s = addDays(weekStartDate(today, ws), -7);
+      const s = addDays(weekStartDate(today2, ws), -7);
       return { from: toISODate(s), to: toISODate(addDays(s, 6)), label: "Last week" };
     }
     case "this_month": {
-      const s = new Date(today.getFullYear(), today.getMonth(), 1);
-      const e = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const s = new Date(today2.getFullYear(), today2.getMonth(), 1);
+      const e = new Date(today2.getFullYear(), today2.getMonth() + 1, 0);
       return { from: toISODate(s), to: toISODate(e), label: "This month" };
     }
     case "last_month": {
-      const s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const e = new Date(today.getFullYear(), today.getMonth(), 0);
+      const s = new Date(today2.getFullYear(), today2.getMonth() - 1, 1);
+      const e = new Date(today2.getFullYear(), today2.getMonth(), 0);
       return { from: toISODate(s), to: toISODate(e), label: "Last month" };
     }
   }
@@ -2042,18 +2042,18 @@ function countsByDay(completions) {
   for (const c of live4(completions)) m.set(c.day, (m.get(c.day) ?? 0) + 1);
   return m;
 }
-var isRestDay = (iso2, prefs) => {
-  const d = parseISODate(iso2);
+var isRestDay = (iso3, prefs) => {
+  const d = parseISODate(iso3);
   return !!d && (prefs?.daysOff ?? []).includes(d.getDay());
 };
 function dailyStreak(completions, prefs, now = /* @__PURE__ */ new Date()) {
   const goal = Math.max(1, prefs?.dailyGoal ?? DEFAULT_DAILY_GOAL);
   const byDay = countsByDay(completions);
-  const today = dayInZone(now, prefs?.timezone ?? null);
+  const today2 = dayInZone(now, prefs?.timezone ?? null);
   const met = (d) => (byDay.get(d) ?? 0) >= goal;
   let current = 0;
-  let cursor = parseISODate(today);
-  if (!met(today)) cursor = addDays(cursor, -1);
+  let cursor = parseISODate(today2);
+  if (!met(today2)) cursor = addDays(cursor, -1);
   for (let guard = 0; guard < 3650; guard++) {
     const d = toISODate(cursor);
     if (met(d)) current++;
@@ -2198,7 +2198,7 @@ function projectStats(projectIds, input) {
   const prefs = input.preferences;
   const now = input.now ?? /* @__PURE__ */ new Date();
   const localNow2 = nowInZone(prefs?.timezone ?? null, now);
-  const today = toISODate(localNow2);
+  const today2 = toISODate(localNow2);
   const week = resolveInterval("this_week", prefs, now);
   const ids = new Set(projectIds);
   const tasks = input.tasks.filter((t) => !t.deleted && t.projectId && ids.has(t.projectId));
@@ -2212,7 +2212,7 @@ function projectStats(projectIds, input) {
     open: open.length,
     completed: done.length,
     overdue: open.filter((t) => isOverdue(t, localNow2)).length,
-    dueToday: open.filter((t) => t.dueDate === today).length,
+    dueToday: open.filter((t) => t.dueDate === today2).length,
     dueThisWeek: open.filter((t) => t.dueDate && t.dueDate >= week.from && t.dueDate <= week.to).length,
     blocked: open.filter((t) => t.sectionId && blockedSections.has(t.sectionId) || /blocked|waiting/i.test(t.title)).length,
     highPriority: open.filter((t) => priorityOf(t) === "High").length,
@@ -2220,7 +2220,7 @@ function projectStats(projectIds, input) {
     completedThisWeek: cs.filter((c) => c.day >= week.from && c.day <= week.to).length,
     trend: weeklyTrend({ ...input, completions: cs }, 6),
     recentlyCompleted: [...cs].sort((a, b) => b.completedAt.localeCompare(a.completedAt)).slice(0, 5).map((c) => ({ taskId: c.taskId, title: c.title, completedAt: c.completedAt })),
-    upcoming: open.filter((t) => t.dueDate && t.dueDate >= today).sort((a, b) => a.dueDate < b.dueDate ? -1 : 1).slice(0, 5).map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate })),
+    upcoming: open.filter((t) => t.dueDate && t.dueDate >= today2).sort((a, b) => a.dueDate < b.dueDate ? -1 : 1).slice(0, 5).map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate })),
     priorityDistribution: { p1: open.filter((t) => priorityOf(t) === "High").length, p2: open.filter((t) => priorityOf(t) === "Medium").length, p3: open.filter((t) => priorityOf(t) === "Low").length, p4: open.filter((t) => priorityOf(t) === "None").length }
   };
 }
@@ -2329,6 +2329,16 @@ function parseToken(token) {
   return { uid, secret };
 }
 var DEFAULT_RATE_LIMIT = 60;
+var SCOPE_VERSION = 2;
+function effectiveScopes(t) {
+  const s = new Set(t.scopes);
+  if (!t.scopeVersion || t.scopeVersion < SCOPE_VERSION) {
+    if (s.has("tasks:read")) s.add("life:read");
+    if (s.has("tasks:write")) s.add("life:write");
+    if (s.has("tasks:delete")) s.add("life:delete");
+  }
+  return [...s];
+}
 
 // shared/agents/validate.ts
 var ARG_LIMITS = { maxString: 2e5, maxArray: 1e3, maxDepth: 8 };
@@ -2411,7 +2421,7 @@ function validateArgs(input, args) {
   return coerceObject(args, input.properties ?? {}, "");
 }
 
-// shared/agents/tools.ts
+// shared/agents/errors.ts
 var AgentError = class extends Error {
   constructor(code, message, data) {
     super(message);
@@ -2419,6 +2429,618 @@ var AgentError = class extends Error {
     this.data = data;
   }
 };
+
+// shared/projects/notes.ts
+var projectNotesFolder = (p) => `Projects/${p.title.replace(/[\\/#^|[\]]/g, "-").trim()}`;
+function isProjectNote(n, p) {
+  if (n.deleted) return false;
+  const f = normPath(projectNotesFolder(p));
+  const nf = normPath(n.folder ?? "");
+  if (nf === f || nf.startsWith(f + "/")) return true;
+  const proj = parseFrontmatter(n.content ?? "").props?.project;
+  return typeof proj === "string" && (proj.toLowerCase() === p.title.toLowerCase() || proj === p.id);
+}
+
+// shared/agents/lifeTools.ts
+var LIFE_COLLS = ["habits", "goals", "milestones", "logs", "rants", "events", "dailymapper", "dailymappertemplates", "applications", "learningresources", "learningfolders", "mindmaps", "iris_conversations"];
+var S = { type: "string" };
+var N = { type: "number" };
+var B2 = { type: "boolean" };
+var DATE = { type: "string", description: "YYYY-MM-DD" };
+var TIME = { type: "string", description: "HH:MM (24h)" };
+var IDS = { type: "array", items: S, description: "Record ids (or exact titles)" };
+var STRS = { type: "array", items: S };
+var live5 = (xs) => (xs ?? []).filter((x) => !x.deleted);
+var iso2 = (now) => now.toISOString();
+var today = (x) => dayInZone(x.now, x.timezone);
+var isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+var isTime = (s) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+var lc = (s) => String(s ?? "").toLowerCase();
+var clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+var pick = (a, keys) => Object.fromEntries(keys.filter((k) => a[k] !== void 0).map((k) => [k, a[k]]));
+function need(cond, msg) {
+  if (!cond) throw new AgentError("invalid", msg);
+}
+function find(list, ref, titleKey, noun) {
+  const xs = live5(list);
+  const hit = xs.find((x) => x.id === ref) ?? xs.find((x) => lc(x[titleKey]) === lc(ref).trim());
+  if (!hit) throw new AgentError("not_found", `No ${noun} "${ref}". Use the matching _list tool to see ids.`);
+  return hit;
+}
+function matches2(r, q, keys) {
+  if (!q) return true;
+  const terms = lc(q).split(/\s+/).filter(Boolean);
+  const hay = keys.map((k) => Array.isArray(r[k]) ? r[k].join(" ") : typeof r[k] === "object" && r[k] ? JSON.stringify(r[k]) : r[k] ?? "").join(" ").toLowerCase();
+  return terms.every((t) => hay.includes(t));
+}
+function inRange(d, from, to) {
+  if (!d) return !from && !to;
+  const day = d.slice(0, 10);
+  return (!from || day >= from) && (!to || day <= to);
+}
+var limitOf = (a, dflt = 100) => clamp(Number(a.limit) || dflt, 1, 500);
+async function del(x, tool, coll, titleKey, noun) {
+  const refs = (Array.isArray(x.args.ids) ? x.args.ids : [x.args.ids]).filter(Boolean).map(String);
+  need(refs.length, "ids must list at least one record");
+  need(refs.length <= 200, "At most 200 per call.");
+  const recs = [...new Map(refs.map((r) => find(x.life[coll], r, titleKey, noun)).map((r) => [r.id, r])).values()];
+  if (recs.length > 1) await x.confirm(tool, recs.map((r) => r.id), `This deletes ${recs.length} ${noun}s. Call again with confirm_token to proceed.`, recs.slice(0, 20).map((r) => r[titleKey]));
+  const at = iso2(x.now);
+  return { result: { deleted: recs.map((r) => ({ id: r.id, [titleKey]: r[titleKey] })) }, edits: recs.map((r) => ({ coll, id: r.id, edit: { deleted: true, deletedAt: at } })), summary: `deleted ${recs.length} ${noun}(s)` };
+}
+function save(x, coll, titleKey, noun, fields, create, validate2) {
+  const a = x.args;
+  const patch = pick(a, fields);
+  if (a.id) {
+    const cur = find(x.life[coll], String(a.id), titleKey, noun);
+    const merged = { ...cur, ...patch };
+    validate2?.(merged);
+    const edit = { ...patch, ...cur.updatedAt !== void 0 || coll === "applications" || coll === "mindmaps" || coll === "learningresources" ? { updatedAt: iso2(x.now) } : {} };
+    return { result: { ...merged, ...edit }, edits: [{ coll, id: cur.id, edit }], summary: `updated ${noun} "${merged[titleKey] ?? cur.id}"` };
+  }
+  const rec = { ...create(a), ...patch };
+  validate2?.(rec);
+  return { result: rec, edits: [{ coll, id: rec.id, edit: rec }], summary: `created ${noun} "${rec[titleKey] ?? rec.id}"` };
+}
+var HABIT_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
+function habitStats(monthly, day) {
+  const d = /* @__PURE__ */ new Date(`${day}T12:00:00Z`);
+  const key = (k) => new Date(d.getTime() - k * 864e5).toISOString().slice(0, 10);
+  const history = [6, 5, 4, 3, 2, 1, 0].map((k) => !!monthly[key(k)]);
+  let streak = 0;
+  for (let k = monthly[day] ? 0 : 1; k < 3660 && monthly[key(k)]; k++) streak++;
+  return { completedToday: !!monthly[day], history, streak };
+}
+function describeHabit(h, day) {
+  const s = habitStats(h.monthlyHistory ?? {}, day);
+  return { id: h.id, name: h.name, description: h.description ?? null, color: h.color ?? null, done_today: s.completedToday, streak: s.streak, last_7_days: s.history };
+}
+var MAP_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6"];
+function layoutOutline(root, now, decision = false) {
+  const nodes = [];
+  const edges = [];
+  const stamp2 = now.getTime().toString(36);
+  let n = 0;
+  const id = () => `n${stamp2}${(n++).toString(36)}`;
+  const cx = 600, cy = 400;
+  const rootId = id();
+  nodes.push({ id: rootId, x: cx, y: cy, text: String(root.text ?? "Topic").slice(0, 200), color: "#6366F1", isRoot: true });
+  const walk = (kids, parent, depth, a0, a1, color) => {
+    kids.forEach((k, i) => {
+      const a = a0 + (i + 0.5) * (a1 - a0) / kids.length;
+      const r = 230 * depth;
+      const c = color ?? MAP_COLORS[i % MAP_COLORS.length];
+      const nid = id();
+      nodes.push({ id: nid, x: Math.round(cx + r * Math.cos(a)), y: Math.round(cy + r * Math.sin(a)), text: String(k.text ?? "").slice(0, 200), color: c, ...decision ? { isDecision: !!k.children?.length } : {} });
+      edges.push({ id: `e${nid}`, from: parent, to: nid });
+      if (k.children?.length) walk(k.children, nid, depth + 1, a0 + i * (a1 - a0) / kids.length, a0 + (i + 1) * (a1 - a0) / kids.length, c);
+    });
+  };
+  walk(root.children ?? [], rootId, 1, 0, Math.PI * 2);
+  if (nodes.length > 400) throw new AgentError("invalid", "Outline too large (max 400 nodes).");
+  return { nodes, edges };
+}
+var R = ["life:read"];
+var W = ["life:write"];
+var X = ["life:delete"];
+var DEL_INPUT = { type: "object", properties: { ids: IDS, confirm_token: S }, required: ["ids"] };
+var LEARNING_PLATFORMS = [[/youtube\.com|youtu\.be/, "youtube"], [/vimeo\.com/, "vimeo"], [/spotify\.com/, "spotify"], [/podcasts\.apple\.com/, "apple-podcasts"], [/soundcloud\.com/, "soundcloud"], [/coursera\.org/, "coursera"], [/udemy\.com/, "udemy"], [/khanacademy\.org/, "khan-academy"], [/ocw\.mit\.edu/, "mit-ocw"], [/ted\.com/, "ted"]];
+var platformOf = (url) => LEARNING_PLATFORMS.find(([re]) => re.test(url.toLowerCase()))?.[1] ?? "other";
+var isAudio = (url) => /podcast|spotify|soundcloud|audio|\.mp3|\.m4a|\.wav/.test(url.toLowerCase());
+var LIFE_TOOLS = [
+  // ---------------------------------------------------------------- habits
+  {
+    name: "habits_list",
+    title: "List habits",
+    scopes: R,
+    needs: ["habits"],
+    description: "Habits with today's status, current streak and the last 7 days. Pass id for one habit with its full per-day history (optionally from/to).",
+    input: { type: "object", properties: { id: S, query: S, from: DATE, to: DATE } },
+    run: async (x) => {
+      const day = today(x);
+      if (x.args.id) {
+        const h = find(x.life.habits, x.args.id, "name", "habit");
+        const days = Object.entries(h.monthlyHistory ?? {}).filter(([d, v]) => v && inRange(d, x.args.from, x.args.to)).map(([d]) => d).sort();
+        return { result: { ...describeHabit(h, day), done_on: days } };
+      }
+      const hs = live5(x.life.habits).filter((h) => matches2(h, x.args.query, ["name", "description"]));
+      return { result: { date: day, done: hs.filter((h) => habitStats(h.monthlyHistory ?? {}, day).completedToday).length, habits: hs.map((h) => describeHabit(h, day)) } };
+    }
+  },
+  {
+    name: "habits_save",
+    title: "Create or edit habit",
+    scopes: W,
+    needs: ["habits"],
+    description: "Create a habit (name required) or edit one (pass id or its exact name in id). Colors: hex like #10B981.",
+    input: { type: "object", properties: { id: S, name: S, description: S, color: S } },
+    run: async (x) => {
+      const r = save(x, "habits", "name", "habit", ["name", "description", "color"], (a) => {
+        need(a.name, "name is required to create a habit");
+        const n = live5(x.life.habits).length;
+        return { id: newId({ now: x.now, source: "api" }), name: String(a.name), streak: 0, completedToday: false, history: [false, false, false, false, false, false, false], monthlyHistory: {}, color: HABIT_COLORS[n % HABIT_COLORS.length], createdAt: iso2(x.now) };
+      });
+      return { ...r, result: describeHabit(r.result, today(x)) };
+    }
+  },
+  {
+    name: "habits_check",
+    title: "Check in a habit",
+    scopes: W,
+    needs: ["habits"],
+    description: "Mark a habit done (or not done with done=false) for a day (default today). Streak and history update automatically.",
+    input: { type: "object", properties: { habit: { type: "string", description: "Habit id or name" }, date: DATE, done: B2 }, required: ["habit"] },
+    run: async (x) => {
+      const h = find(x.life.habits, x.args.habit, "name", "habit");
+      const day = x.args.date ?? today(x);
+      need(isDate(day), "date must be YYYY-MM-DD");
+      const monthlyHistory = { ...h.monthlyHistory ?? {}, [day]: x.args.done !== false };
+      const s = habitStats(monthlyHistory, today(x));
+      const edit = { monthlyHistory, completedToday: s.completedToday, streak: s.streak, history: s.history };
+      return { result: describeHabit({ ...h, ...edit }, today(x)), edits: [{ coll: "habits", id: h.id, edit }], summary: `${x.args.done === false ? "unchecked" : "checked"} "${h.name}" for ${day}` };
+    }
+  },
+  { name: "habits_delete", title: "Delete habits", scopes: X, needs: ["habits"], description: "Delete habits by id or name. More than one needs confirm_token.", input: DEL_INPUT, run: (x) => del(x, "habits_delete", "habits", "name", "habit") },
+  // ---------------------------------------------------------------- goals
+  {
+    name: "goals_list",
+    title: "List goals",
+    scopes: R,
+    needs: ["goals"],
+    description: "Goals with category (Career, Personal, Health, Skill), target date and progress %. Filter by category, query or due before a date.",
+    input: { type: "object", properties: { id: S, category: { type: "string", enum: ["Career", "Personal", "Health", "Skill"] }, query: S, due_before: DATE } },
+    run: async (x) => {
+      if (x.args.id) return { result: find(x.life.goals, x.args.id, "title", "goal") };
+      const gs = live5(x.life.goals).filter((g) => (!x.args.category || g.category === x.args.category) && matches2(g, x.args.query, ["title"]) && (!x.args.due_before || (g.targetDate ?? "") <= x.args.due_before)).sort((a, b) => (a.targetDate ?? "").localeCompare(b.targetDate ?? ""));
+      return { result: { count: gs.length, goals: gs } };
+    }
+  },
+  {
+    name: "goals_save",
+    title: "Create or edit goal",
+    scopes: W,
+    needs: ["goals"],
+    description: "Create a goal (title required; category defaults to Personal, target date to +30 days) or update one by id/title \u2014 e.g. set progress 0\u2013100.",
+    input: { type: "object", properties: { id: S, title: S, category: { type: "string", enum: ["Career", "Personal", "Health", "Skill"] }, targetDate: DATE, progress: N } },
+    run: async (x) => {
+      if (x.args.progress !== void 0) x.args.progress = clamp(Math.round(Number(x.args.progress)), 0, 100);
+      return save(x, "goals", "title", "goal", ["title", "category", "targetDate", "progress"], (a) => {
+        need(a.title, "title is required");
+        return { id: newId({ now: x.now, source: "api" }), title: String(a.title), category: "Personal", targetDate: new Date(x.now.getTime() + 30 * 864e5).toISOString().slice(0, 10), progress: 0 };
+      }, (g) => need(!g.targetDate || isDate(g.targetDate), "targetDate must be YYYY-MM-DD"));
+    }
+  },
+  { name: "goals_delete", title: "Delete goals", scopes: X, needs: ["goals"], description: "Delete goals by id or title. More than one needs confirm_token.", input: DEL_INPUT, run: (x) => del(x, "goals_delete", "goals", "title", "goal") },
+  // ---------------------------------------------------------------- milestones
+  {
+    name: "milestones_list",
+    title: "List milestones",
+    scopes: R,
+    needs: ["milestones"],
+    description: "Milestones (achievements and key dates), newest first. Filter by completed, date range or query.",
+    input: { type: "object", properties: { id: S, completed: B2, from: DATE, to: DATE, query: S } },
+    run: async (x) => {
+      if (x.args.id) return { result: find(x.life.milestones, x.args.id, "title", "milestone") };
+      const ms = live5(x.life.milestones).filter((m) => (x.args.completed === void 0 || !!m.completed === x.args.completed) && (!x.args.from && !x.args.to ? true : inRange(m.date, x.args.from, x.args.to)) && matches2(m, x.args.query, ["title", "description"])).sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+      return { result: { count: ms.length, milestones: ms } };
+    }
+  },
+  {
+    name: "milestones_save",
+    title: "Create or edit milestone",
+    scopes: W,
+    needs: ["milestones"],
+    description: "Create a milestone (title required; date defaults to today) or update one by id/title (e.g. completed=true).",
+    input: { type: "object", properties: { id: S, title: S, date: DATE, description: S, completed: B2 } },
+    run: async (x) => save(x, "milestones", "title", "milestone", ["title", "date", "description", "completed"], (a) => {
+      need(a.title, "title is required");
+      return { id: newId({ now: x.now, source: "api" }), title: String(a.title), date: today(x), description: "", completed: false };
+    }, (m) => need(isDate(m.date), "date must be YYYY-MM-DD"))
+  },
+  { name: "milestones_delete", title: "Delete milestones", scopes: X, needs: ["milestones"], description: "Delete milestones by id or title. More than one needs confirm_token.", input: DEL_INPUT, run: (x) => del(x, "milestones_delete", "milestones", "title", "milestone") },
+  // ---------------------------------------------------------------- calendar
+  {
+    name: "calendar_list",
+    title: "List calendar events",
+    scopes: R,
+    needs: ["events"],
+    description: "Calendar events between from and to (default: today through the next 14 days), sorted by date and time. Pass id for one event.",
+    input: { type: "object", properties: { id: S, from: DATE, to: DATE, query: S, limit: N } },
+    run: async (x) => {
+      if (x.args.id) return { result: find(x.life.events, x.args.id, "title", "event") };
+      const from = x.args.from ?? today(x);
+      const to = x.args.to ?? new Date((/* @__PURE__ */ new Date(`${from}T12:00:00Z`)).getTime() + 14 * 864e5).toISOString().slice(0, 10);
+      const es = live5(x.life.events).filter((e) => inRange(e.date, from, to) && matches2(e, x.args.query, ["title", "description", "location"])).sort((a, b) => `${a.date} ${a.startTime ?? ""}`.localeCompare(`${b.date} ${b.startTime ?? ""}`));
+      return { result: { from, to, count: es.length, events: es.slice(0, limitOf(x.args, 200)) } };
+    }
+  },
+  {
+    name: "calendar_save",
+    title: "Create or edit event",
+    scopes: W,
+    needs: ["events"],
+    description: "Create a calendar event (title and date required) or update one by id/title. Times are HH:MM; reminder defaults to true.",
+    input: { type: "object", properties: { id: S, title: S, date: DATE, startTime: TIME, endTime: TIME, description: S, location: S, color: S, reminder: B2 } },
+    run: async (x) => save(x, "events", "title", "event", ["title", "date", "startTime", "endTime", "description", "location", "color", "reminder"], (a) => {
+      need(a.title && a.date, "title and date are required");
+      return { id: newId({ now: x.now, source: "api" }), title: String(a.title), date: a.date, color: "#3b82f6", reminder: true };
+    }, (e) => {
+      need(isDate(e.date), "date must be YYYY-MM-DD");
+      need(!e.startTime || isTime(e.startTime), "startTime must be HH:MM");
+      need(!e.endTime || isTime(e.endTime), "endTime must be HH:MM");
+    })
+  },
+  { name: "calendar_delete", title: "Delete events", scopes: X, needs: ["events"], description: "Delete calendar events by id or title. More than one needs confirm_token.", input: DEL_INPUT, run: (x) => del(x, "calendar_delete", "events", "title", "event") },
+  // ---------------------------------------------------------------- daily map
+  {
+    name: "daily_map_list",
+    title: "Daily map (time blocks)",
+    scopes: R,
+    needs: ["dailymapper", "dailymappertemplates"],
+    description: "Time-blocked plan for a day (default today) with each block's status (yes/no/partial), comment and adjustment, plus the permanent blocks that repeat daily, on workdays or on weekends. Use from/to for several days.",
+    input: { type: "object", properties: { date: DATE, from: DATE, to: DATE } },
+    run: async (x) => {
+      const from = x.args.from ?? x.args.date ?? today(x);
+      const to = x.args.to ?? x.args.date ?? from;
+      const blocks = live5(x.life.dailymapper).filter((e) => inRange(e.date, from, to)).sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`));
+      const done = blocks.filter((b) => b.completed === "yes").length;
+      return { result: { from, to, blocks, completion: blocks.length ? `${done}/${blocks.length}` : null, permanent: live5(x.life.dailymappertemplates).sort((a, b) => a.startTime.localeCompare(b.startTime)) } };
+    }
+  },
+  {
+    name: "daily_map_save",
+    title: "Plan or update a time block",
+    scopes: W,
+    needs: ["dailymapper", "dailymappertemplates"],
+    description: 'Create a time block (task, startTime, endTime; date defaults to today) or update one by id \u2014 e.g. completed="yes"|"no"|"partial", comment, adjustment. Set permanent="daily"|"workday"|"weekend" to also make it a repeating block the app adds every matching day.',
+    input: { type: "object", properties: { id: S, date: DATE, task: S, startTime: TIME, endTime: TIME, completed: { type: "string", enum: ["yes", "no", "partial"] }, comment: S, adjustment: S, color: S, location: { type: "string", enum: ["home", "work", "other"] }, permanent: { type: "string", enum: ["daily", "workday", "weekend"] } } },
+    run: async (x) => {
+      const a = x.args;
+      const fields = ["date", "task", "startTime", "endTime", "completed", "comment", "adjustment", "color", "location"];
+      const r = a.id ? (() => {
+        const cur = live5(x.life.dailymapper).find((e) => e.id === a.id);
+        if (!cur) throw new AgentError("not_found", `No time block ${a.id}.`);
+        const edit = pick(a, fields);
+        return { result: { ...cur, ...edit }, edits: [{ coll: "dailymapper", id: cur.id, edit }], summary: `updated block "${cur.task}"` };
+      })() : (() => {
+        need(a.task && a.startTime && a.endTime, "task, startTime and endTime are required");
+        const rec = { id: newId({ now: x.now, source: "api" }), date: a.date ?? today(x), completed: "no", color: "#3B82F6", location: "home", ...pick(a, fields) };
+        return { result: rec, edits: [{ coll: "dailymapper", id: rec.id, edit: rec }], summary: `planned "${rec.task}" ${rec.startTime}\u2013${rec.endTime} on ${rec.date}` };
+      })();
+      const b = r.result;
+      need(isDate(b.date) && isTime(b.startTime) && isTime(b.endTime), "date must be YYYY-MM-DD and times HH:MM");
+      need(b.startTime < b.endTime, "startTime must be before endTime");
+      if (a.permanent) {
+        const t = { id: `tpl-${newId({ now: x.now, source: "api" })}`, startTime: b.startTime, endTime: b.endTime, task: b.task, color: b.color, location: b.location, permanentType: a.permanent, createdAt: iso2(x.now) };
+        r.edits.push({ coll: "dailymappertemplates", id: t.id, edit: t });
+        r.edits[0].edit = { ...r.edits[0].edit, isPermanent: true, permanentType: a.permanent, templateId: t.id };
+        r.summary += ` (repeats ${a.permanent})`;
+      }
+      return r;
+    }
+  },
+  {
+    name: "daily_map_delete",
+    title: "Delete time blocks",
+    scopes: X,
+    needs: ["dailymapper", "dailymappertemplates"],
+    description: "Delete time blocks or permanent (repeating) blocks by id. More than one needs confirm_token.",
+    input: DEL_INPUT,
+    run: async (x) => {
+      const ids = (Array.isArray(x.args.ids) ? x.args.ids : [x.args.ids]).map(String);
+      const hits = ids.map((id) => {
+        const e = live5(x.life.dailymapper).find((r) => r.id === id);
+        if (e) return { coll: "dailymapper", r: e };
+        const t = live5(x.life.dailymappertemplates).find((r) => r.id === id);
+        if (t) return { coll: "dailymappertemplates", r: t };
+        throw new AgentError("not_found", `No time block ${id}.`);
+      });
+      if (hits.length > 1) await x.confirm("daily_map_delete", hits.map((h) => h.r.id), `This deletes ${hits.length} time blocks. Call again with confirm_token to proceed.`, hits.map((h) => `${h.r.date ?? h.r.permanentType} ${h.r.startTime} ${h.r.task}`));
+      return { result: { deleted: hits.map((h) => h.r.id) }, edits: hits.map((h) => ({ coll: h.coll, id: h.r.id, edit: { deleted: true, deletedAt: iso2(x.now) } })), summary: `deleted ${hits.length} time block(s)` };
+    }
+  },
+  // ---------------------------------------------------------------- journal
+  {
+    name: "journal_list",
+    title: "Read journal",
+    scopes: R,
+    needs: ["logs", "rants"],
+    description: "Journal entries, newest first: daily log entries (mood: Productive, Neutral, Frustrated, Flow State) and rants (venting; mood frustrated/angry/overwhelmed/confused/venting). Filter by kind, date range, mood or query.",
+    input: { type: "object", properties: { kind: { type: "string", enum: ["log", "rant", "all"] }, from: DATE, to: DATE, mood: S, query: S, limit: N } },
+    run: async (x) => {
+      const k = x.args.kind ?? "all";
+      const logs = k === "rant" ? [] : live5(x.life.logs).map((l) => ({ kind: "log", id: l.id, date: l.date, mood: l.mood, content: l.content }));
+      const rants = k === "log" ? [] : live5(x.life.rants).map((r) => ({ kind: "rant", id: r.id, date: r.createdAt ?? r.timestamp, mood: r.mood ?? null, content: r.content }));
+      const all = [...logs, ...rants].filter((e) => (!x.args.from && !x.args.to ? true : inRange(e.date, x.args.from, x.args.to)) && (!x.args.mood || lc(e.mood) === lc(x.args.mood)) && matches2(e, x.args.query, ["content"])).sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? "")));
+      return { result: { count: all.length, entries: all.slice(0, limitOf(x.args, 50)) } };
+    }
+  },
+  {
+    name: "journal_save",
+    title: "Write journal entry",
+    scopes: W,
+    needs: ["logs", "rants"],
+    description: 'Add a daily log entry (kind="log", default; mood defaults to Neutral, date to today) or a rant (kind="rant"), or edit one by id.',
+    input: { type: "object", properties: { id: S, kind: { type: "string", enum: ["log", "rant"] }, content: S, mood: S, date: DATE } },
+    run: async (x) => {
+      const a = x.args;
+      const isRant = a.kind === "rant" || !!a.id && live5(x.life.rants).some((r) => r.id === a.id);
+      if (isRant) {
+        if (a.mood !== void 0) need(["frustrated", "angry", "overwhelmed", "confused", "venting"].includes(a.mood), "rant mood must be frustrated, angry, overwhelmed, confused or venting");
+        return save(x, "rants", "content", "rant", ["content", "mood"], () => {
+          need(a.content, "content is required");
+          const at = iso2(x.now);
+          return { id: newId({ now: x.now, source: "api" }), content: String(a.content), createdAt: at, timestamp: at };
+        });
+      }
+      if (a.mood !== void 0) need(["Productive", "Neutral", "Frustrated", "Flow State"].includes(a.mood), "log mood must be Productive, Neutral, Frustrated or Flow State");
+      return save(x, "logs", "content", "log entry", ["content", "mood", "date"], () => {
+        need(a.content, "content is required");
+        return { id: newId({ now: x.now, source: "api" }), content: String(a.content), mood: "Neutral", date: today(x) };
+      }, (l) => need(isDate(String(l.date).slice(0, 10)), "date must be YYYY-MM-DD"));
+    }
+  },
+  {
+    name: "journal_delete",
+    title: "Delete journal entries",
+    scopes: X,
+    needs: ["logs", "rants"],
+    description: "Delete daily log entries or rants by id. More than one needs confirm_token.",
+    input: DEL_INPUT,
+    run: async (x) => {
+      const ids = (Array.isArray(x.args.ids) ? x.args.ids : [x.args.ids]).map(String);
+      const hits = ids.map((id) => {
+        const l = live5(x.life.logs).find((r2) => r2.id === id);
+        if (l) return { coll: "logs", r: l };
+        const r = live5(x.life.rants).find((q) => q.id === id);
+        if (r) return { coll: "rants", r };
+        throw new AgentError("not_found", `No journal entry ${id}.`);
+      });
+      if (hits.length > 1) await x.confirm("journal_delete", hits.map((h) => h.r.id), `This deletes ${hits.length} journal entries. Call again with confirm_token to proceed.`, hits.map((h) => String(h.r.content).slice(0, 80)));
+      return { result: { deleted: hits.map((h) => h.r.id) }, edits: hits.map((h) => ({ coll: h.coll, id: h.r.id, edit: { deleted: true, deletedAt: iso2(x.now) } })), summary: `deleted ${hits.length} journal entr${hits.length === 1 ? "y" : "ies"}` };
+    }
+  },
+  // ---------------------------------------------------------------- applications
+  {
+    name: "applications_list",
+    title: "List applications",
+    scopes: R,
+    needs: ["applications"],
+    description: "Job, grant and scholarship applications with status, priority and deadlines. Filter by type, status, priority, query, or deadline_within_days. Pass id for one with contacts, requirements and notes.",
+    input: { type: "object", properties: { id: S, type: { type: "string", enum: ["job", "grant", "scholarship", "other"] }, status: { type: "string", enum: ["draft", "open", "submitted", "closed", "accepted", "rejected"] }, priority: { type: "string", enum: ["High", "Medium", "Low"] }, query: S, deadline_within_days: N, limit: N } },
+    run: async (x) => {
+      if (x.args.id) return { result: find(x.life.applications, x.args.id, "name", "application") };
+      const deadline = (a) => a.submissionDeadline || a.closingDate || "";
+      const horizon = x.args.deadline_within_days !== void 0 ? new Date(x.now.getTime() + Number(x.args.deadline_within_days) * 864e5).toISOString().slice(0, 10) : null;
+      const xs = live5(x.life.applications).filter((a) => (!x.args.type || a.type === x.args.type) && (!x.args.status || a.status === x.args.status) && (!x.args.priority || a.priority === x.args.priority) && matches2(a, x.args.query, ["name", "organization", "funder", "notes", "tags"]) && (!horizon || deadline(a) && deadline(a) >= today(x) && deadline(a) <= horizon)).sort((a, b) => (deadline(a) || "9999").localeCompare(deadline(b) || "9999"));
+      return { result: { count: xs.length, applications: xs.slice(0, limitOf(x.args)).map((a) => ({ id: a.id, name: a.name, organization: a.organization ?? null, type: a.type, status: a.status, priority: a.priority, deadline: deadline(a) || null, link: a.link ?? null, requirements_done: a.requirements ? `${a.requirements.filter((r) => r.done).length}/${a.requirements.length}` : null })) } };
+    }
+  },
+  {
+    name: "applications_save",
+    title: "Create or edit application",
+    scopes: W,
+    needs: ["applications"],
+    description: "Track a job/grant/scholarship application (name required) or update one by id/name: status, priority, dates, notes, tags, contacts [{name,email,role}], requirements [{label,done}] (arrays replace the existing list). Use add_requirement / check_requirement for single checklist changes.",
+    input: { type: "object", properties: {
+      id: S,
+      name: S,
+      type: { type: "string", enum: ["job", "grant", "scholarship", "other"] },
+      status: { type: "string", enum: ["draft", "open", "submitted", "closed", "accepted", "rejected"] },
+      priority: { type: "string", enum: ["High", "Medium", "Low"] },
+      link: S,
+      organization: S,
+      funder: S,
+      awardAmount: S,
+      referenceNumber: S,
+      openingDate: DATE,
+      closingDate: DATE,
+      submissionDeadline: DATE,
+      submittedDate: DATE,
+      notes: S,
+      tags: STRS,
+      contacts: { type: "array", items: { type: "object", properties: { name: S, email: S, role: S } } },
+      requirements: { type: "array", items: { type: "object", properties: { label: S, done: B2 } } },
+      add_requirement: S,
+      check_requirement: { type: "string", description: "Requirement label to mark done" },
+      reminderLeadDays: { type: "array", items: N }
+    } },
+    run: async (x) => {
+      const a = x.args;
+      const sid = () => newId({ now: x.now, source: "api" });
+      if (a.contacts) a.contacts = a.contacts.map((c) => ({ id: c.id ?? sid(), ...c }));
+      if (a.requirements) a.requirements = a.requirements.map((r) => ({ id: r.id ?? sid(), label: String(r.label), done: !!r.done }));
+      if (a.add_requirement || a.check_requirement) {
+        const cur = a.id ? find(x.life.applications, a.id, "name", "application") : null;
+        let reqs = a.requirements ?? cur?.requirements ?? [];
+        if (a.add_requirement) reqs = [...reqs, { id: sid(), label: String(a.add_requirement), done: false }];
+        if (a.check_requirement) {
+          const i = reqs.findIndex((r) => lc(r.label) === lc(a.check_requirement));
+          if (i < 0) throw new AgentError("not_found", `No requirement "${a.check_requirement}".`);
+          reqs = reqs.map((r, j) => j === i ? { ...r, done: true } : r);
+        }
+        a.requirements = reqs;
+      }
+      if (a.status === "submitted" && !a.submittedDate) a.submittedDate = today(x);
+      return save(x, "applications", "name", "application", ["name", "type", "status", "priority", "link", "organization", "funder", "awardAmount", "referenceNumber", "openingDate", "closingDate", "submissionDeadline", "submittedDate", "notes", "tags", "contacts", "requirements", "reminderLeadDays"], () => {
+        need(a.name, "name is required");
+        return { id: newId({ now: x.now, source: "api" }), name: String(a.name), type: "other", status: "draft", priority: "Medium", createdAt: iso2(x.now), updatedAt: iso2(x.now) };
+      });
+    }
+  },
+  { name: "applications_delete", title: "Delete applications", scopes: X, needs: ["applications"], description: "Delete applications by id or name. More than one needs confirm_token.", input: DEL_INPUT, run: (x) => del(x, "applications_delete", "applications", "name", "application") },
+  // ---------------------------------------------------------------- learning vault
+  {
+    name: "learning_list",
+    title: "Learning vault",
+    scopes: R,
+    needs: ["learningresources", "learningfolders"],
+    description: "Saved videos, podcasts and courses with status (unwatched, in-progress, completed), folder, tags and timestamped notes, plus the folders. Pass id for one resource with all notes.",
+    input: { type: "object", properties: { id: S, status: { type: "string", enum: ["unwatched", "in-progress", "completed"] }, folder: S, tag: S, query: S, limit: N } },
+    run: async (x) => {
+      if (x.args.id) return { result: find(x.life.learningresources, x.args.id, "title", "resource") };
+      const xs = live5(x.life.learningresources).filter((r) => (!x.args.status || r.status === x.args.status) && (!x.args.folder || lc(r.folder) === lc(x.args.folder)) && (!x.args.tag || (r.tags ?? []).some((t) => lc(t) === lc(x.args.tag))) && matches2(r, x.args.query, ["title", "description", "author", "tags", "notes"])).sort((a, b) => String(b.savedAt ?? "").localeCompare(String(a.savedAt ?? "")));
+      const all = live5(x.life.learningresources);
+      return { result: { total: all.length, completed: all.filter((r) => r.status === "completed").length, folders: live5(x.life.learningfolders).map((f) => ({ id: f.id, name: f.name, items: all.filter((r) => r.folder === f.name).length })), resources: xs.slice(0, limitOf(x.args)).map((r) => ({ id: r.id, title: r.title, url: r.url, platform: r.sourcePlatform, author: r.author ?? null, status: r.status, folder: r.folder ?? null, tags: r.tags ?? [], notes: (r.notes ?? []).length })) } };
+    }
+  },
+  {
+    name: "learning_save",
+    title: "Save or update learning resource",
+    scopes: W,
+    needs: ["learningresources", "learningfolders"],
+    description: "Save a video/podcast/course to the learning vault (url and title required; platform detected) or update one by id/title: status, folder (created if missing), tags, description. add_note appends a note (note_timestamp = seconds into the media).",
+    input: { type: "object", properties: { id: S, url: S, title: S, description: S, author: S, status: { type: "string", enum: ["unwatched", "in-progress", "completed"] }, folder: S, tags: STRS, add_note: S, note_timestamp: N } },
+    run: async (x) => {
+      const a = x.args;
+      const extra = [];
+      if (a.folder && !live5(x.life.learningfolders).some((f) => lc(f.name) === lc(a.folder))) {
+        const f = { id: newId({ now: x.now, source: "api" }), name: String(a.folder), createdAt: iso2(x.now) };
+        extra.push({ coll: "learningfolders", id: f.id, edit: f });
+      }
+      if (a.status === "completed") a.completedAt = iso2(x.now);
+      if (a.add_note) {
+        const cur = a.id ? find(x.life.learningresources, a.id, "title", "resource") : null;
+        a.notes = [...cur?.notes ?? [], { id: newId({ now: x.now, source: "api" }), content: String(a.add_note), ...a.note_timestamp !== void 0 ? { timestamp: Number(a.note_timestamp) } : {}, createdAt: iso2(x.now) }];
+      }
+      const r = save(x, "learningresources", "title", "resource", ["url", "title", "description", "author", "status", "folder", "tags", "notes", "completedAt"], () => {
+        need(a.url && a.title, "url and title are required");
+        const url = String(a.url);
+        return { id: newId({ now: x.now, source: "api" }), url, title: String(a.title), contentType: isAudio(url) ? "audio" : "video", sourcePlatform: platformOf(url), status: "unwatched", tags: [], notes: [], isSourceAvailable: true, savedAt: iso2(x.now), updatedAt: iso2(x.now) };
+      });
+      return { ...r, edits: [...extra, ...r.edits] };
+    }
+  },
+  {
+    name: "learning_delete",
+    title: "Delete learning items",
+    scopes: X,
+    needs: ["learningresources", "learningfolders"],
+    description: "Delete learning resources (or folders, by id) from the vault. More than one needs confirm_token.",
+    input: DEL_INPUT,
+    run: async (x) => {
+      const ids = (Array.isArray(x.args.ids) ? x.args.ids : [x.args.ids]).map(String);
+      const hits = ids.map((id) => {
+        const f = live5(x.life.learningfolders).find((r) => r.id === id);
+        return f ? { coll: "learningfolders", r: f, label: `folder ${f.name}` } : (() => {
+          const r = find(x.life.learningresources, id, "title", "resource");
+          return { coll: "learningresources", r, label: r.title };
+        })();
+      });
+      if (hits.length > 1) await x.confirm("learning_delete", hits.map((h) => h.r.id), `This deletes ${hits.length} learning items. Call again with confirm_token to proceed.`, hits.map((h) => h.label));
+      return { result: { deleted: hits.map((h) => h.r.id) }, edits: hits.map((h) => ({ coll: h.coll, id: h.r.id, edit: { deleted: true, deletedAt: iso2(x.now) } })), summary: `deleted ${hits.length} learning item(s)` };
+    }
+  },
+  // ---------------------------------------------------------------- mind maps
+  {
+    name: "mindmaps_list",
+    title: "List mind maps",
+    scopes: R,
+    needs: ["mindmaps"],
+    description: "Mind maps and decision trees. Pass id for one map with its nodes and edges, plus an indented text outline of it.",
+    input: { type: "object", properties: { id: S, query: S } },
+    run: async (x) => {
+      if (x.args.id) {
+        const m = find(x.life.mindmaps, x.args.id, "title", "mind map");
+        const kids = /* @__PURE__ */ new Map();
+        for (const e of m.edges ?? []) kids.set(e.from, [...kids.get(e.from) ?? [], e.to]);
+        const byId = new Map((m.nodes ?? []).map((n) => [n.id, n]));
+        const root = (m.nodes ?? []).find((n) => n.isRoot) ?? m.nodes?.[0];
+        const lines = [];
+        const seen = /* @__PURE__ */ new Set();
+        const walk = (id, d) => {
+          if (seen.has(id)) return;
+          seen.add(id);
+          const n = byId.get(id);
+          if (!n) return;
+          lines.push(`${"  ".repeat(d)}- ${n.text}`);
+          for (const k of kids.get(id) ?? []) walk(k, d + 1);
+        };
+        if (root) walk(root.id, 0);
+        return { result: { ...m, outline: lines.join("\n") } };
+      }
+      return { result: live5(x.life.mindmaps).filter((m) => matches2(m, x.args.query, ["title"])).map((m) => ({ id: m.id, title: m.title, type: m.type, nodes: (m.nodes ?? []).length, updatedAt: m.updatedAt })) };
+    }
+  },
+  {
+    name: "mindmaps_save",
+    title: "Create or edit mind map",
+    scopes: W,
+    needs: ["mindmaps"],
+    description: "Create a mind map or decision tree from an outline \u2014 {text, children:[{text, children:[\u2026]}]} \u2014 and it is laid out automatically; or update one by id (title, a new outline replaces the nodes, or raw nodes/edges in the app format).",
+    input: { type: "object", properties: { id: S, title: S, type: { type: "string", enum: ["mindmap", "decision-tree"] }, outline: { type: "object", description: "Root node {text, children:[\u2026]} (nested)" }, nodes: { type: "array", items: { type: "object" } }, edges: { type: "array", items: { type: "object" } } } },
+    run: async (x) => {
+      const a = x.args;
+      if (a.outline) Object.assign(a, layoutOutline(a.outline, x.now, a.type === "decision-tree"));
+      return save(x, "mindmaps", "title", "mind map", ["title", "type", "nodes", "edges"], () => {
+        need(a.title, "title is required");
+        need(a.nodes, "Pass an outline (or nodes and edges) to create a map");
+        return { id: newId({ now: x.now, source: "api" }), title: String(a.title), type: "mindmap", nodes: [], edges: [], createdAt: iso2(x.now), updatedAt: iso2(x.now) };
+      });
+    }
+  },
+  { name: "mindmaps_delete", title: "Delete mind maps", scopes: X, needs: ["mindmaps"], description: "Delete mind maps by id or title. More than one needs confirm_token.", input: DEL_INPUT, run: (x) => del(x, "mindmaps_delete", "mindmaps", "title", "mind map") },
+  // ---------------------------------------------------------------- AI chat history
+  {
+    name: "ai_chats_list",
+    title: "AI chat history",
+    scopes: R,
+    needs: ["iris_conversations"],
+    description: "Conversations with the in-app ClearMind AI (titles and dates). Pass id for the full transcript.",
+    input: { type: "object", properties: { id: S, query: S, limit: N } },
+    run: async (x) => {
+      if (x.args.id) {
+        const c = find(x.life.iris_conversations, x.args.id, "title", "conversation");
+        return { result: { id: c.id, title: c.title ?? null, createdAt: c.createdAt, messages: (c.messages ?? []).map((m) => ({ role: m.role, text: m.text, at: m.timestamp })) } };
+      }
+      const xs = live5(x.life.iris_conversations).filter((c) => matches2(c, x.args.query, ["title", "messages"])).sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+      return { result: xs.slice(0, limitOf(x.args, 30)).map((c) => ({ id: c.id, title: c.title ?? (c.messages?.[0]?.text ?? "").slice(0, 60), messages: (c.messages ?? []).length, updatedAt: c.updatedAt })) };
+    }
+  },
+  { name: "ai_chats_delete", title: "Delete AI chats", scopes: X, needs: ["iris_conversations"], description: "Delete AI conversations by id. More than one needs confirm_token.", input: DEL_INPUT, run: (x) => del(x, "ai_chats_delete", "iris_conversations", "title", "conversation") }
+];
+function lifeSearch(life, q, limit = 20) {
+  const spec = [
+    ["habits", "habit", "name", ["name", "description"]],
+    ["goals", "goal", "title", ["title", "category"]],
+    ["milestones", "milestone", "title", ["title", "description"]],
+    ["events", "event", "title", ["title", "description", "location"]],
+    ["applications", "application", "name", ["name", "organization", "funder", "notes", "tags"]],
+    ["learningresources", "learning", "title", ["title", "description", "author", "tags", "notes"]],
+    ["logs", "log", "content", ["content"]],
+    ["rants", "rant", "content", ["content"]],
+    ["mindmaps", "mindmap", "title", ["title", "nodes"]],
+    ["dailymapper", "block", "task", ["task", "comment"]]
+  ];
+  const out = [];
+  for (const [coll, kind, tk, keys] of spec) {
+    for (const r of live5(life[coll]).filter((r2) => matches2(r2, q, keys)).slice(0, 5)) out.push({ id: `${kind}:${r.id}`, kind, title: String(r[tk] ?? "").slice(0, 120), text: [r.date, r.status, r.category, r.targetDate, r.mood].filter(Boolean).join(" \xB7 ") });
+  }
+  return out.slice(0, limit);
+}
+var LIFE_KIND_COLL = { habit: "habits", goal: "goals", milestone: "milestones", event: "events", application: "applications", learning: "learningresources", log: "logs", rant: "rants", mindmap: "mindmaps", block: "dailymapper" };
+
+// shared/agents/tools.ts
 async function authenticate(repo2, token, sha2562, source, now = Date.now()) {
   const parsed = token ? parseToken(token.trim()) : null;
   if (!parsed) throw new AgentError("unauthorized", "Missing or malformed ClearMind token. Create one in Settings \u2192 Integrations.");
@@ -2427,7 +3049,7 @@ async function authenticate(repo2, token, sha2562, source, now = Date.now()) {
   if (!t) throw new AgentError("unauthorized", "Unknown token.");
   if (t.revoked) throw new AgentError("unauthorized", "This token was revoked.");
   if (t.expiresAt && !(Date.parse(t.expiresAt) > now)) throw new AgentError("unauthorized", "This token has expired.");
-  return { uid: parsed.uid, token: t, tokenHash: hash, source };
+  return { uid: parsed.uid, token: { ...t, scopes: effectiveScopes(t) }, tokenHash: hash, source };
 }
 var windows = /* @__PURE__ */ new Map();
 function rateLimit(auth, now = Date.now()) {
@@ -2437,23 +3059,23 @@ function rateLimit(auth, now = Date.now()) {
   w.push(now);
   windows.set(auth.tokenHash, w);
 }
-var S = { type: "string" };
-var N = { type: "number" };
-var B2 = { type: "boolean" };
+var S2 = { type: "string" };
+var N2 = { type: "number" };
+var B3 = { type: "boolean" };
 var PRIORITY = { type: "string", enum: ["p1", "p2", "p3", "p4"], description: "p1 = highest" };
-var DATE = { type: "string", description: "YYYY-MM-DD (user local date)" };
-var TIME = { type: "string", description: "HH:MM 24h (user local time)" };
+var DATE2 = { type: "string", description: "YYYY-MM-DD (user local date)" };
+var TIME2 = { type: "string", description: "HH:MM 24h (user local time)" };
 var RECURRENCE = {
   type: "object",
   description: 'Repeat rule. Prefer `due_string` (e.g. "every friday at 4pm", "every month on the 1st", "every 30 days after completion") for natural language.',
   properties: {
     freq: { type: "string", enum: ["daily", "weekly", "monthly", "yearly"] },
-    interval: N,
-    weekdays: { type: "array", items: N, description: "0=Sun \u2026 6=Sat" },
+    interval: N2,
+    weekdays: { type: "array", items: N2, description: "0=Sun \u2026 6=Sat" },
     monthDay: { type: "number", description: "1\u201331, or -1 for the last day" },
-    nthWeekday: { type: "object", properties: { weekday: N, ordinal: { type: "number", description: "1\u20135 or -1 for last" } } },
+    nthWeekday: { type: "object", properties: { weekday: N2, ordinal: { type: "number", description: "1\u20135 or -1 for last" } } },
     anchor: { type: "string", enum: ["scheduled", "completion"] },
-    until: DATE
+    until: DATE2
   }
 };
 var toPriority = (p) => p ? priorityFromLevel(Number(String(p).replace(/\D/g, "")) || 4) : void 0;
@@ -2464,11 +3086,11 @@ function lookups(s) {
     sections: new Map(s.sections.filter((x) => !x.deleted).map((x) => [x.id, x]))
   };
 }
-var live5 = (xs) => xs.filter((x) => !x.deleted);
+var live6 = (xs) => xs.filter((x) => !x.deleted);
 function resolveProject(s, ref) {
   if (ref === void 0) return void 0;
   if (ref === null || ref === "" || /^inbox$/i.test(ref)) return null;
-  const ps = live5(s.projects);
+  const ps = live6(s.projects);
   const p = ps.find((x) => x.id === ref) ?? ps.find((x) => x.title.toLowerCase() === ref.replace(/^#/, "").toLowerCase());
   if (!p) throw new AgentError("not_found", `Project "${ref}" not found. Use projects_list to see names.`);
   return p;
@@ -2476,7 +3098,7 @@ function resolveProject(s, ref) {
 function resolveSection(s, projectId, ref) {
   if (ref === void 0) return void 0;
   if (ref === null || ref === "") return null;
-  const sec = live5(s.sections).find((x) => x.id === ref) ?? live5(s.sections).find((x) => x.name.toLowerCase() === ref.replace(/^\//, "").toLowerCase() && (!projectId || x.projectId === projectId));
+  const sec = live6(s.sections).find((x) => x.id === ref) ?? live6(s.sections).find((x) => x.name.toLowerCase() === ref.replace(/^\//, "").toLowerCase() && (!projectId || x.projectId === projectId));
   if (!sec) throw new AgentError("not_found", `Section "${ref}" not found${projectId ? " in that project" : ""}.`);
   return sec;
 }
@@ -2486,7 +3108,7 @@ function resolveLabels(s, names, ctx, edits) {
   const ids = [];
   for (const n of names) {
     const clean = n.replace(/^[@%]/, "");
-    const hit = live5(state.labels).find((l) => l.id === n || l.name.toLowerCase() === clean.toLowerCase());
+    const hit = live6(state.labels).find((l) => l.id === n || l.name.toLowerCase() === clean.toLowerCase());
     if (hit) {
       ids.push(hit.id);
       continue;
@@ -2514,20 +3136,20 @@ async function confirmToken(sha2562, uid, tool, ids, now, offset = 0) {
 var BULK_MAX = 200;
 var BULK_CONFIRM_OVER = 25;
 var TASK_FIELDS = {
-  title: S,
-  description: S,
-  due_date: { ...DATE, description: "YYYY-MM-DD, or null to clear" },
-  due_time: TIME,
+  title: S2,
+  description: S2,
+  due_date: { ...DATE2, description: "YYYY-MM-DD, or null to clear" },
+  due_time: TIME2,
   due_string: { type: "string", description: 'Natural-language schedule, e.g. "tomorrow 9am", "every Friday at 4pm", "every month on the 1st". Overrides due_date/due_time/recurrence.' },
   timezone: { type: "string", description: "IANA zone for the due time, e.g. Africa/Lagos (default: user setting)" },
-  duration_minutes: N,
+  duration_minutes: N2,
   priority: PRIORITY,
   project: { type: "string", description: 'Project name or id ("Inbox" for none)' },
   section: { type: "string", description: "Section name or id within the project" },
   parent_id: { type: "string", description: "Make this a sub-task of another task" },
-  labels: { type: "array", items: S, description: "Label names (created if missing)" },
+  labels: { type: "array", items: S2, description: "Label names (created if missing)" },
   recurrence: RECURRENCE,
-  reminders: { type: "array", description: 'Reminders: { minutes_before } or { at: "YYYY-MM-DDTHH:MM" }', items: { type: "object", properties: { minutes_before: N, at: S } } }
+  reminders: { type: "array", description: 'Reminders: { minutes_before } or { at: "YYYY-MM-DDTHH:MM" }', items: { type: "object", properties: { minutes_before: N2, at: S2 } } }
 };
 function taskFields(state, a, ctx, edits, now) {
   const out = {};
@@ -2566,6 +3188,125 @@ function parseDue(state, text, now) {
   const r = parseQuickAdd(`x ${text}`, { now: nowInZone(prefs?.timezone ?? null, now), smartDates: true, nextWeek: prefs?.nextWeek, weekend: prefs?.weekend });
   return r;
 }
+var FILTER_SYNTAX = 'Terms: today, tomorrow, overdue, "no date", "this week", "next 7 days", recurring, p1\u2013p4, #Project, ##Project (exact), /Section, @label, search: words, completed, subtask, assigned, "due before: YYYY-MM-DD", "created by: mcp". Operators: & | ! and parentheses.';
+var ARR = (props, description) => ({ type: "array", description, items: { type: "object", properties: props } });
+var PLAN_FIELDS = {
+  status: { type: "string", enum: ["Not Started", "Planning", "In Progress", "On Hold", "Completed", "Cancelled"] },
+  priority: { type: "string", enum: ["Critical", "High", "Medium", "Low"] },
+  category: { type: "string", description: "Energy, Green Energy, Finance, Health, IT, Education, Construction, Manufacturing, Retail, Marketing, Research, Government, Non-Profit, Startup, Personal, Other" },
+  health: { type: "string", enum: ["On Track", "At Risk", "Off Track"] },
+  progress: { type: "number", description: "0\u2013100" },
+  start_date: DATE2,
+  deadline: DATE2,
+  next_check_in: DATE2,
+  total_budget: N2,
+  budget_used: N2,
+  project_manager: S2,
+  team: { type: "array", items: S2 },
+  stakeholders: { type: "array", items: S2 },
+  tags: { type: "array", items: S2 },
+  plan_notes: { type: "string", description: "Free-text notes field on the project (separate from vault project notes)" },
+  objectives: { type: "array", items: S2 },
+  scope: S2,
+  out_of_scope: { type: "array", items: S2 },
+  assumptions: { type: "array", items: S2 },
+  constraints: { type: "array", items: S2 },
+  phases: ARR({ name: S2, description: S2, status: { type: "string", enum: ["Not Started", "In Progress", "Completed", "Blocked"] }, startDate: DATE2, endDate: DATE2, progress: N2, deliverables: { type: "array", items: S2 } }, "Implementation phases (replaces the list)"),
+  risks: ARR({ title: S2, description: S2, severity: { type: "string", enum: ["Low", "Medium", "High", "Critical"] }, likelihood: { type: "string", enum: ["Low", "Medium", "High"] }, mitigation: S2, status: { type: "string", enum: ["Open", "Mitigated", "Closed"] } }, "Risks (replaces the list)"),
+  resources: ARR({ name: S2, type: { type: "string", enum: ["Budget", "Personnel", "Equipment", "Software", "Other"] }, allocated: N2, used: N2, unit: S2 }, "Resources & budget lines (replaces the list)"),
+  metrics: ARR({ name: S2, target: N2, current: N2, unit: S2, trend: { type: "string", enum: ["Up", "Down", "Stable"] } }, "KPIs (replaces the list)"),
+  check_ins: ARR({ date: DATE2, attendees: { type: "array", items: S2 }, notes: S2, blockers: { type: "array", items: S2 }, nextSteps: { type: "array", items: S2 }, mood: { type: "string", enum: ["Positive", "Neutral", "Concerned"] } }, "Team check-ins (replaces the list)"),
+  milestones: ARR({ title: S2, dueDate: DATE2, completed: B3 }, "Project milestones (replaces the list)"),
+  add_phase: { type: "object", description: "Append one phase", properties: { name: S2, description: S2, status: S2, startDate: DATE2, endDate: DATE2 } },
+  add_risk: { type: "object", description: "Append one risk", properties: { title: S2, severity: S2, likelihood: S2, mitigation: S2 } },
+  add_checkin: { type: "object", description: "Append one team check-in", properties: { date: DATE2, notes: S2, attendees: { type: "array", items: S2 }, blockers: { type: "array", items: S2 }, nextSteps: { type: "array", items: S2 }, mood: S2 } },
+  add_metric: { type: "object", description: "Append one KPI", properties: { name: S2, target: N2, current: N2, unit: S2 } }
+};
+function planPatch(p, a, ctx) {
+  const id = () => newId(ctx);
+  const out = {};
+  const set = (k, v) => {
+    if (v !== void 0) out[k] = v;
+  };
+  set("status", a.status);
+  set("priority", a.priority);
+  set("category", a.category);
+  set("healthStatus", a.health);
+  if (a.progress !== void 0) out.progress = Math.max(0, Math.min(100, Math.round(Number(a.progress))));
+  set("startDate", a.start_date);
+  set("deadline", a.deadline);
+  set("nextCheckInDate", a.next_check_in);
+  set("totalBudget", a.total_budget);
+  set("budgetUsed", a.budget_used);
+  set("projectManager", a.project_manager);
+  set("team", a.team);
+  set("stakeholders", a.stakeholders);
+  set("tags", a.tags);
+  set("notes", a.plan_notes);
+  const phase = (x, i) => ({ id: x.id ?? id(), name: String(x.name ?? `Phase ${i + 1}`), description: x.description, status: x.status ?? "Not Started", startDate: x.startDate, endDate: x.endDate, progress: Number(x.progress ?? 0), deliverables: x.deliverables ?? [], order: x.order ?? i });
+  const risk = (x) => ({ id: x.id ?? id(), title: String(x.title ?? "Risk"), description: x.description, severity: x.severity ?? "Medium", likelihood: x.likelihood ?? "Medium", mitigation: x.mitigation, status: x.status ?? "Open" });
+  const res = (x) => ({ id: x.id ?? id(), name: String(x.name ?? "Resource"), type: x.type ?? "Other", allocated: Number(x.allocated ?? 0), used: Number(x.used ?? 0), unit: x.unit });
+  const metric = (x) => ({ id: x.id ?? id(), name: String(x.name ?? "Metric"), target: Number(x.target ?? 0), current: Number(x.current ?? 0), unit: x.unit ?? "", trend: x.trend });
+  const checkin = (x) => ({ id: x.id ?? id(), date: x.date ?? toISODate(ctx.now ?? /* @__PURE__ */ new Date()), attendees: x.attendees ?? [], notes: String(x.notes ?? ""), blockers: x.blockers, nextSteps: x.nextSteps, mood: x.mood });
+  const plan = { ...p.implementationPlan ?? { phases: [] } };
+  let planChanged = false;
+  if (a.phases) {
+    plan.phases = a.phases.map(phase);
+    planChanged = true;
+  }
+  if (a.add_phase) {
+    plan.phases = [...plan.phases ?? [], phase(a.add_phase, plan.phases?.length ?? 0)];
+    planChanged = true;
+  }
+  for (const [arg, key] of [["objectives", "objectives"], ["scope", "scope"], ["out_of_scope", "outOfScope"], ["assumptions", "assumptions"], ["constraints", "constraints"]]) if (a[arg] !== void 0) {
+    plan[key] = a[arg];
+    planChanged = true;
+  }
+  if (planChanged) out.implementationPlan = plan;
+  if (a.risks) out.risks = a.risks.map(risk);
+  if (a.add_risk) out.risks = [...out.risks ?? p.risks ?? [], risk(a.add_risk)];
+  if (a.resources) out.resources = a.resources.map(res);
+  if (a.metrics) out.performanceMetrics = a.metrics.map(metric);
+  if (a.add_metric) out.performanceMetrics = [...out.performanceMetrics ?? p.performanceMetrics ?? [], metric(a.add_metric)];
+  if (a.check_ins) out.teamCheckIns = a.check_ins.map(checkin);
+  if (a.add_checkin) out.teamCheckIns = [...out.teamCheckIns ?? p.teamCheckIns ?? [], checkin(a.add_checkin)];
+  if (a.milestones) out.projectMilestones = a.milestones.map((x) => ({ id: x.id ?? id(), title: String(x.title ?? ""), dueDate: x.dueDate, completed: !!x.completed }));
+  if (Object.keys(out).length) out.updatedAt = (ctx.now ?? /* @__PURE__ */ new Date()).toISOString();
+  return out;
+}
+function projectPlan(p) {
+  const ip = p.implementationPlan;
+  return {
+    status: p.status ?? null,
+    priority: p.priority ?? null,
+    category: p.category ?? null,
+    health: p.healthStatus ?? null,
+    progress: p.progress ?? null,
+    start_date: p.startDate ?? null,
+    deadline: p.deadline ?? null,
+    next_check_in: p.nextCheckInDate ?? null,
+    budget: p.totalBudget != null ? { total: p.totalBudget, used: p.budgetUsed ?? 0 } : null,
+    project_manager: p.projectManager ?? null,
+    team: p.team ?? [],
+    stakeholders: p.stakeholders ?? [],
+    tags: p.tags ?? [],
+    plan_notes: p.notes || null,
+    objectives: ip?.objectives ?? [],
+    scope: ip?.scope ?? null,
+    out_of_scope: ip?.outOfScope ?? [],
+    assumptions: ip?.assumptions ?? [],
+    constraints: ip?.constraints ?? [],
+    phases: ip?.phases ?? [],
+    risks: p.risks ?? [],
+    resources: p.resources ?? [],
+    metrics: p.performanceMetrics ?? [],
+    check_ins: p.teamCheckIns ?? [],
+    milestones: p.projectMilestones ?? [],
+    alignments: p.alignments ?? []
+  };
+}
+var projectFolder = projectNotesFolder;
+var projectNotes = (index, p) => index.notes.filter((n) => isProjectNote(n, p));
 var TOOLS = [
   // ---------------- capture & tasks
   {
@@ -2573,22 +3314,10 @@ var TOOLS = [
     title: "Capture to Inbox",
     scopes: ["tasks:write"],
     description: 'Quickly add a thought, note or task to the Inbox without deciding where it belongs. Natural language is parsed (dates, "every \u2026", p1\u2013p4, #Project, @label, !30m reminders) unless parse=false. Use kind="note" for non-actionable notes.',
-    input: { type: "object", properties: { text: S, kind: { type: "string", enum: ["task", "note"] }, parse: B2, description: S, idempotency_key: { type: "string", description: "Retry-safe: same key never creates a duplicate" } }, required: ["text"] },
+    input: { type: "object", properties: { text: S2, kind: { type: "string", enum: ["task", "note"] }, parse: B3, description: S2, idempotency_key: { type: "string", description: "Retry-safe: same key never creates a duplicate" } }, required: ["text"] },
     run: async ({ state, args, ctx, now }) => {
       const r = captureInbox(state, String(args.text), ctx, { kind: args.kind, parse: args.parse, description: args.description ?? null, idempotencyKey: args.idempotency_key ?? null });
       return { result: describe(applyEdits(state, r.edits), now)(r.result), edits: r.edits, summary: `captured "${r.result.title}"` };
-    }
-  },
-  {
-    name: "inbox_list",
-    title: "List Inbox",
-    scopes: ["tasks:read"],
-    description: "List open items in the Inbox (tasks and notes not yet organised into a project), newest first.",
-    input: { type: "object", properties: { limit: N } },
-    run: async ({ state, args, now }) => {
-      const lk = lookups(state);
-      const items = inboxTasks(live5(state.tasks), lk.projects).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, args.limit ?? 100);
-      return { result: { count: items.length, items: items.map(describe(state, now)) } };
     }
   },
   {
@@ -2596,7 +3325,7 @@ var TOOLS = [
     title: "Create task",
     scopes: ["tasks:write"],
     description: 'Create a task with structured fields. Use due_string for natural-language dates/recurrence ("every Friday at 4pm"). Unknown labels are created. Pass idempotency_key to make retries safe.',
-    input: { type: "object", properties: { ...TASK_FIELDS, idempotency_key: S }, required: ["title"] },
+    input: { type: "object", properties: { ...TASK_FIELDS, idempotency_key: S2 }, required: ["title"] },
     run: async ({ state, args, ctx, now }) => {
       const edits = [];
       const f = taskFields(state, args, ctx, edits, now);
@@ -2611,11 +3340,11 @@ var TOOLS = [
     title: "Get task",
     scopes: ["tasks:read"],
     description: "Get one task with its sub-tasks and comments.",
-    input: { type: "object", properties: { id: S }, required: ["id"] },
+    input: { type: "object", properties: { id: S2 }, required: ["id"] },
     run: async ({ state, args, now }) => {
       const t = getTask(state, args.id);
       const d = describe(state, now);
-      return { result: { ...d(t), subtasks: state.tasks.filter((x) => x.parentId === t.id && !x.deleted).map(d), comments: live5(state.comments).filter((c) => c.taskId === t.id).map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, source: c.source, agent: c.agent })) } };
+      return { result: { ...d(t), subtasks: state.tasks.filter((x) => x.parentId === t.id && !x.deleted).map(d), comments: live6(state.comments).filter((c) => c.taskId === t.id).map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, source: c.source, agent: c.agent })) } };
     }
   },
   {
@@ -2623,9 +3352,9 @@ var TOOLS = [
     title: "List tasks",
     scopes: ["tasks:read"],
     description: 'List tasks, optionally filtered by project, section, label, priority or a filter query (e.g. "p1 & #Work & !@waiting", "overdue | today", "no date"). Open tasks only unless include_completed.',
-    input: { type: "object", properties: { project: S, section: S, label: S, priority: PRIORITY, query: { type: "string", description: "Filter query language" }, include_completed: B2, limit: N } },
+    input: { type: "object", properties: { project: S2, section: S2, label: S2, priority: PRIORITY, query: { type: "string", description: "Filter query language" }, include_completed: B3, limit: N2 } },
     run: async ({ state, args, now }) => {
-      let ts = live5(state.tasks).filter((t) => args.include_completed || !t.completed);
+      let ts = live6(state.tasks).filter((t) => args.include_completed || !t.completed);
       if (args.project !== void 0) {
         const p = resolveProject(state, args.project);
         ts = ts.filter((t) => (t.projectId ?? null) === (p?.id ?? null));
@@ -2635,7 +3364,7 @@ var TOOLS = [
         ts = ts.filter((t) => t.sectionId === sec.id);
       }
       if (args.label) {
-        const l = live5(state.labels).find((x) => x.name.toLowerCase() === String(args.label).replace(/^@/, "").toLowerCase());
+        const l = live6(state.labels).find((x) => x.name.toLowerCase() === String(args.label).replace(/^@/, "").toLowerCase());
         ts = l ? ts.filter((t) => (t.labelIds ?? []).includes(l.id)) : [];
       }
       if (args.priority) ts = ts.filter((t) => (t.priority ?? "None") === toPriority(args.priority));
@@ -2655,37 +3384,38 @@ var TOOLS = [
     name: "tasks_update",
     title: "Update task",
     scopes: ["tasks:write"],
-    description: "Update fields of a task (title, description, due, priority, project, section, labels, recurrence, reminders, duration). Only the fields you pass change.",
-    input: { type: "object", properties: { id: S, ...TASK_FIELDS }, required: ["id"] },
+    description: "Update a task: title, description, due, priority, project, section, labels, recurrence, reminders ([] clears), duration \u2014 and completed=true to complete it (recurring tasks roll forward; next_due is returned) or completed=false to reopen. Only the fields you pass change.",
+    input: { type: "object", properties: { id: S2, ...TASK_FIELDS, completed: { type: "boolean", description: "true = complete (idempotent), false = reopen" } }, required: ["id"] },
     run: async ({ state, args, ctx, now }) => {
       getTask(state, args.id);
       const edits = [];
-      const f = taskFields(state, args, ctx, edits, now);
-      const r = updateTask(applyEdits(state, edits), args.id, f, ctx);
-      edits.push(...r.edits);
-      return { result: describe(applyEdits(state, edits), now)(r.result), edits, summary: `updated "${r.result.title}"` };
-    }
-  },
-  {
-    name: "tasks_complete",
-    title: "Complete task",
-    scopes: ["tasks:write"],
-    description: "Complete a task. Recurring tasks roll forward to their next occurrence (returned as next_due). Idempotent.",
-    input: { type: "object", properties: { id: S }, required: ["id"] },
-    run: async ({ state, args, ctx, now }) => {
-      const r = completeTask(state, args.id, ctx);
-      return { result: { task: describe(applyEdits(state, r.edits), now)(r.result.task), next_due: r.result.nextDueDate }, edits: r.edits, summary: `completed "${r.result.task.title}"` };
-    }
-  },
-  {
-    name: "tasks_reopen",
-    title: "Reopen task",
-    scopes: ["tasks:write"],
-    description: "Reopen a completed task (and completed parents).",
-    input: { type: "object", properties: { id: S }, required: ["id"] },
-    run: async ({ state, args, ctx, now }) => {
-      const r = reopenTask(state, args.id, ctx);
-      return { result: describe(state, now)(r.result), edits: r.edits, summary: `reopened "${r.result.title}"` };
+      const { completed, ...rest } = args;
+      const f = taskFields(state, rest, ctx, edits, now);
+      let working = applyEdits(state, edits);
+      let task = getTask(working, args.id);
+      if (Object.keys(f).length) {
+        const r = updateTask(working, args.id, f, ctx);
+        edits.push(...r.edits);
+        working = applyEdits(working, r.edits);
+        task = r.result;
+      }
+      let nextDue;
+      if (completed === true) {
+        const r = completeTask(working, args.id, ctx);
+        edits.push(...r.edits);
+        working = applyEdits(working, r.edits);
+        task = r.result.task;
+        nextDue = r.result.nextDueDate;
+      }
+      if (completed === false) {
+        const r = reopenTask(working, args.id, ctx);
+        edits.push(...r.edits);
+        working = applyEdits(working, r.edits);
+        task = r.result;
+      }
+      const out = describe(working, now)(task);
+      if (nextDue !== void 0) out.next_due = nextDue;
+      return { result: out, edits, summary: `${completed === true ? "completed" : completed === false ? "reopened" : "updated"} "${task.title}"` };
     }
   },
   {
@@ -2693,7 +3423,7 @@ var TOOLS = [
     title: "Delete task",
     scopes: ["tasks:delete"],
     description: "Delete one task and its sub-tasks. Restorable with tasks_restore.",
-    input: { type: "object", properties: { id: S }, required: ["id"] },
+    input: { type: "object", properties: { id: S2 }, required: ["id"] },
     run: async ({ state, args, ctx }) => {
       const t = getTask(state, args.id);
       const r = deleteTask(state, args.id, ctx);
@@ -2705,7 +3435,7 @@ var TOOLS = [
     title: "Restore deleted tasks",
     scopes: ["tasks:write"],
     description: "Undo a delete by restoring tasks by id.",
-    input: { type: "object", properties: { ids: { type: "array", items: S } }, required: ["ids"] },
+    input: { type: "object", properties: { ids: { type: "array", items: S2 } }, required: ["ids"] },
     run: async ({ state, args, ctx }) => {
       const ids = (args.ids ?? []).filter((id) => state.tasks.some((t) => t.id === id && t.deleted));
       const r = restoreTasks(state, ids, ctx);
@@ -2713,43 +3443,34 @@ var TOOLS = [
     }
   },
   {
-    name: "tasks_move",
-    title: "Move tasks",
-    scopes: ["tasks:write"],
-    description: 'Move tasks to a project and/or section (sub-tasks follow). Select tasks by ids or by a filter query (e.g. "##Project A" for every open task in Project A). Moving more than 25 tasks requires the bulk scope and a confirmation round-trip.',
-    input: { type: "object", properties: { ids: { type: "array", items: S }, query: { type: "string", description: "Filter query selecting the tasks to move" }, project: S, section: S, confirm_token: S } },
-    run: async (x) => bulk(x, "tasks_move", (state, ids, ctx) => {
-      const proj = resolveProject(state, x.args.project);
-      const sec = resolveSection(state, proj?.id ?? void 0, x.args.section);
-      return moveTasks(state, ids, { projectId: proj === void 0 ? void 0 : proj?.id ?? null, sectionId: sec === void 0 ? void 0 : sec?.id ?? null }, ctx);
-    })
-  },
-  {
     name: "tasks_bulk_update",
-    title: "Bulk update tasks",
-    scopes: ["tasks:write", "bulk"],
-    description: "Apply the same change (priority, due, labels, project/section) to many tasks \u2014 select by ids or a filter query. Previews and returns a confirm_token when more than 25 tasks are affected; call again with it to apply.",
-    input: { type: "object", properties: { ids: { type: "array", items: S }, query: S, priority: PRIORITY, due_date: DATE, due_string: S, labels: { type: "array", items: S }, project: S, section: S, confirm_token: S } },
+    title: "Bulk update, move or complete tasks",
+    scopes: ["tasks:write"],
+    description: 'Apply one change to many tasks selected by ids or a filter query (e.g. "##Project A", "overdue & p1"): move (project/section; sub-tasks follow), priority, due, labels, or complete=true. More than 25 tasks needs the bulk scope and a confirm_token round-trip (the first call previews).',
+    input: { type: "object", properties: { ids: { type: "array", items: S2 }, query: S2, project: S2, section: S2, priority: PRIORITY, due_date: DATE2, due_string: S2, labels: { type: "array", items: S2 }, complete: B3, confirm_token: S2 } },
     run: async (x) => bulk(x, "tasks_bulk_update", (state, ids, ctx, now, edits) => {
-      const f = taskFields(state, x.args, ctx, edits, now);
-      return bulkUpdate(applyEdits(state, edits), ids, f, ctx);
-    })
-  },
-  {
-    name: "tasks_bulk_complete",
-    title: "Bulk complete tasks",
-    scopes: ["tasks:write", "bulk"],
-    description: "Complete many tasks (by ids or filter query). Over 25 requires confirmation.",
-    input: { type: "object", properties: { ids: { type: "array", items: S }, query: S, confirm_token: S } },
-    run: async (x) => bulk(x, "tasks_bulk_complete", (state, ids, ctx) => {
+      const { complete, project, section, ...rest } = x.args;
       let s = state;
-      const edits = [];
-      for (const id of ids) {
+      if (project !== void 0 || section !== void 0) {
+        const proj = resolveProject(state, project);
+        const sec = resolveSection(state, proj?.id ?? void 0, section);
+        const r = moveTasks(s, ids, { projectId: proj === void 0 ? void 0 : proj?.id ?? null, sectionId: sec === void 0 ? void 0 : sec?.id ?? null }, ctx);
+        edits.push(...r.edits);
+        s = applyEdits(s, r.edits);
+      }
+      const f = taskFields(state, rest, ctx, edits, now);
+      s = applyEdits(s, edits.filter((e) => e.coll === "labels"));
+      if (Object.keys(f).length) {
+        const r = bulkUpdate(s, ids, f, ctx);
+        edits.push(...r.edits);
+        s = applyEdits(s, r.edits);
+      }
+      if (complete) for (const id of ids) {
         const r = completeTask(s, id, ctx);
         edits.push(...r.edits);
         s = applyEdits(s, r.edits);
       }
-      return { edits, result: { completed: ids.length } };
+      return { edits: [], result: { completed: complete ? ids.length : 0 } };
     })
   },
   {
@@ -2757,7 +3478,7 @@ var TOOLS = [
     title: "Bulk delete tasks",
     scopes: ["tasks:delete", "bulk"],
     description: "Delete many tasks (by ids or filter query). ALWAYS two-step: the first call returns a preview and confirm_token; deletion happens only when called again with that token.",
-    input: { type: "object", properties: { ids: { type: "array", items: S }, query: S, confirm_token: S } },
+    input: { type: "object", properties: { ids: { type: "array", items: S2 }, query: S2, confirm_token: S2 } },
     run: async (x) => bulk(x, "tasks_bulk_delete", (state, ids, ctx) => {
       let s = state;
       const edits = [];
@@ -2771,54 +3492,29 @@ var TOOLS = [
     }, { alwaysConfirm: true })
   },
   {
-    name: "search_global",
-    title: "Search",
+    name: "tasks_view",
+    title: "Task views: today, upcoming, overdue, inbox",
     scopes: ["tasks:read"],
-    description: "Full-text search across task titles, descriptions, comments/notes, project and section names and labels; also returns matching projects and labels.",
-    input: { type: "object", properties: { query: S, include_completed: B2, limit: N }, required: ["query"] },
+    description: "Ready-made task views in the user's time zone: today (overdue + due today, with completed-today vs daily goal), upcoming (by day for the next `days`, default 7), overdue (oldest first) or inbox (unorganised captures, newest first).",
+    input: { type: "object", properties: { view: { type: "string", enum: ["today", "upcoming", "overdue", "inbox"] }, days: N2, limit: N2 }, required: ["view"] },
     run: async ({ state, args, now }) => {
-      const r = globalSearch(state, String(args.query), { includeCompleted: !!args.include_completed, limit: args.limit ?? 50 });
-      return { result: { tasks: r.tasks.map(describe(state, now)), projects: r.projects.map((p) => ({ id: p.id, name: p.title })), labels: r.labels.map((l) => ({ id: l.id, name: l.name })) } };
-    }
-  },
-  // ---------------- views
-  {
-    name: "views_today",
-    title: "Today's tasks",
-    scopes: ["tasks:read"],
-    description: "Today's plan: overdue tasks and tasks due today (in the user's time zone), plus completed-today count.",
-    input: { type: "object", properties: {} },
-    run: async ({ state, now }) => {
       const local = nowInZone(state.preferences?.timezone ?? null, now);
-      const v = todayView(live5(state.tasks), local);
       const d = describe(state, local);
+      if (args.view === "upcoming") {
+        const groups = upcomingView(live6(state.tasks), local, Math.min(args.days ?? 7, 60)).filter((g) => g.tasks.length);
+        return { result: { view: "upcoming", days: groups.map((g) => ({ date: g.date, tasks: g.tasks.map(d) })) } };
+      }
+      if (args.view === "overdue") {
+        const ts = live6(state.tasks).filter((t) => isOverdue(t, local)).sort(compareTasks);
+        return { result: { view: "overdue", count: ts.length, tasks: ts.map(d) } };
+      }
+      if (args.view === "inbox") {
+        const items = inboxTasks(live6(state.tasks), lookups(state).projects).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, args.limit ?? 100);
+        return { result: { view: "inbox", count: items.length, items: items.map(d) } };
+      }
+      const v = todayView(live6(state.tasks), local);
       const day = daySummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now });
-      return { result: { date: toISODate(local), overdue: v.overdue.map(d), today: v.today.map(d), completed_today: day.completed, daily_goal: day.goal } };
-    }
-  },
-  {
-    name: "views_upcoming",
-    title: "Upcoming",
-    scopes: ["tasks:read"],
-    description: "Tasks grouped by day for the next N days (default 7).",
-    input: { type: "object", properties: { days: N } },
-    run: async ({ state, args, now }) => {
-      const local = nowInZone(state.preferences?.timezone ?? null, now);
-      const d = describe(state, local);
-      const groups = upcomingView(live5(state.tasks), local, Math.min(args.days ?? 7, 60)).filter((g) => g.tasks.length);
-      return { result: { days: groups.map((g) => ({ date: g.date, tasks: g.tasks.map(d) })) } };
-    }
-  },
-  {
-    name: "views_overdue",
-    title: "Overdue",
-    scopes: ["tasks:read"],
-    description: "Every open overdue task, oldest first.",
-    input: { type: "object", properties: {} },
-    run: async ({ state, now }) => {
-      const local = nowInZone(state.preferences?.timezone ?? null, now);
-      const ts = live5(state.tasks).filter((t) => isOverdue(t, local)).sort(compareTasks);
-      return { result: { count: ts.length, tasks: ts.map(describe(state, local)) } };
+      return { result: { view: "today", date: toISODate(local), overdue: v.overdue.map(d), today: v.today.map(d), completed_today: day.completed, daily_goal: day.goal } };
     }
   },
   // ---------------- projects, sections, labels
@@ -2827,9 +3523,9 @@ var TOOLS = [
     title: "List projects",
     scopes: ["projects:read"],
     description: "All projects (nested order) with open task counts and progress.",
-    input: { type: "object", properties: { include_archived: B2 } },
+    input: { type: "object", properties: { include_archived: B3 } },
     run: async ({ state, args }) => {
-      const list = orderedProjects(live5(state.projects), !!args.include_archived);
+      const list = orderedProjects(live6(state.projects), !!args.include_archived);
       return { result: list.map(({ project: p, depth }) => {
         const st = projectStats([p.id], { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections });
         return { id: p.id, name: p.title, parent_id: p.parentId ?? null, depth, color: p.color, favorite: !!p.favorite, archived: !!p.archived, open: st.open, overdue: st.overdue, progress: st.progress };
@@ -2840,25 +3536,29 @@ var TOOLS = [
     name: "projects_get",
     title: "Get project",
     scopes: ["projects:read", "tasks:read"],
-    description: "A project workspace: sections with their open tasks, tracker statistics (progress, overdue, blocked, due this week, trend) and recent activity. Use this to summarise a project or find blockers.",
-    input: { type: "object", properties: { project: { type: "string", description: "Name or id" }, include_completed: B2 } },
+    description: "A project workspace: sections with their open tasks, tracker statistics (progress, overdue, blocked, due this week, trend), the plan (status, health, category, phases, risks, budget/resources, KPIs, team check-ins, objectives), its project notes and recent activity. Use this to summarise a project or find blockers.",
+    input: { type: "object", properties: { project: { type: "string", description: "Name or id" }, include_completed: B3 } },
     run: async ({ state, args, repo: repo2, auth, now }) => {
       const p = resolveProject(state, args.project);
       if (!p) throw new AgentError("invalid", "Pass a project name or id.");
       const d = describe(state, now);
-      const secs = live5(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
-      const open = projectTasks(live5(state.tasks), p.id);
+      const secs = live6(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
+      const open = projectTasks(live6(state.tasks), p.id);
       const stats = projectStats([p.id], { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections, now });
       const acts = (await repo2.recentActivity(auth.uid, 300)).filter((a) => a.projectId === p.id).slice(0, 20);
+      const notesIndex = buildIndex(state.notes ?? []);
+      const pn = projectNotes(notesIndex, p).map((n) => describeNote(notesIndex, n));
       return { result: {
         id: p.id,
         name: p.title,
         description: p.description || void 0,
         view: p.view ?? "list",
         stats,
+        plan: projectPlan(p),
+        notes: { folder: projectFolder(p), count: pn.length, items: pn },
         no_section: open.filter((t) => !t.sectionId).map(d),
         sections: secs.map((s) => ({ id: s.id, name: s.name, tasks: open.filter((t) => t.sectionId === s.id).map(d) })),
-        completed: args.include_completed ? live5(state.tasks).filter((t) => t.projectId === p.id && t.completed).map(d) : void 0,
+        completed: args.include_completed ? live6(state.tasks).filter((t) => t.projectId === p.id && t.completed).map(d) : void 0,
         recent_activity: acts.map((a) => ({ at: a.at, action: a.action, title: a.title, source: a.source, agent: a.agent, details: a.details }))
       } };
     }
@@ -2867,8 +3567,8 @@ var TOOLS = [
     name: "projects_create",
     title: "Create project",
     scopes: ["projects:write"],
-    description: "Create a project (optionally nested, with sections, or from a template id: software-release, product-launch, kanban, weekly-review, personal).",
-    input: { type: "object", properties: { name: S, parent: S, color: S, view: { type: "string", enum: ["list", "board"] }, sections: { type: "array", items: S }, template: S, idempotency_key: S }, required: ["name"] },
+    description: "Create a project (optionally nested, with sections, or from a template id \u2014 see workspace_overview) and, optionally, its plan fields (status, category, priority, deadline, phases, risks\u2026).",
+    input: { type: "object", properties: { name: S2, parent: S2, color: S2, view: { type: "string", enum: ["list", "board"] }, sections: { type: "array", items: S2 }, template: S2, description: S2, ...PLAN_FIELDS, idempotency_key: S2 }, required: ["name"] },
     run: async ({ state, args, ctx }) => {
       const parent = args.parent ? resolveProject(state, args.parent) : null;
       let r;
@@ -2881,6 +3581,9 @@ var TOOLS = [
         edits.push(...sr.edits);
         s = applyEdits(s, sr.edits);
       }
+      const plan = planPatch(r.result, args, ctx);
+      if (args.description !== void 0) plan.description = args.description;
+      if (Object.keys(plan).length) edits.push(...updateProject(s, r.result.id, plan, ctx).edits);
       return { result: { id: r.result.id, name: r.result.title }, edits, summary: `created project "${r.result.title}"` };
     }
   },
@@ -2888,11 +3591,11 @@ var TOOLS = [
     name: "projects_update",
     title: "Update project",
     scopes: ["projects:write"],
-    description: "Rename, recolour, re-parent, favourite, archive/unarchive a project or change its view.",
-    input: { type: "object", properties: { project: S, name: S, color: S, parent: S, favorite: B2, archived: B2, view: { type: "string", enum: ["list", "board", "calendar"] }, description: S }, required: ["project"] },
+    description: "Edit a project: rename, recolour, re-parent, favourite, archive, view, description \u2014 and its plan: status, priority, category, health, progress, dates, budget, team, stakeholders, manager, objectives/scope, and the phases, risks, resources, metrics, check-ins and alignments lists (a list you pass replaces the old one; items without id get one). add_phase / add_risk / add_checkin / add_metric append a single item.",
+    input: { type: "object", properties: { project: S2, name: S2, color: S2, parent: S2, favorite: B3, archived: B3, view: { type: "string", enum: ["list", "board", "calendar"] }, description: S2, ...PLAN_FIELDS }, required: ["project"] },
     run: async ({ state, args, ctx }) => {
       const p = resolveProject(state, args.project);
-      const patch = {};
+      const patch = planPatch(p, args, ctx);
       if (args.name !== void 0) patch.title = args.name;
       for (const k of ["color", "favorite", "archived", "view", "description"]) if (args[k] !== void 0) patch[k] = args[k];
       if (args.parent !== void 0) patch.parentId = args.parent ? resolveProject(state, args.parent)?.id ?? null : null;
@@ -2905,11 +3608,11 @@ var TOOLS = [
     title: "Delete project",
     scopes: ["projects:delete"],
     description: "Delete a project with its sub-projects, sections and tasks. Two-step: returns a preview + confirm_token first.",
-    input: { type: "object", properties: { project: S, confirm_token: S }, required: ["project"] },
+    input: { type: "object", properties: { project: S2, confirm_token: S2 }, required: ["project"] },
     run: async ({ state, args, ctx, auth, now }) => {
       const p = resolveProject(state, args.project);
       const ids = projectSubtree(state.projects, p.id);
-      const tasks = live5(state.tasks).filter((t) => t.projectId && ids.includes(t.projectId));
+      const tasks = live6(state.tasks).filter((t) => t.projectId && ids.includes(t.projectId));
       const sha = sha256Ref.fn;
       const want = [await confirmToken(sha, auth.uid, "projects_delete", ids, now.getTime()), await confirmToken(sha, auth.uid, "projects_delete", ids, now.getTime(), 1)];
       if (!args.confirm_token || !want.includes(args.confirm_token)) {
@@ -2924,11 +3627,11 @@ var TOOLS = [
     title: "List sections",
     scopes: ["projects:read"],
     description: "Sections of a project in order, with open task counts.",
-    input: { type: "object", properties: { project: S }, required: ["project"] },
+    input: { type: "object", properties: { project: S2 }, required: ["project"] },
     run: async ({ state, args }) => {
       const p = resolveProject(state, args.project);
-      const secs = live5(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
-      return { result: secs.map((s) => ({ id: s.id, name: s.name, open: live5(state.tasks).filter((t) => t.sectionId === s.id && !t.completed).length })) };
+      const secs = live6(state.sections).filter((s) => s.projectId === p.id).sort((a, b) => a.order - b.order);
+      return { result: secs.map((s) => ({ id: s.id, name: s.name, open: live6(state.tasks).filter((t) => t.sectionId === s.id && !t.completed).length })) };
     }
   },
   {
@@ -2936,7 +3639,7 @@ var TOOLS = [
     title: "Create section",
     scopes: ["projects:write"],
     description: 'Create a section in a project (e.g. "Payments", "Blocks the build", "Waiting").',
-    input: { type: "object", properties: { project: S, name: S, idempotency_key: S }, required: ["project", "name"] },
+    input: { type: "object", properties: { project: S2, name: S2, idempotency_key: S2 }, required: ["project", "name"] },
     run: async ({ state, args, ctx }) => {
       const p = resolveProject(state, args.project);
       const r = createSection(state, { projectId: p.id, name: args.name, idempotencyKey: args.idempotency_key ?? null }, ctx);
@@ -2948,14 +3651,14 @@ var TOOLS = [
     title: "Update section",
     scopes: ["projects:write"],
     description: "Rename a section, or move it to a new position (0-based) within its project.",
-    input: { type: "object", properties: { section: S, project: S, name: S, position: N }, required: ["section"] },
+    input: { type: "object", properties: { section: S2, project: S2, name: S2, position: N2 }, required: ["section"] },
     run: async ({ state, args }) => {
       const proj = args.project ? resolveProject(state, args.project) : void 0;
       const sec = resolveSection(state, proj?.id ?? void 0, args.section);
       const edits = [];
       if (args.name) edits.push(...updateSection(state, sec.id, { name: args.name }).edits);
       if (typeof args.position === "number") {
-        const ids = live5(state.sections).filter((s) => s.projectId === sec.projectId).sort((a, b) => a.order - b.order).map((s) => s.id).filter((id) => id !== sec.id);
+        const ids = live6(state.sections).filter((s) => s.projectId === sec.projectId).sort((a, b) => a.order - b.order).map((s) => s.id).filter((id) => id !== sec.id);
         ids.splice(Math.max(0, Math.min(args.position, ids.length)), 0, sec.id);
         edits.push(...reorderSections(state, sec.projectId, ids).edits);
       }
@@ -2963,19 +3666,11 @@ var TOOLS = [
     }
   },
   {
-    name: "labels_list",
-    title: "List labels",
-    scopes: ["tasks:read"],
-    description: "All labels with open task counts.",
-    input: { type: "object", properties: {} },
-    run: async ({ state }) => ({ result: live5(state.labels).map((l) => ({ id: l.id, name: l.name, color: l.color, open: live5(state.tasks).filter((t) => !t.completed && (t.labelIds ?? []).includes(l.id)).length })) })
-  },
-  {
     name: "labels_create",
     title: "Create label",
     scopes: ["tasks:write"],
     description: "Create a label (idempotent by name).",
-    input: { type: "object", properties: { name: S, color: S }, required: ["name"] },
+    input: { type: "object", properties: { name: S2, color: S2 }, required: ["name"] },
     run: async ({ state, args, ctx }) => {
       const r = createLabel(state, { name: args.name, color: args.color }, ctx);
       return { result: { id: r.result.id, name: r.result.name }, edits: r.edits, summary: `label "${r.result.name}"` };
@@ -2986,7 +3681,7 @@ var TOOLS = [
     title: "Add comment / note",
     scopes: ["tasks:write"],
     description: "Add a comment or note to a task (or a project).",
-    input: { type: "object", properties: { task_id: S, project: S, text: S, idempotency_key: S }, required: ["text"] },
+    input: { type: "object", properties: { task_id: S2, project: S2, text: S2, idempotency_key: S2 }, required: ["text"] },
     run: async ({ state, args, ctx, auth }) => {
       const proj = args.project ? resolveProject(state, args.project) : null;
       const r = addComment(state, { taskId: args.task_id ?? null, projectId: proj?.id ?? null, text: args.text, authorName: auth.token.name, idempotencyKey: args.idempotency_key ?? null }, ctx);
@@ -2998,57 +3693,33 @@ var TOOLS = [
     title: "List comments",
     scopes: ["tasks:read"],
     description: "Comments/notes on a task or project.",
-    input: { type: "object", properties: { task_id: S, project: S } },
+    input: { type: "object", properties: { task_id: S2, project: S2 } },
     run: async ({ state, args }) => {
       const proj = args.project ? resolveProject(state, args.project) : null;
-      const cs = live5(state.comments).filter((c) => args.task_id ? c.taskId === args.task_id : proj ? c.projectId === proj.id && !c.taskId : false);
+      const cs = live6(state.comments).filter((c) => args.task_id ? c.taskId === args.task_id : proj ? c.projectId === proj.id && !c.taskId : false);
       return { result: cs.map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, source: c.source, agent: c.agent })) };
-    }
-  },
-  {
-    name: "reminders_set",
-    title: "Set reminders",
-    scopes: ["tasks:write"],
-    description: 'Replace a task\u2019s reminders. Each: { minutes_before } relative to the due time, or { at: "YYYY-MM-DDTHH:MM" }. Pass [] to clear. Devices re-plan notifications automatically.',
-    input: { type: "object", properties: { task_id: S, reminders: { type: "array", items: { type: "object", properties: { minutes_before: N, at: S } } } }, required: ["task_id", "reminders"] },
-    run: async ({ state, args, ctx, now }) => {
-      const edits = [];
-      const f = taskFields(state, { reminders: args.reminders }, ctx, edits, now);
-      const r = updateTask(state, args.task_id, { reminders: f.reminders ?? [] }, ctx);
-      return { result: { task_id: args.task_id, reminders: r.result.reminders }, edits: r.edits, summary: "set reminders" };
     }
   },
   // ---------------- productivity & activity
   {
-    name: "productivity_summary",
-    title: "Productivity summary",
+    name: "productivity",
+    title: "Productivity",
     scopes: ["productivity:read"],
-    description: "Momentum score and level, today's progress vs daily goal, this week by day vs weekly goal, streaks and the 8-week trend.",
-    input: { type: "object", properties: {} },
-    run: async ({ state, now }) => ({ result: productivitySummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }) })
-  },
-  {
-    name: "productivity_interval",
-    title: "Productivity for a period",
-    scopes: ["productivity:read"],
-    description: "Completed tasks for today, yesterday, this_week, last_week, this_month, last_month or a custom from/to range \u2014 with breakdowns by priority, project, on-time vs late, and source (mobile/web/agent).",
-    input: { type: "object", properties: { interval: { type: "string", enum: ["today", "yesterday", "this_week", "last_week", "this_month", "last_month"] }, from: DATE, to: DATE } },
-    run: async ({ state, args, now }) => {
-      const iv = args.from && args.to ? { from: args.from, to: args.to } : args.interval ?? "this_week";
-      const r = intervalSummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }, iv);
-      const names = new Map(state.projects.map((p) => [p.id, p.title]));
-      return { result: { ...r, byProject: r.byProject.map((x) => ({ ...x, project: x.projectId ? names.get(x.projectId) ?? null : "Inbox" })) } };
-    }
-  },
-  {
-    name: "productivity_project",
-    title: "Project productivity",
-    scopes: ["productivity:read", "projects:read"],
-    description: "Execution tracker for a project (and its sub-projects): progress, completed this week, overdue, blocked, priority distribution, trend, recently completed and upcoming.",
-    input: { type: "object", properties: { project: S }, required: ["project"] },
-    run: async ({ state, args, now }) => {
-      const p = resolveProject(state, args.project);
-      return { result: { project: p.title, ...projectStats(projectSubtree(state.projects, p.id), { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections, now }) } };
+    description: "Productivity stats. No arguments: momentum score and level, today vs daily goal, this week by day vs weekly goal, streaks, 8-week trend. interval (today, yesterday, this_week, last_week, this_month, last_month) or from/to: completed tasks with breakdowns by priority, project, on-time vs late and source. project: execution tracker for that project and its sub-projects (progress, overdue, blocked, trend, recently completed, upcoming).",
+    input: { type: "object", properties: { interval: { type: "string", enum: ["today", "yesterday", "this_week", "last_week", "this_month", "last_month"] }, from: DATE2, to: DATE2, project: S2 } },
+    run: async ({ state, args, auth, now }) => {
+      if (args.project) {
+        if (!auth.token.scopes.includes("projects:read")) throw new AgentError("forbidden", "This token is missing scope: projects:read.");
+        const p = resolveProject(state, args.project);
+        return { result: { project: p.title, ...projectStats(projectSubtree(state.projects, p.id), { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections, now }) } };
+      }
+      if (args.interval || args.from && args.to) {
+        const iv = args.from && args.to ? { from: args.from, to: args.to } : args.interval;
+        const r = intervalSummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }, iv);
+        const names = new Map(state.projects.map((p) => [p.id, p.title]));
+        return { result: { ...r, byProject: r.byProject.map((x) => ({ ...x, project: x.projectId ? names.get(x.projectId) ?? null : "Inbox" })) } };
+      }
+      return { result: productivitySummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }) };
     }
   },
   {
@@ -3056,7 +3727,7 @@ var TOOLS = [
     title: "Recent activity",
     scopes: ["tasks:read"],
     description: "Recent changes with where they came from (android/ios/web/mcp/api/cli) and which agent made them. Optionally filter by project or source.",
-    input: { type: "object", properties: { project: S, source: S, limit: N } },
+    input: { type: "object", properties: { project: S2, source: S2, limit: N2 } },
     run: async ({ state, args, repo: repo2, auth }) => {
       const p = args.project ? resolveProject(state, args.project) : null;
       const acts = (await repo2.recentActivity(auth.uid, 500)).filter((a) => (!p || a.projectId === p.id) && (!args.source || a.source === args.source)).slice(0, Math.min(args.limit ?? 50, 200));
@@ -3065,19 +3736,11 @@ var TOOLS = [
   },
   // ---------------- filters & templates & prefs
   {
-    name: "filters_list",
-    title: "Saved filters",
-    scopes: ["tasks:read"],
-    description: "Saved filters/views and the filter query syntax.",
-    input: { type: "object", properties: {} },
-    run: async ({ state }) => ({ result: { filters: live5(state.filters).map((f) => ({ id: f.id, name: f.name, query: f.query })), syntax: 'Terms: today, tomorrow, overdue, "no date", "this week", "next 7 days", recurring, p1\u2013p4, #Project, ##Project (exact), /Section, @label, search: words, completed, subtask, assigned, "due before: YYYY-MM-DD", "created by: mcp". Operators: & | ! and parentheses.' } })
-  },
-  {
     name: "filters_save",
     title: "Save filter",
     scopes: ["tasks:write"],
     description: "Save a reusable filter (appears on mobile and web).",
-    input: { type: "object", properties: { name: S, query: S }, required: ["name", "query"] },
+    input: { type: "object", properties: { name: S2, query: S2 }, required: ["name", "query"] },
     run: async ({ state, args, ctx, now }) => {
       try {
         compileFilter(args.query, { projects: state.projects, labels: state.labels, sections: state.sections, now });
@@ -3089,22 +3752,30 @@ var TOOLS = [
     }
   },
   {
-    name: "templates_list",
-    title: "Project templates",
-    scopes: ["projects:read"],
-    description: "Available project templates (use projects_create with template=<id>).",
-    input: { type: "object", properties: {} },
-    run: async () => ({ result: TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, sections: t.sections.map((s) => s.name) })) })
-  },
-  {
-    name: "preferences_get",
-    title: "User preferences",
+    name: "workspace_overview",
+    title: "Workspace overview (start here)",
     scopes: ["tasks:read"],
-    description: "Time zone, week start, daily/weekly goals and other settings that affect dates and productivity.",
+    description: "One call to orient yourself: the user's settings (time zone, week start, goals), labels with open counts, saved filters plus the filter query syntax, project templates, and how many items exist in every area (tasks, projects, notes, habits, goals, milestones, events, time blocks, journal, applications, learning, mind maps). Then use the area's own tools.",
     input: { type: "object", properties: {} },
-    run: async ({ state }) => {
+    needs: LIFE_COLLS,
+    run: async ({ state, auth }) => {
       const p = resolvePreferences(state.preferences);
-      return { result: { timezone: p.timezone ?? "device default", weekStart: p.weekStart, dailyGoal: p.dailyGoal, weeklyGoal: p.weeklyGoal, daysOff: p.daysOff, nextWeek: p.nextWeek, weekend: p.weekend } };
+      const n = (xs) => (xs ?? []).filter((x) => !x.deleted).length;
+      const canLife = auth.token.scopes.includes("life:read");
+      const L = state.life ?? {};
+      return { result: {
+        preferences: { timezone: p.timezone ?? "device default", weekStart: p.weekStart, dailyGoal: p.dailyGoal, weeklyGoal: p.weeklyGoal, daysOff: p.daysOff, nextWeek: p.nextWeek, weekend: p.weekend },
+        labels: live6(state.labels).map((l) => ({ id: l.id, name: l.name, color: l.color, open: live6(state.tasks).filter((t) => !t.completed && (t.labelIds ?? []).includes(l.id)).length })),
+        filters: live6(state.filters).map((f) => ({ id: f.id, name: f.name, query: f.query })),
+        filter_syntax: FILTER_SYNTAX,
+        project_templates: TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, sections: t.sections.map((x) => x.name) })),
+        counts: {
+          open_tasks: live6(state.tasks).filter((t) => !t.completed).length,
+          projects: n(state.projects),
+          notes: n(state.notes),
+          ...canLife ? { habits: n(L.habits), goals: n(L.goals), milestones: n(L.milestones), calendar_events: n(L.events), time_blocks: n(L.dailymapper), journal_logs: n(L.logs), rants: n(L.rants), applications: n(L.applications), learning: n(L.learningresources), mindmaps: n(L.mindmaps), ai_chats: n(L.iris_conversations) } : {}
+        }
+      } };
     }
   },
   // ---------------------------------------------------------------- notes (vault)
@@ -3112,11 +3783,17 @@ var TOOLS = [
     name: "notes_list",
     title: "List notes",
     scopes: ["notes:read"],
-    description: "List notes in the vault (newest first) with path, tags, link counts and an excerpt. Filter by folder (includes sub-folders unless recursive=false), tag, kind, bookmarked, or a search query (same operators as notes_search). Also returns the folder tree.",
-    input: { type: "object", properties: { folder: S, recursive: B2, tag: S, kind: { type: "string", enum: ["note", "daily", "template", "canvas"] }, bookmarked: B2, query: S, include_content: B2, limit: { type: "number", description: "Default 50, max 200" } } },
+    description: `List or search notes in the vault. Filters: folder (includes sub-folders unless recursive=false), project (that project's notes), tag, kind, bookmarked. query = ranked full-text search returning matching lines, with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Also returns the folder tree.`,
+    input: { type: "object", properties: { folder: S2, project: { type: "string", description: "Only this project's notes (name or id)" }, recursive: B3, tag: S2, kind: { type: "string", enum: ["note", "daily", "template", "canvas"] }, bookmarked: B3, query: S2, include_content: B3, limit: { type: "number", description: "Default 50, max 200" } } },
     run: async ({ state, args }) => {
       const index = buildIndex(state.notes ?? []);
       let list = [...index.notes];
+      if (args.project) {
+        const p = resolveProject(state, args.project);
+        if (!p) throw new AgentError("invalid", "Pass a project name or id.");
+        const ids = new Set(projectNotes(index, p).map((n) => n.id));
+        list = list.filter((n) => ids.has(n.id));
+      }
       if (args.folder !== void 0 && args.folder !== null) {
         const f = normPath(String(args.folder));
         list = list.filter((n) => {
@@ -3130,12 +3807,13 @@ var TOOLS = [
       }
       if (args.kind) list = list.filter((n) => (n.kind ?? "note") === args.kind);
       if (args.bookmarked !== void 0) list = list.filter((n) => !!n.bookmarked === !!args.bookmarked);
+      const limit = Math.min(200, Math.max(1, Number(args.limit) || 50));
       if (args.query) {
-        const hits = new Set(searchVault(index, String(args.query), 1e3).map((h) => h.note.id));
-        list = list.filter((n) => hits.has(n.id));
+        const keep = new Set(list.map((n) => n.id));
+        const hits = searchVault(index, String(args.query), 1e3).filter((h) => keep.has(h.note.id));
+        return { result: { total: hits.length, notes: hits.slice(0, limit).map((h) => ({ ...describeNote(index, h.note, { content: !!args.include_content }), matches: h.matches })), folders: folderSummary(index) } };
       }
       list.sort((a, b) => (b.lastEdited ?? "").localeCompare(a.lastEdited ?? ""));
-      const limit = Math.min(200, Math.max(1, Number(args.limit) || 50));
       return { result: { total: list.length, notes: list.slice(0, limit).map((n) => describeNote(index, n, { content: !!args.include_content })), folders: folderSummary(index) } };
     }
   },
@@ -3151,25 +3829,19 @@ var TOOLS = [
     }
   },
   {
-    name: "notes_search",
-    title: "Search notes",
-    scopes: ["notes:read"],
-    description: 'Full-text search across notes with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Returns matching lines.',
-    input: { type: "object", properties: { query: S, limit: N }, required: ["query"] },
-    run: async ({ state, args }) => {
-      const index = buildIndex(state.notes ?? []);
-      const hits = searchVault(index, String(args.query), Math.min(200, Number(args.limit) || 30));
-      return { result: { total: hits.length, results: hits.map((h) => ({ ...describeNote(index, h.note), matches: h.matches })) } };
-    }
-  },
-  {
     name: "notes_create",
     title: "Create note",
     scopes: ["notes:write"],
     description: 'Create a markdown note in the vault. Use [[Other note]] links and #tags in content; folders are created implicitly ("Projects/RanaWallet"). Titles must be unique per folder. Pass idempotency_key to make retries safe; if_exists="skip" returns the existing note instead of failing.',
-    input: { type: "object", properties: { title: S, folder: S, content: { type: "string", description: "Markdown body (may include YAML frontmatter)" }, properties: { type: "object", description: 'Frontmatter properties to set, e.g. {"status":"draft","tags":["idea"]}' }, kind: { type: "string", enum: ["note", "template", "canvas"] }, bookmarked: B2, if_exists: { type: "string", enum: ["error", "skip"] }, idempotency_key: S }, required: ["title"] },
+    input: { type: "object", properties: { title: S2, folder: S2, project: { type: "string", description: "Attach to a project (name or id): files the note in that project's notes folder" }, content: { type: "string", description: "Markdown body (may include YAML frontmatter)" }, properties: { type: "object", description: 'Frontmatter properties to set, e.g. {"status":"draft","tags":["idea"]}' }, kind: { type: "string", enum: ["note", "template", "canvas"] }, bookmarked: B3, if_exists: { type: "string", enum: ["error", "skip"] }, idempotency_key: S2 }, required: ["title"] },
     run: async ({ state, args, ctx }) => {
       const notes = state.notes ?? [];
+      if (args.project) {
+        const p = resolveProject(state, args.project);
+        if (!p) throw new AgentError("invalid", "Pass a project name or id.");
+        if (!args.folder) args.folder = projectFolder(p);
+        args.properties = { ...args.properties ?? {}, project: p.title };
+      }
       if (args.if_exists === "skip") {
         const index2 = buildIndex(notes);
         const folder = args.folder ? String(args.folder).replace(/^\/+|\/+$/g, "") : "";
@@ -3186,7 +3858,7 @@ var TOOLS = [
     title: "Update note",
     scopes: ["notes:write"],
     description: "Edit a note: replace content, append or prepend text, merge frontmatter properties (null removes a key), bookmark, or rename/move it (title/folder) \u2014 renames rewrite [[links]] in every other note automatically.",
-    input: { type: "object", properties: { note: { type: "string", description: "Note id, path, title or alias" }, content: S, append: S, prepend: S, title: S, folder: { type: "string", description: 'Destination folder ("" = vault root)' }, properties: { type: "object" }, bookmarked: B2 }, required: ["note"] },
+    input: { type: "object", properties: { note: { type: "string", description: "Note id, path, title or alias" }, content: S2, append: S2, prepend: S2, title: S2, folder: { type: "string", description: 'Destination folder ("" = vault root)' }, properties: { type: "object" }, bookmarked: B3 }, required: ["note"] },
     run: async ({ state, args, ctx }) => {
       const r = noteRef(() => updateNoteOp(state.notes ?? [], args.note, { content: args.content, append: args.append, prepend: args.prepend, title: args.title, folder: args.folder, properties: args.properties, bookmarked: args.bookmarked }, noteCtx(ctx)));
       const index = buildIndex((state.notes ?? []).map((n) => n.id === r.note.id ? r.note : n));
@@ -3198,7 +3870,7 @@ var TOOLS = [
     title: "Daily note",
     scopes: ["notes:write"],
     description: "Get (or create) the daily note for a date (default today, user time zone) in the Daily folder, optionally appending text \u2014 e.g. a log line or a meeting summary.",
-    input: { type: "object", properties: { date: DATE, append: S } },
+    input: { type: "object", properties: { date: DATE2, append: S2 } },
     run: async ({ state, args, ctx, now }) => {
       const tz2 = state.preferences?.timezone ?? null;
       const day = args.date ? String(args.date) : dayInZone(now, tz2);
@@ -3214,7 +3886,7 @@ var TOOLS = [
     title: "Import notes",
     scopes: ["notes:write"],
     description: 'Create many notes at once (max 200 per call) \u2014 e.g. importing an Obsidian vault folder. Items: {title, folder?, content?, properties?}. Existing notes (same folder + title): if_exists="skip" (default) leaves them, "update" overwrites their content (two-step: returns a confirm_token first), "error" fails.',
-    input: { type: "object", properties: { notes: { type: "array", items: { type: "object", properties: { title: S, folder: S, content: S, properties: { type: "object" } }, required: ["title"] } }, if_exists: { type: "string", enum: ["skip", "update", "error"] }, confirm_token: S }, required: ["notes"] },
+    input: { type: "object", properties: { notes: { type: "array", items: { type: "object", properties: { title: S2, folder: S2, content: S2, properties: { type: "object" } }, required: ["title"] } }, if_exists: { type: "string", enum: ["skip", "update", "error"] }, confirm_token: S2 }, required: ["notes"] },
     run: async ({ state, args, ctx, auth, now }) => {
       const items = Array.isArray(args.notes) ? args.notes : [];
       if (!items.length) throw new AgentError("invalid", "notes must be a non-empty array");
@@ -3241,7 +3913,7 @@ var TOOLS = [
     title: "Delete notes",
     scopes: ["notes:delete"],
     description: "Delete notes by id/path/title (moved to trash on every device). Deleting more than one note is two-step: the first call returns a preview and confirm_token.",
-    input: { type: "object", properties: { notes: { type: "array", items: S, description: "Note ids, paths or titles" }, confirm_token: S }, required: ["notes"] },
+    input: { type: "object", properties: { notes: { type: "array", items: S2, description: "Note ids, paths or titles" }, confirm_token: S2 }, required: ["notes"] },
     run: async ({ state, args, ctx, auth, now }) => {
       const refs = (Array.isArray(args.notes) ? args.notes : [args.notes]).map(String);
       if (!refs.length) throw new AgentError("invalid", "notes must list at least one note");
@@ -3265,12 +3937,13 @@ var TOOLS = [
     name: "search",
     title: "Search ClearMind",
     scopes: [],
-    description: "Search the user's ClearMind tasks, projects and notes. Returns result ids to pass to `fetch` for the full text.",
+    needs: LIFE_COLLS,
+    description: "Search everything in ClearMind at once: tasks (incl. completed), projects, notes, habits, goals, milestones, calendar events, time blocks, journal, applications, learning vault and mind maps. Returns ids to pass to `fetch` for the full item.",
     input: { type: "object", properties: { query: { type: "string", description: "What to look for" } }, required: ["query"] },
     run: async ({ state, args, auth, now }) => {
       const canTasks = auth.token.scopes.includes("tasks:read");
       const canNotes = auth.token.scopes.includes("notes:read");
-      if (!canTasks && !canNotes) throw new AgentError("forbidden", "This token can read neither tasks nor notes.");
+      if (!canTasks && !canNotes && !auth.token.scopes.includes("life:read")) throw new AgentError("forbidden", "This token can read nothing searchable.");
       const q = String(args.query ?? "").trim();
       const results = [];
       const origin = "https://clearmind.meertech.tech";
@@ -3287,6 +3960,9 @@ var TOOLS = [
         }
         for (const p of r.projects) results.push({ id: `project:${p.id}`, title: `Project: ${p.title}`, url: `${origin}/#project/${p.id}` });
       }
+      if (auth.token.scopes.includes("life:read") && state.life) {
+        for (const h of lifeSearch(state.life, q, 20)) results.push({ id: h.id, title: `${h.kind[0].toUpperCase()}${h.kind.slice(1)}: ${h.title}`, url: origin, text: h.text || void 0 });
+      }
       return { result: { results } };
     }
   },
@@ -3294,24 +3970,25 @@ var TOOLS = [
     name: "fetch",
     title: "Fetch ClearMind item",
     scopes: [],
-    description: "Get the full content of a search result by id (note:\u2026, task:\u2026 or project:\u2026).",
+    needs: LIFE_COLLS,
+    description: "Get the full content of a search result by id (note:\u2026, task:\u2026, project:\u2026, habit:\u2026, goal:\u2026, event:\u2026, application:\u2026, learning:\u2026, log:\u2026, rant:\u2026, mindmap:\u2026, block:\u2026).",
     input: { type: "object", properties: { id: { type: "string", description: "An id returned by search" } }, required: ["id"] },
     run: async ({ state, args, auth, now }) => {
       const [kind, ...rest] = String(args.id ?? "").split(":");
       const id = rest.join(":");
       const origin = "https://clearmind.meertech.tech";
-      const need = (scope) => {
+      const need2 = (scope) => {
         if (!auth.token.scopes.includes(scope)) throw new AgentError("forbidden", `This token is missing scope: ${scope}.`);
       };
       if (kind === "note") {
-        need("notes:read");
+        need2("notes:read");
         const index = buildIndex(state.notes ?? []);
         const n = noteRef(() => requireNote(index, id));
         const d = noteDetail(index, n);
         return { result: { id: args.id, title: d.path, text: n.content, url: `${origin}/#notes/${n.id}`, metadata: { tags: d.tags, updated_at: d.updated_at, backlinks: d.backlinks.map((b) => b.path) } } };
       }
       if (kind === "task") {
-        need("tasks:read");
+        need2("tasks:read");
         const t = getTask(state, id);
         const x = describe(state, now)(t);
         const comments = (state.comments ?? []).filter((c) => c.taskId === t.id && !c.deleted).map((c) => `- ${c.text}`);
@@ -3326,18 +4003,80 @@ ${comments.join("\n")}` : ""].join("");
         return { result: { id: args.id, title: t.title, text, url: `${origin}/#today?task=${t.id}`, metadata: x } };
       }
       if (kind === "project") {
-        need("projects:read");
+        need2("projects:read");
         const p = resolveProject(state, id);
-        const tasks = live5(state.tasks).filter((t) => t.projectId === p.id && !t.completed);
+        const tasks = live6(state.tasks).filter((t) => t.projectId === p.id && !t.completed);
         return { result: { id: args.id, title: p.title, text: `${p.title}
 
 Open tasks:
 ${tasks.map((t) => `- ${t.title}`).join("\n") || "(none)"}`, url: `${origin}/#project/${p.id}`, metadata: { open: tasks.length } } };
       }
+      const lc2 = LIFE_KIND_COLL[kind];
+      if (lc2) {
+        need2("life:read");
+        const r = (state.life?.[lc2] ?? []).find((x) => x.id === id && !x.deleted);
+        if (!r) throw new AgentError("not_found", `${kind} ${id} not found.`);
+        const title = String(r.title ?? r.name ?? r.task ?? String(r.content ?? "").slice(0, 60));
+        return { result: { id: args.id, title, text: JSON.stringify(r, null, 2), url: origin, metadata: { kind } } };
+      }
       throw new AgentError("invalid", "Unknown id \u2014 use an id returned by search.");
     }
-  }
+  },
+  // ---------------- legacy (callable, not listed: merged into search / notes_list)
+  {
+    name: "search_global",
+    title: "Search",
+    scopes: ["tasks:read"],
+    hidden: true,
+    description: "Full-text search across task titles, descriptions, comments/notes, project and section names and labels; also returns matching projects and labels.",
+    input: { type: "object", properties: { query: S2, include_completed: B3, limit: N2 }, required: ["query"] },
+    run: async ({ state, args, now }) => {
+      const r = globalSearch(state, String(args.query), { includeCompleted: !!args.include_completed, limit: args.limit ?? 50 });
+      return { result: { tasks: r.tasks.map(describe(state, now)), projects: r.projects.map((p) => ({ id: p.id, name: p.title })), labels: r.labels.map((l) => ({ id: l.id, name: l.name })) } };
+    }
+  },
+  {
+    name: "notes_search",
+    title: "Search notes",
+    scopes: ["notes:read"],
+    hidden: true,
+    description: 'Full-text search across notes with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Returns matching lines.',
+    input: { type: "object", properties: { query: S2, limit: N2 }, required: ["query"] },
+    run: async ({ state, args }) => {
+      const index = buildIndex(state.notes ?? []);
+      const hits = searchVault(index, String(args.query), Math.min(200, Number(args.limit) || 30));
+      return { result: { total: hits.length, results: hits.map((h) => ({ ...describeNote(index, h.note), matches: h.matches })) } };
+    }
+  },
+  // ---------------- every other area (habits, goals, calendar, daily map, journal, applications, learning, mind maps, AI chats)
+  ...LIFE_TOOLS.map((t) => ({
+    name: t.name,
+    title: t.title,
+    description: t.description,
+    scopes: t.scopes,
+    input: t.input,
+    needs: t.needs,
+    run: ({ state, args, ctx, now, confirm }) => t.run({ life: state.life ?? {}, args, now, timezone: ctx.timezone ?? null, confirm })
+  }))
 ];
+var TOOL_ALIASES = {
+  views_today: { to: "tasks_view", map: (a) => ({ ...a, view: "today" }) },
+  views_upcoming: { to: "tasks_view", map: (a) => ({ ...a, view: "upcoming" }) },
+  views_overdue: { to: "tasks_view", map: (a) => ({ ...a, view: "overdue" }) },
+  inbox_list: { to: "tasks_view", map: (a) => ({ ...a, view: "inbox" }) },
+  tasks_complete: { to: "tasks_update", map: (a) => ({ id: a.id, completed: true }) },
+  tasks_reopen: { to: "tasks_update", map: (a) => ({ id: a.id, completed: false }) },
+  reminders_set: { to: "tasks_update", map: (a) => ({ id: a.task_id, reminders: a.reminders }) },
+  tasks_move: { to: "tasks_bulk_update", map: (a) => a },
+  tasks_bulk_complete: { to: "tasks_bulk_update", map: (a) => ({ ...a, complete: true }) },
+  productivity_summary: { to: "productivity", map: () => ({}) },
+  productivity_interval: { to: "productivity", map: (a) => ({ interval: a.from && a.to ? void 0 : a.interval ?? "this_week", from: a.from, to: a.to }) },
+  productivity_project: { to: "productivity", map: (a) => ({ project: a.project }) },
+  labels_list: { to: "workspace_overview", map: () => ({}) },
+  filters_list: { to: "workspace_overview", map: () => ({}) },
+  templates_list: { to: "workspace_overview", map: () => ({}) },
+  preferences_get: { to: "workspace_overview", map: () => ({}) }
+};
 function noteRef(fn) {
   try {
     return fn();
@@ -3352,7 +4091,7 @@ async function bulk(x, tool, op, opts = {}) {
   let ids = Array.isArray(args.ids) ? args.ids.map(String) : [];
   if (!ids.length && args.query) {
     try {
-      ids = runFilter(live5(state.tasks), args.query, { projects: state.projects, labels: state.labels, sections: state.sections, now }).map((t) => t.id);
+      ids = runFilter(live6(state.tasks), args.query, { projects: state.projects, labels: state.labels, sections: state.sections, now }).map((t) => t.id);
     } catch (e) {
       throw new AgentError("invalid", `Bad filter query: ${e.message}`);
     }
@@ -3379,13 +4118,19 @@ var toolByName = (name) => TOOLS.find((t) => t.name === name);
 async function callTool(repo2, auth, name, args, opts) {
   sha256Ref.fn = opts.sha256;
   const now = opts.now ?? /* @__PURE__ */ new Date();
+  const called = name;
+  const alias = TOOL_ALIASES[name];
+  if (alias && args && typeof args === "object" && !Array.isArray(args)) {
+    args = alias.map(args);
+    name = alias.to;
+  }
   const tool = toolByName(name);
   const audit = (ok, summary, error) => repo2.audit(auth.uid, {
     id: `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     at: now.toISOString(),
     tokenId: auth.tokenHash.slice(0, 12),
     agent: auth.token.name,
-    tool: name,
+    tool: called,
     ok,
     summary,
     error,
@@ -3406,14 +4151,22 @@ async function callTool(repo2, auth, name, args, opts) {
     }
     for (const r of tool.input.required ?? []) if (clean[r] === void 0 || clean[r] === null || clean[r] === "") throw new AgentError("invalid", `Missing required argument: ${r}.`);
     const state = await repo2.loadState(auth.uid);
+    if (tool.needs?.length) {
+      if (!repo2.loadCollections) throw new AgentError("invalid", "This server cannot reach that part of ClearMind.");
+      state.life = await repo2.loadCollections(auth.uid, tool.needs);
+    }
     const ctx = { source: auth.source, agent: auth.token.name, timezone: state.preferences?.timezone ?? null, now };
-    const out = await tool.run({ state, args: clean, ctx, auth, repo: repo2, now });
+    const confirm = async (toolName, ids, message, preview) => {
+      const want = [await confirmToken(opts.sha256, auth.uid, toolName, ids, now.getTime()), await confirmToken(opts.sha256, auth.uid, toolName, ids, now.getTime(), 1)];
+      if (!clean.confirm_token || !want.includes(clean.confirm_token)) throw new AgentError("confirm_required", message, { confirm_token: want[0], count: ids.length, preview });
+    };
+    const out = await tool.run({ state, args: clean, ctx, auth, repo: repo2, now, confirm });
     if (out.edits?.length) {
       await repo2.commit(auth.uid, out.edits, { clientId: opts.clientId ?? `${auth.source}-${auth.tokenHash.slice(0, 8)}`, mutationId: `${auth.source}:${auth.tokenHash.slice(0, 8)}:${now.getTime()}` });
     }
     void repo2.touchToken(auth.uid, auth.tokenHash, now.toISOString()).catch(() => void 0);
     await audit(true, out.summary ?? null, null);
-    return { ok: true, result: out.result };
+    return { ok: true, result: out.result, ...out.summary ? { summary: out.summary } : {} };
   } catch (e) {
     const code = e instanceof AgentError ? e.code : e instanceof DomainError ? e.code === "not_found" ? "not_found" : "invalid" : "internal";
     const message = code === "internal" ? "Internal error" : e.message;
@@ -3421,7 +4174,7 @@ async function callTool(repo2, auth, name, args, opts) {
     return { ok: false, error: { code, message, data: e instanceof AgentError ? e.data : void 0 } };
   }
 }
-var toolManifest = () => TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.input, scopes: t.scopes }));
+var toolManifest = () => TOOLS.filter((t) => !t.hidden).map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.input, scopes: t.scopes }));
 
 // server/firestoreRepo.ts
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
@@ -3619,6 +4372,11 @@ var FirestoreAgentRepo = class {
       notes: data.notes
     };
   }
+  async loadCollections(uid, colls) {
+    const uniq = [...new Set(colls)];
+    const snaps = await Promise.all(uniq.map((c) => this.col(uid, c).get()));
+    return Object.fromEntries(uniq.map((c, i) => [c, snaps[i].docs.map((d) => ({ id: d.id, ...strip(d.data()) }))]));
+  }
   async commit(uid, edits, meta) {
     if (!edits.length) return;
     for (let i = 0; i < edits.length; i += 200) {
@@ -3668,21 +4426,32 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 var sha256 = async (s) => createHash("sha256").update(s).digest("hex");
 var RESOURCES = [
-  { uri: "clearmind://today", name: "Today", description: "Overdue + due today", tool: "views_today" },
-  { uri: "clearmind://inbox", name: "Inbox", description: "Unorganised captures", tool: "inbox_list" },
-  { uri: "clearmind://upcoming", name: "Upcoming (7 days)", description: "Tasks by day", tool: "views_upcoming" },
+  { uri: "clearmind://overview", name: "Overview", description: "Settings, labels, filters and counts for every area", tool: "workspace_overview" },
+  { uri: "clearmind://today", name: "Today", description: "Overdue + due today", tool: "tasks_view", args: { view: "today" } },
+  { uri: "clearmind://inbox", name: "Inbox", description: "Unorganised captures", tool: "tasks_view", args: { view: "inbox" } },
+  { uri: "clearmind://upcoming", name: "Upcoming (7 days)", description: "Tasks by day", tool: "tasks_view", args: { view: "upcoming" } },
   { uri: "clearmind://projects", name: "Projects", description: "Projects with progress", tool: "projects_list" },
-  { uri: "clearmind://productivity", name: "Productivity", description: "Momentum, goals, streaks", tool: "productivity_summary" }
+  { uri: "clearmind://productivity", name: "Productivity", description: "Momentum, goals, streaks", tool: "productivity" },
+  { uri: "clearmind://habits", name: "Habits", description: "Habits with today's status and streaks", tool: "habits_list" },
+  { uri: "clearmind://calendar", name: "Calendar (14 days)", description: "Upcoming events", tool: "calendar_list" },
+  { uri: "clearmind://daily-map", name: "Daily map", description: "Today's time blocks", tool: "daily_map_list" }
 ];
 var PROMPTS = [
-  { name: "plan_my_day", description: "Build a realistic plan for today from overdue + today tasks and priorities.", text: "Use views_today and views_overdue. Propose a focused plan for today: top 3 must-dos (prefer p1/p2 and overdue), what to reschedule (suggest concrete dates), and quick wins. Ask before making changes; when I agree, apply them with tasks_update / tasks_bulk_update." },
-  { name: "weekly_review", description: "Run a weekly review: inbox zero, overdue, project health, next week.", text: "Run my weekly review: 1) inbox_list \u2014 propose a destination/date for each item; 2) views_overdue \u2014 propose reschedules; 3) projects_list + productivity_interval(this_week) \u2014 summarise progress and risks per project; 4) suggest next week\u2019s top 3 priorities. Apply changes only after I confirm." },
-  { name: "project_blockers", description: "Explain what is blocking a project, from real data.", args: [{ name: "project", description: "Project name", required: true }], text: 'Call projects_get and productivity_project for project "{project}". Identify blockers (blocked/waiting sections, overdue p1/p2, stalled tasks), summarise progress, and recommend next actions.' }
+  { name: "plan_my_day", description: "Build a realistic plan for today from tasks, calendar, habits and the daily map.", text: "Use tasks_view (today), calendar_list (today only), habits_list and daily_map_list. Propose a focused plan for today: top 3 must-dos (prefer p1/p2 and overdue), time blocks around my events, habits to fit in, and what to reschedule (concrete dates). Ask before changing anything; when I agree, apply it with tasks_update / tasks_bulk_update / daily_map_save." },
+  { name: "weekly_review", description: "Weekly review across tasks, projects, goals, habits, applications and journal.", text: "Run my weekly review: 1) tasks_view inbox \u2014 propose a destination/date for each item; 2) tasks_view overdue \u2014 propose reschedules; 3) projects_list + productivity(interval=this_week) \u2014 progress and risks per project; 4) goals_list and habits_list \u2014 progress and streaks; 5) applications_list(deadline_within_days=14); 6) journal_list for this week \u2014 themes in my mood; 7) suggest next week\u2019s top 3 priorities. Apply changes only after I confirm." },
+  { name: "project_blockers", description: "Explain what is blocking a project, from real data.", args: [{ name: "project", description: "Project name", required: true }], text: 'Call projects_get and productivity(project="{project}"). Identify blockers (blocked/waiting sections, overdue p1/p2, stalled tasks, open high risks, phases marked Blocked), use the project notes for context, summarise progress, and recommend next actions.' }
 ];
+var INSTRUCTIONS = `ClearMind is the user's whole productivity system, and every part of it is available here:
+- Tasks (Inbox, Today, Upcoming, projects with sections, labels, p1\u2013p4, recurring): inbox_capture for quick captures, tasks_create / tasks_update (completed=true completes), tasks_view, tasks_list with filter queries, tasks_bulk_update.
+- Projects with plans (status, phases, risks, budget, KPIs, check-ins) and project notes: projects_get / projects_update; notes_create with project=\u2026 files a note under that project.
+- Notes vault (markdown, [[links]], daily notes): notes_*.
+- Habits (habits_check to tick one off), goals, milestones, calendar, daily map (time blocks, repeating blocks), journal (daily log + rants), applications (jobs/grants/scholarships), learning vault, mind maps (build from an outline), AI chat history: <area>_list / <area>_save / <area>_delete.
+- Start with workspace_overview to orient; use search + fetch to find anything across every area.
+Times and dates are in the user's time zone. Any delete of more than one item, and bulk changes over 25 tasks, return a confirm_token first \u2014 show the preview to the user before confirming.`;
 function createMcpServer(repo2, auth) {
   const server = new Server(
-    { name: "clearmind", version: "1.0.0" },
-    { capabilities: { tools: {}, resources: {}, prompts: {} }, instructions: "ClearMind is the user\u2019s task and project system (Inbox, Today, Upcoming, projects with sections, labels, priorities p1\u2013p4, recurring tasks, productivity). Use inbox_capture for quick captures, tasks_create for structured tasks (due_string accepts natural language). Destructive bulk actions return a confirm_token \u2014 show the preview to the user before confirming." }
+    { name: "clearmind", version: "2.0.0" },
+    { capabilities: { tools: {}, resources: {}, prompts: {} }, instructions: INSTRUCTIONS }
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolManifest().filter((t) => t.scopes.every((s) => auth.token.scopes.includes(s))).map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema }))
@@ -3692,11 +4461,11 @@ function createMcpServer(repo2, auth) {
     if (r.ok) return { content: [{ type: "text", text: JSON.stringify(r.result, null, 2) }], structuredContent: r.result && typeof r.result === "object" && !Array.isArray(r.result) ? r.result : { result: r.result } };
     return { isError: true, content: [{ type: "text", text: JSON.stringify(r.error, null, 2) }] };
   });
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: RESOURCES.map(({ tool: _t, ...r }) => ({ ...r, mimeType: "application/json" })) }));
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: RESOURCES.map(({ tool: _t, args: _a, ...r }) => ({ ...r, mimeType: "application/json" })) }));
   server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     const res = RESOURCES.find((r2) => r2.uri === req.params.uri);
     if (!res) throw new Error(`Unknown resource ${req.params.uri}`);
-    const r = await callTool(repo2, auth, res.tool, {}, { sha256 });
+    const r = await callTool(repo2, auth, res.tool, { ...res.args ?? {} }, { sha256 });
     return { contents: [{ uri: res.uri, mimeType: "application/json", text: JSON.stringify(r.ok ? r.result : r.error, null, 2) }] };
   });
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: PROMPTS.map((p) => ({ name: p.name, description: p.description, arguments: p.args })) }));

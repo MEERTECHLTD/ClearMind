@@ -167,14 +167,27 @@ var SCOPES = [
   { scope: "notes:read", label: "Read notes", detail: "Notes vault: list, read, search, backlinks" },
   { scope: "notes:write", label: "Write notes", detail: "Create, edit, rename/move, import notes" },
   { scope: "notes:delete", label: "Delete notes", detail: "Remove notes (multiple needs confirmation)", risky: true },
+  { scope: "life:read", label: "Read everything else", detail: "Habits, goals, milestones, calendar, daily map, journal, applications, learning vault, mind maps, AI chats" },
+  { scope: "life:write", label: "Edit everything else", detail: "Create and update habits, goals, events, time blocks, journal, applications, learning, mind maps" },
+  { scope: "life:delete", label: "Delete everything else", detail: "Remove habits, goals, events, journal entries, applications\u2026", risky: true },
   { scope: "bulk", label: "Bulk operations", detail: "Change or delete many items at once (with confirmation)", risky: true }
 ];
 var SCOPE_PRESETS = [
-  { id: "read", label: "Read only", scopes: ["tasks:read", "projects:read", "productivity:read", "notes:read"] },
-  { id: "standard", label: "Standard (no deletes)", scopes: ["tasks:read", "tasks:write", "projects:read", "projects:write", "productivity:read", "notes:read", "notes:write"] },
-  { id: "full", label: "Full access", scopes: ["tasks:read", "tasks:write", "tasks:delete", "projects:read", "projects:write", "projects:delete", "productivity:read", "notes:read", "notes:write", "notes:delete", "bulk"] }
+  { id: "read", label: "Read only", scopes: ["tasks:read", "projects:read", "productivity:read", "notes:read", "life:read"] },
+  { id: "standard", label: "Standard (no deletes)", scopes: ["tasks:read", "tasks:write", "projects:read", "projects:write", "productivity:read", "notes:read", "notes:write", "life:read", "life:write"] },
+  { id: "full", label: "Full access", scopes: ["tasks:read", "tasks:write", "tasks:delete", "projects:read", "projects:write", "projects:delete", "productivity:read", "notes:read", "notes:write", "notes:delete", "life:read", "life:write", "life:delete", "bulk"] }
 ];
 var DEFAULT_RATE_LIMIT = 60;
+var SCOPE_VERSION = 2;
+function effectiveScopes(t) {
+  const s = new Set(t.scopes);
+  if (!t.scopeVersion || t.scopeVersion < SCOPE_VERSION) {
+    if (s.has("tasks:read")) s.add("life:read");
+    if (s.has("tasks:write")) s.add("life:write");
+    if (s.has("tasks:delete")) s.add("life:delete");
+  }
+  return [...s];
+}
 
 // shared/agents/oauth.ts
 var OAUTH_CODE_TTL_MS = 5 * 60 * 1e3;
@@ -540,7 +553,8 @@ async function limited(req, res, rule) {
   return true;
 }
 var str = (v, max) => typeof v === "string" && v.length <= max ? v : "";
-async function mintAccessToken(uid, scopes, clientId, clientName) {
+async function mintAccessToken(uid, granted, clientId, clientName, scopeVersion) {
+  const scopes = effectiveScopes({ scopes: granted, scopeVersion });
   const token = makeToken(uid, rand(40));
   const hash = sha(token);
   const now = Date.now();
@@ -553,6 +567,7 @@ async function mintAccessToken(uid, scopes, clientId, clientName) {
     rateLimit: DEFAULT_RATE_LIMIT,
     revoked: false,
     via: "oauth",
+    scopeVersion: SCOPE_VERSION,
     clientId,
     expiresAt: new Date(now + OAUTH_ACCESS_TTL_MS).toISOString()
   });
@@ -562,6 +577,7 @@ async function mintAccessToken(uid, scopes, clientId, clientName) {
     clientId,
     clientName,
     scopes,
+    scopeVersion: SCOPE_VERSION,
     accessHash: hash,
     createdAt: new Date(now).toISOString(),
     expiresAt: now + OAUTH_REFRESH_TTL_MS
@@ -660,7 +676,7 @@ async function handle(req, res) {
         if (f.redirect_uri && f.redirect_uri !== claim.redirectUri) return oauthError(res, 400, "invalid_grant", "redirect_uri mismatch");
         if (!await verifyPkce(String(f.code_verifier ?? ""), claim.codeChallenge, shaBytes)) return oauthError(res, 400, "invalid_grant", "PKCE verification failed");
         await ref.delete().catch(() => void 0);
-        return sendJson(res, 200, await mintAccessToken(claim.uid, claim.scopes, claim.clientId, claim.clientName));
+        return sendJson(res, 200, await mintAccessToken(claim.uid, claim.scopes, claim.clientId, claim.clientName, SCOPE_VERSION));
       }
       if (f.grant_type === "refresh_token") {
         const ref = fdb().doc(`oauthRefresh/${sha(String(f.refresh_token ?? ""))}`);
@@ -677,7 +693,7 @@ async function handle(req, res) {
         const oldSnap = await old.get();
         if (!oldSnap.exists || oldSnap.data()?.revoked) return oauthError(res, 400, "invalid_grant", "Access was revoked");
         await old.delete();
-        return sendJson(res, 200, await mintAccessToken(d.uid, d.scopes, d.clientId, d.clientName));
+        return sendJson(res, 200, await mintAccessToken(d.uid, d.scopes, d.clientId, d.clientName, d.scopeVersion ?? null));
       }
       return oauthError(res, 400, "unsupported_grant_type", "Use authorization_code or refresh_token");
     }

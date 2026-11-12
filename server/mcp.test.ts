@@ -45,7 +45,8 @@ describe('MCP server (real protocol, SDK client)', () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
     expect(names).toContain('inbox_capture');
-    expect(names).toContain('views_today');
+    expect(names).toContain('tasks_view');
+    expect(names).not.toContain('views_today'); // merged into tasks_view (still callable as an alias)
     expect(names).not.toContain('tasks_delete');
     expect(names).not.toContain('projects_delete');
     expect(tools.find((t) => t.name === 'tasks_create')!.inputSchema).toMatchObject({ type: 'object', required: ['title'] });

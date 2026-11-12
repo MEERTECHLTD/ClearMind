@@ -226,7 +226,7 @@ const App: React.FC = () => {
             
             // Notify 15 minutes before
             if (eventMinutes - nowMinutes <= 15 && eventMinutes - nowMinutes >= 0) {
-              await showNotification('📅 Event Starting Soon', {
+              await showNotification('Event starting soon', {
                 body: `${event.title} starts at ${event.startTime}${event.location ? ` - ${event.location}` : ''}`,
                 tag: `event-${event.id}`,
                 data: { type: 'event', id: event.id }
@@ -237,7 +237,7 @@ const App: React.FC = () => {
           } else {
             // All-day event, notify in the morning
             if (now.getHours() >= 8 && now.getHours() < 9) {
-              await showNotification('📅 Event Today', {
+              await showNotification('Event today', {
                 body: `${event.title}${event.location ? ` - ${event.location}` : ''}`,
                 tag: `event-${event.id}`,
                 data: { type: 'event', id: event.id }

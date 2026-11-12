@@ -6,7 +6,7 @@
  */
 import { collection, doc, setDoc, updateDoc, onSnapshot, query, orderBy, limit as qlimit, getDocs, writeBatch, type Firestore } from 'firebase/firestore';
 import type { AgentScope, AgentToken, AgentAudit } from '../types';
-import { makeToken, secretFromBytes, tokenPrefix, DEFAULT_RATE_LIMIT } from '../agents/tokens';
+import { makeToken, secretFromBytes, tokenPrefix, DEFAULT_RATE_LIMIT, SCOPE_VERSION } from '../agents/tokens';
 
 export interface CryptoDeps { sha256: (s: string) => Promise<string>; randomBytes: (n: number) => Uint8Array }
 
@@ -15,7 +15,7 @@ export async function createAgentToken(db: Firestore, uid: string, input: { name
   if (!input.scopes.length) throw new Error('Pick at least one permission');
   const token = makeToken(uid, secretFromBytes(c.randomBytes(48)));
   const id = await c.sha256(token);
-  const record: AgentToken = { id, name, scopes: input.scopes, createdAt: new Date().toISOString(), lastUsedAt: null, revoked: false, revokedAt: null, rateLimit: input.rateLimit ?? DEFAULT_RATE_LIMIT, prefix: tokenPrefix(token) };
+  const record: AgentToken = { id, name, scopes: input.scopes, createdAt: new Date().toISOString(), lastUsedAt: null, revoked: false, revokedAt: null, rateLimit: input.rateLimit ?? DEFAULT_RATE_LIMIT, prefix: tokenPrefix(token), scopeVersion: SCOPE_VERSION };
   await setDoc(doc(db, `users/${uid}/agentTokens/${id}`), record);
   return { token, record };
 }

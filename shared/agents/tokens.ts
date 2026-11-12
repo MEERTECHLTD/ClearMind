@@ -44,13 +44,34 @@ export const SCOPES: ScopeInfo[] = [
   { scope: 'notes:read', label: 'Read notes', detail: 'Notes vault: list, read, search, backlinks' },
   { scope: 'notes:write', label: 'Write notes', detail: 'Create, edit, rename/move, import notes' },
   { scope: 'notes:delete', label: 'Delete notes', detail: 'Remove notes (multiple needs confirmation)', risky: true },
+  { scope: 'life:read', label: 'Read everything else', detail: 'Habits, goals, milestones, calendar, daily map, journal, applications, learning vault, mind maps, AI chats' },
+  { scope: 'life:write', label: 'Edit everything else', detail: 'Create and update habits, goals, events, time blocks, journal, applications, learning, mind maps' },
+  { scope: 'life:delete', label: 'Delete everything else', detail: 'Remove habits, goals, events, journal entries, applications…', risky: true },
   { scope: 'bulk', label: 'Bulk operations', detail: 'Change or delete many items at once (with confirmation)', risky: true },
 ];
 
 export const SCOPE_PRESETS: { id: string; label: string; scopes: AgentScope[] }[] = [
-  { id: 'read', label: 'Read only', scopes: ['tasks:read', 'projects:read', 'productivity:read', 'notes:read'] },
-  { id: 'standard', label: 'Standard (no deletes)', scopes: ['tasks:read', 'tasks:write', 'projects:read', 'projects:write', 'productivity:read', 'notes:read', 'notes:write'] },
-  { id: 'full', label: 'Full access', scopes: ['tasks:read', 'tasks:write', 'tasks:delete', 'projects:read', 'projects:write', 'projects:delete', 'productivity:read', 'notes:read', 'notes:write', 'notes:delete', 'bulk'] },
+  { id: 'read', label: 'Read only', scopes: ['tasks:read', 'projects:read', 'productivity:read', 'notes:read', 'life:read'] },
+  { id: 'standard', label: 'Standard (no deletes)', scopes: ['tasks:read', 'tasks:write', 'projects:read', 'projects:write', 'productivity:read', 'notes:read', 'notes:write', 'life:read', 'life:write'] },
+  { id: 'full', label: 'Full access', scopes: ['tasks:read', 'tasks:write', 'tasks:delete', 'projects:read', 'projects:write', 'projects:delete', 'productivity:read', 'notes:read', 'notes:write', 'notes:delete', 'life:read', 'life:write', 'life:delete', 'bulk'] },
 ];
 
 export const DEFAULT_RATE_LIMIT = 60; // requests per minute
+
+/** Current scope generation. Tokens stamped with it carry life:* scopes explicitly. */
+export const SCOPE_VERSION = 2;
+
+/**
+ * Scopes a token actually has. Tokens created before the life:* scopes existed
+ * (no scopeVersion) get them implied from their task scopes, so connected
+ * agents gain the new areas without reconnecting.
+ */
+export function effectiveScopes(t: { scopes: AgentScope[]; scopeVersion?: number | null }): AgentScope[] {
+  const s = new Set(t.scopes);
+  if (!t.scopeVersion || t.scopeVersion < SCOPE_VERSION) {
+    if (s.has('tasks:read')) s.add('life:read');
+    if (s.has('tasks:write')) s.add('life:write');
+    if (s.has('tasks:delete')) s.add('life:delete');
+  }
+  return [...s];
+}

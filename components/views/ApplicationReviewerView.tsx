@@ -112,7 +112,7 @@ const ApplicationReviewerView: React.FC = () => {
     >
       {!configured && (
         <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2" role="status">
-          <CircleAlert size={16} className="shrink-0" /> The AI reviewer needs a Gemini API key configured for this deployment.
+          <CircleAlert size={16} className="shrink-0" /> Sign in with your ClearMind account to use the AI reviewer.
         </div>
       )}
 

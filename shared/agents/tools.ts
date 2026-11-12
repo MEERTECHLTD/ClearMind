@@ -22,8 +22,12 @@ import * as NV from '../notes';
 import * as D from '../domain';
 import { todayView, upcomingView, inboxTasks, compareTasks, isOverdue, priorityFromLevel, toISODate, orderedProjects, projectTasks, parseQuickAdd } from '../tasks';
 import { nowInZone, dayInZone } from '../tasks/time';
-import { parseToken, DEFAULT_RATE_LIMIT } from './tokens';
+import { parseToken, DEFAULT_RATE_LIMIT, effectiveScopes } from './tokens';
 import { validateArgs, ArgError } from './validate';
+import { AgentError } from './errors';
+import { projectNotesFolder, isProjectNote } from '../projects/notes';
+import { LIFE_TOOLS, LIFE_COLLS, lifeSearch, LIFE_KIND_COLL, type LifeColl } from './lifeTools';
+export { AgentError };
 
 // ------------------------------------------------------------------ repository contract
 
@@ -34,6 +38,8 @@ export interface FullState extends D.DomainState {
   preferences: Preferences | null;
   /** Notes vault (optional so older repos/tests keep working). */
   notes?: Note[];
+  /** Other app areas (habits, goals, calendar…), loaded only for tools that need them. */
+  life?: Partial<Record<LifeColl, any[]>>;
 }
 
 export interface AgentRepo {
@@ -45,13 +51,12 @@ export interface AgentRepo {
   touchToken(uid: string, hash: string, at: string): Promise<void>;
   audit(uid: string, entry: AgentAudit): Promise<void>;
   recentActivity(uid: string, limit: number): Promise<Activity[]>;
+  /** Load extra collections (local store names) for tools that touch other app areas. */
+  loadCollections?(uid: string, colls: string[]): Promise<Record<string, any[]>>;
 }
 
 export interface AuthContext { uid: string; token: AgentToken; tokenHash: string; source: ChangeSource }
 
-export class AgentError extends Error {
-  constructor(public code: 'unauthorized' | 'forbidden' | 'rate_limited' | 'invalid' | 'not_found' | 'conflict' | 'confirm_required', message: string, public data?: unknown) { super(message); }
-}
 
 // ------------------------------------------------------------------ auth + rate limit
 
@@ -63,7 +68,7 @@ export async function authenticate(repo: AgentRepo, token: string | undefined | 
   if (!t) throw new AgentError('unauthorized', 'Unknown token.');
   if (t.revoked) throw new AgentError('unauthorized', 'This token was revoked.');
   if (t.expiresAt && !(Date.parse(t.expiresAt) > now)) throw new AgentError('unauthorized', 'This token has expired.');
-  return { uid: parsed.uid, token: t, tokenHash: hash, source };
+  return { uid: parsed.uid, token: { ...t, scopes: effectiveScopes(t) }, tokenHash: hash, source };
 }
 
 const windows = new Map<string, number[]>();
@@ -86,9 +91,15 @@ interface ToolDef {
   description: string;
   scopes: AgentScope[];
   input: { type: 'object'; properties: Record<string, any>; required?: string[]; additionalProperties?: boolean };
+  /** Callable but not listed (kept for older clients). */
+  hidden?: boolean;
+  /** Extra collections this tool reads (loaded on demand). */
+  needs?: LifeColl[];
   /** Mutating tools write edits; read tools don't. */
-  run: (x: { state: FullState; args: Args; ctx: D.Ctx; auth: AuthContext; repo: AgentRepo; now: Date }) => Promise<{ result: unknown; edits?: D.Edit[]; summary?: string }>;
+  run: (x: { state: FullState; args: Args; ctx: D.Ctx; auth: AuthContext; repo: AgentRepo; now: Date; confirm: Confirm }) => Promise<{ result: unknown; edits?: D.Edit[]; summary?: string }>;
 }
+
+type Confirm = (tool: string, ids: string[], message: string, preview: unknown) => Promise<void>;
 
 const S = { type: 'string' } as const;
 const N = { type: 'number' } as const;
@@ -220,6 +231,82 @@ function parseDue(state: FullState, text: string, now: Date) {
   return r;
 }
 
+
+// ------------------------------------------------------------------ projects: plan + notes
+
+const FILTER_SYNTAX = 'Terms: today, tomorrow, overdue, "no date", "this week", "next 7 days", recurring, p1–p4, #Project, ##Project (exact), /Section, @label, search: words, completed, subtask, assigned, "due before: YYYY-MM-DD", "created by: mcp". Operators: & | ! and parentheses.';
+const ARR = (props: Record<string, any>, description: string) => ({ type: 'array', description, items: { type: 'object', properties: props } });
+const PLAN_FIELDS = {
+  status: { type: 'string', enum: ['Not Started', 'Planning', 'In Progress', 'On Hold', 'Completed', 'Cancelled'] },
+  priority: { type: 'string', enum: ['Critical', 'High', 'Medium', 'Low'] },
+  category: { type: 'string', description: 'Energy, Green Energy, Finance, Health, IT, Education, Construction, Manufacturing, Retail, Marketing, Research, Government, Non-Profit, Startup, Personal, Other' },
+  health: { type: 'string', enum: ['On Track', 'At Risk', 'Off Track'] },
+  progress: { type: 'number', description: '0–100' },
+  start_date: DATE, deadline: DATE, next_check_in: DATE,
+  total_budget: N, budget_used: N,
+  project_manager: S, team: { type: 'array', items: S }, stakeholders: { type: 'array', items: S }, tags: { type: 'array', items: S },
+  plan_notes: { type: 'string', description: 'Free-text notes field on the project (separate from vault project notes)' },
+  objectives: { type: 'array', items: S }, scope: S, out_of_scope: { type: 'array', items: S }, assumptions: { type: 'array', items: S }, constraints: { type: 'array', items: S },
+  phases: ARR({ name: S, description: S, status: { type: 'string', enum: ['Not Started', 'In Progress', 'Completed', 'Blocked'] }, startDate: DATE, endDate: DATE, progress: N, deliverables: { type: 'array', items: S } }, 'Implementation phases (replaces the list)'),
+  risks: ARR({ title: S, description: S, severity: { type: 'string', enum: ['Low', 'Medium', 'High', 'Critical'] }, likelihood: { type: 'string', enum: ['Low', 'Medium', 'High'] }, mitigation: S, status: { type: 'string', enum: ['Open', 'Mitigated', 'Closed'] } }, 'Risks (replaces the list)'),
+  resources: ARR({ name: S, type: { type: 'string', enum: ['Budget', 'Personnel', 'Equipment', 'Software', 'Other'] }, allocated: N, used: N, unit: S }, 'Resources & budget lines (replaces the list)'),
+  metrics: ARR({ name: S, target: N, current: N, unit: S, trend: { type: 'string', enum: ['Up', 'Down', 'Stable'] } }, 'KPIs (replaces the list)'),
+  check_ins: ARR({ date: DATE, attendees: { type: 'array', items: S }, notes: S, blockers: { type: 'array', items: S }, nextSteps: { type: 'array', items: S }, mood: { type: 'string', enum: ['Positive', 'Neutral', 'Concerned'] } }, 'Team check-ins (replaces the list)'),
+  milestones: ARR({ title: S, dueDate: DATE, completed: B }, 'Project milestones (replaces the list)'),
+  add_phase: { type: 'object', description: 'Append one phase', properties: { name: S, description: S, status: S, startDate: DATE, endDate: DATE } },
+  add_risk: { type: 'object', description: 'Append one risk', properties: { title: S, severity: S, likelihood: S, mitigation: S } },
+  add_checkin: { type: 'object', description: 'Append one team check-in', properties: { date: DATE, notes: S, attendees: { type: 'array', items: S }, blockers: { type: 'array', items: S }, nextSteps: { type: 'array', items: S }, mood: S } },
+  add_metric: { type: 'object', description: 'Append one KPI', properties: { name: S, target: N, current: N, unit: S } },
+} as const;
+
+/** Map plan arguments onto the Project record's fields (lists get ids and defaults). */
+function planPatch(p: Project, a: Args, ctx: D.Ctx): Record<string, any> {
+  const id = () => D.newId(ctx);
+  const out: Record<string, any> = {};
+  const set = (k: string, v: unknown) => { if (v !== undefined) out[k] = v; };
+  set('status', a.status); set('priority', a.priority); set('category', a.category); set('healthStatus', a.health);
+  if (a.progress !== undefined) out.progress = Math.max(0, Math.min(100, Math.round(Number(a.progress))));
+  set('startDate', a.start_date); set('deadline', a.deadline); set('nextCheckInDate', a.next_check_in);
+  set('totalBudget', a.total_budget); set('budgetUsed', a.budget_used); set('projectManager', a.project_manager);
+  set('team', a.team); set('stakeholders', a.stakeholders); set('tags', a.tags); set('notes', a.plan_notes);
+  const phase = (x: any, i: number) => ({ id: x.id ?? id(), name: String(x.name ?? `Phase ${i + 1}`), description: x.description, status: x.status ?? 'Not Started', startDate: x.startDate, endDate: x.endDate, progress: Number(x.progress ?? 0), deliverables: x.deliverables ?? [], order: x.order ?? i });
+  const risk = (x: any) => ({ id: x.id ?? id(), title: String(x.title ?? 'Risk'), description: x.description, severity: x.severity ?? 'Medium', likelihood: x.likelihood ?? 'Medium', mitigation: x.mitigation, status: x.status ?? 'Open' });
+  const res = (x: any) => ({ id: x.id ?? id(), name: String(x.name ?? 'Resource'), type: x.type ?? 'Other', allocated: Number(x.allocated ?? 0), used: Number(x.used ?? 0), unit: x.unit });
+  const metric = (x: any) => ({ id: x.id ?? id(), name: String(x.name ?? 'Metric'), target: Number(x.target ?? 0), current: Number(x.current ?? 0), unit: x.unit ?? '', trend: x.trend });
+  const checkin = (x: any) => ({ id: x.id ?? id(), date: x.date ?? toISODate(ctx.now ?? new Date()), attendees: x.attendees ?? [], notes: String(x.notes ?? ''), blockers: x.blockers, nextSteps: x.nextSteps, mood: x.mood });
+  const plan = { ...(p.implementationPlan ?? { phases: [] }) } as NonNullable<Project['implementationPlan']>;
+  let planChanged = false;
+  if (a.phases) { plan.phases = a.phases.map(phase); planChanged = true; }
+  if (a.add_phase) { plan.phases = [...(plan.phases ?? []), phase(a.add_phase, plan.phases?.length ?? 0)]; planChanged = true; }
+  for (const [arg, key] of [['objectives', 'objectives'], ['scope', 'scope'], ['out_of_scope', 'outOfScope'], ['assumptions', 'assumptions'], ['constraints', 'constraints']] as const) if (a[arg] !== undefined) { (plan as any)[key] = a[arg]; planChanged = true; }
+  if (planChanged) out.implementationPlan = plan;
+  if (a.risks) out.risks = a.risks.map(risk);
+  if (a.add_risk) out.risks = [...(out.risks ?? p.risks ?? []), risk(a.add_risk)];
+  if (a.resources) out.resources = a.resources.map(res);
+  if (a.metrics) out.performanceMetrics = a.metrics.map(metric);
+  if (a.add_metric) out.performanceMetrics = [...(out.performanceMetrics ?? p.performanceMetrics ?? []), metric(a.add_metric)];
+  if (a.check_ins) out.teamCheckIns = a.check_ins.map(checkin);
+  if (a.add_checkin) out.teamCheckIns = [...(out.teamCheckIns ?? p.teamCheckIns ?? []), checkin(a.add_checkin)];
+  if (a.milestones) out.projectMilestones = a.milestones.map((x: any) => ({ id: x.id ?? id(), title: String(x.title ?? ''), dueDate: x.dueDate, completed: !!x.completed }));
+  if (Object.keys(out).length) out.updatedAt = (ctx.now ?? new Date()).toISOString();
+  return out;
+}
+
+function projectPlan(p: Project) {
+  const ip = p.implementationPlan;
+  return {
+    status: p.status ?? null, priority: p.priority ?? null, category: p.category ?? null, health: p.healthStatus ?? null, progress: p.progress ?? null,
+    start_date: p.startDate ?? null, deadline: p.deadline ?? null, next_check_in: p.nextCheckInDate ?? null,
+    budget: p.totalBudget != null ? { total: p.totalBudget, used: p.budgetUsed ?? 0 } : null,
+    project_manager: p.projectManager ?? null, team: p.team ?? [], stakeholders: p.stakeholders ?? [], tags: p.tags ?? [], plan_notes: p.notes || null,
+    objectives: ip?.objectives ?? [], scope: ip?.scope ?? null, out_of_scope: ip?.outOfScope ?? [], assumptions: ip?.assumptions ?? [], constraints: ip?.constraints ?? [],
+    phases: ip?.phases ?? [], risks: p.risks ?? [], resources: p.resources ?? [], metrics: p.performanceMetrics ?? [], check_ins: p.teamCheckIns ?? [], milestones: p.projectMilestones ?? [], alignments: p.alignments ?? [],
+  };
+}
+
+export const projectFolder = projectNotesFolder;
+const projectNotes = (index: NV.VaultIndex, p: Project): Note[] => index.notes.filter((n) => isProjectNote(n, p));
+
 // ------------------------------------------------------------------ the catalog
 
 export const TOOLS: ToolDef[] = [
@@ -231,16 +318,6 @@ export const TOOLS: ToolDef[] = [
     run: async ({ state, args, ctx, now }) => {
       const r = D.captureInbox(state, String(args.text), ctx, { kind: args.kind, parse: args.parse, description: args.description ?? null, idempotencyKey: args.idempotency_key ?? null });
       return { result: describe(D.applyEdits(state, r.edits) as FullState, now)(r.result), edits: r.edits, summary: `captured "${r.result.title}"` };
-    },
-  },
-  {
-    name: 'inbox_list', title: 'List Inbox', scopes: ['tasks:read'],
-    description: 'List open items in the Inbox (tasks and notes not yet organised into a project), newest first.',
-    input: { type: 'object', properties: { limit: N } },
-    run: async ({ state, args, now }) => {
-      const lk = lookups(state);
-      const items = inboxTasks(live(state.tasks), lk.projects).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')).slice(0, args.limit ?? 100);
-      return { result: { count: items.length, items: items.map(describe(state, now)) } };
     },
   },
   {
@@ -287,33 +364,22 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'tasks_update', title: 'Update task', scopes: ['tasks:write'],
-    description: 'Update fields of a task (title, description, due, priority, project, section, labels, recurrence, reminders, duration). Only the fields you pass change.',
-    input: { type: 'object', properties: { id: S, ...TASK_FIELDS }, required: ['id'] },
+    description: 'Update a task: title, description, due, priority, project, section, labels, recurrence, reminders ([] clears), duration — and completed=true to complete it (recurring tasks roll forward; next_due is returned) or completed=false to reopen. Only the fields you pass change.',
+    input: { type: 'object', properties: { id: S, ...TASK_FIELDS, completed: { type: 'boolean', description: 'true = complete (idempotent), false = reopen' } }, required: ['id'] },
     run: async ({ state, args, ctx, now }) => {
       getTask(state, args.id);
       const edits: D.Edit[] = [];
-      const f = taskFields(state, args, ctx, edits, now);
-      const r = D.updateTask(D.applyEdits(state, edits), args.id, f as D.TaskPatch, ctx);
-      edits.push(...r.edits);
-      return { result: describe(D.applyEdits(state, edits) as FullState, now)(r.result), edits, summary: `updated "${r.result.title}"` };
-    },
-  },
-  {
-    name: 'tasks_complete', title: 'Complete task', scopes: ['tasks:write'],
-    description: 'Complete a task. Recurring tasks roll forward to their next occurrence (returned as next_due). Idempotent.',
-    input: { type: 'object', properties: { id: S }, required: ['id'] },
-    run: async ({ state, args, ctx, now }) => {
-      const r = D.completeTask(state, args.id, ctx);
-      return { result: { task: describe(D.applyEdits(state, r.edits) as FullState, now)(r.result.task), next_due: r.result.nextDueDate }, edits: r.edits, summary: `completed "${r.result.task.title}"` };
-    },
-  },
-  {
-    name: 'tasks_reopen', title: 'Reopen task', scopes: ['tasks:write'],
-    description: 'Reopen a completed task (and completed parents).',
-    input: { type: 'object', properties: { id: S }, required: ['id'] },
-    run: async ({ state, args, ctx, now }) => {
-      const r = D.reopenTask(state, args.id, ctx);
-      return { result: describe(state, now)(r.result), edits: r.edits, summary: `reopened "${r.result.title}"` };
+      const { completed, ...rest } = args;
+      const f = taskFields(state, rest, ctx, edits, now);
+      let working: D.DomainState = D.applyEdits(state, edits);
+      let task: Task = getTask(working as FullState, args.id);
+      if (Object.keys(f).length) { const r = D.updateTask(working, args.id, f as D.TaskPatch, ctx); edits.push(...r.edits); working = D.applyEdits(working, r.edits); task = r.result; }
+      let nextDue: string | null | undefined;
+      if (completed === true) { const r = D.completeTask(working, args.id, ctx); edits.push(...r.edits); working = D.applyEdits(working, r.edits); task = r.result.task; nextDue = r.result.nextDueDate; }
+      if (completed === false) { const r = D.reopenTask(working, args.id, ctx); edits.push(...r.edits); working = D.applyEdits(working, r.edits); task = r.result; }
+      const out: any = describe(working as FullState, now)(task);
+      if (nextDue !== undefined) out.next_due = nextDue;
+      return { result: out, edits, summary: `${completed === true ? 'completed' : completed === false ? 'reopened' : 'updated'} "${task.title}"` };
     },
   },
   {
@@ -337,33 +403,23 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: 'tasks_move', title: 'Move tasks', scopes: ['tasks:write'],
-    description: 'Move tasks to a project and/or section (sub-tasks follow). Select tasks by ids or by a filter query (e.g. "##Project A" for every open task in Project A). Moving more than 25 tasks requires the bulk scope and a confirmation round-trip.',
-    input: { type: 'object', properties: { ids: { type: 'array', items: S }, query: { type: 'string', description: 'Filter query selecting the tasks to move' }, project: S, section: S, confirm_token: S } },
-    run: async (x) => bulk(x, 'tasks_move', (state, ids, ctx) => {
-      const proj = resolveProject(state, x.args.project);
-      const sec = resolveSection(state, proj?.id ?? undefined, x.args.section);
-      return D.moveTasks(state, ids, { projectId: proj === undefined ? undefined : proj?.id ?? null, sectionId: sec === undefined ? undefined : sec?.id ?? null }, ctx);
-    }),
-  },
-  {
-    name: 'tasks_bulk_update', title: 'Bulk update tasks', scopes: ['tasks:write', 'bulk'],
-    description: 'Apply the same change (priority, due, labels, project/section) to many tasks — select by ids or a filter query. Previews and returns a confirm_token when more than 25 tasks are affected; call again with it to apply.',
-    input: { type: 'object', properties: { ids: { type: 'array', items: S }, query: S, priority: PRIORITY, due_date: DATE, due_string: S, labels: { type: 'array', items: S }, project: S, section: S, confirm_token: S } },
+    name: 'tasks_bulk_update', title: 'Bulk update, move or complete tasks', scopes: ['tasks:write'],
+    description: 'Apply one change to many tasks selected by ids or a filter query (e.g. "##Project A", "overdue & p1"): move (project/section; sub-tasks follow), priority, due, labels, or complete=true. More than 25 tasks needs the bulk scope and a confirm_token round-trip (the first call previews).',
+    input: { type: 'object', properties: { ids: { type: 'array', items: S }, query: S, project: S, section: S, priority: PRIORITY, due_date: DATE, due_string: S, labels: { type: 'array', items: S }, complete: B, confirm_token: S } },
     run: async (x) => bulk(x, 'tasks_bulk_update', (state, ids, ctx, now, edits) => {
-      const f = taskFields(state, x.args, ctx, edits, now);
-      return D.bulkUpdate(D.applyEdits(state, edits), ids, f as D.TaskPatch, ctx);
-    }),
-  },
-  {
-    name: 'tasks_bulk_complete', title: 'Bulk complete tasks', scopes: ['tasks:write', 'bulk'],
-    description: 'Complete many tasks (by ids or filter query). Over 25 requires confirmation.',
-    input: { type: 'object', properties: { ids: { type: 'array', items: S }, query: S, confirm_token: S } },
-    run: async (x) => bulk(x, 'tasks_bulk_complete', (state, ids, ctx) => {
+      const { complete, project, section, ...rest } = x.args;
       let s: D.DomainState = state;
-      const edits: D.Edit[] = [];
-      for (const id of ids) { const r = D.completeTask(s, id, ctx); edits.push(...r.edits); s = D.applyEdits(s, r.edits); }
-      return { edits, result: { completed: ids.length } };
+      if (project !== undefined || section !== undefined) {
+        const proj = resolveProject(state, project);
+        const sec = resolveSection(state, proj?.id ?? undefined, section);
+        const r = D.moveTasks(s, ids, { projectId: proj === undefined ? undefined : proj?.id ?? null, sectionId: sec === undefined ? undefined : sec?.id ?? null }, ctx);
+        edits.push(...r.edits); s = D.applyEdits(s, r.edits);
+      }
+      const f = taskFields(state, rest, ctx, edits, now);
+      s = D.applyEdits(s, edits.filter((e) => e.coll === 'labels'));
+      if (Object.keys(f).length) { const r = D.bulkUpdate(s, ids, f as D.TaskPatch, ctx); edits.push(...r.edits); s = D.applyEdits(s, r.edits); }
+      if (complete) for (const id of ids) { const r = D.completeTask(s, id, ctx); edits.push(...r.edits); s = D.applyEdits(s, r.edits); }
+      return { edits: [], result: { completed: complete ? ids.length : 0 } };
     }),
   },
   {
@@ -378,46 +434,27 @@ export const TOOLS: ToolDef[] = [
     }, { alwaysConfirm: true }),
   },
   {
-    name: 'search_global', title: 'Search', scopes: ['tasks:read'],
-    description: 'Full-text search across task titles, descriptions, comments/notes, project and section names and labels; also returns matching projects and labels.',
-    input: { type: 'object', properties: { query: S, include_completed: B, limit: N }, required: ['query'] },
+    name: 'tasks_view', title: 'Task views: today, upcoming, overdue, inbox', scopes: ['tasks:read'],
+    description: "Ready-made task views in the user's time zone: today (overdue + due today, with completed-today vs daily goal), upcoming (by day for the next `days`, default 7), overdue (oldest first) or inbox (unorganised captures, newest first).",
+    input: { type: 'object', properties: { view: { type: 'string', enum: ['today', 'upcoming', 'overdue', 'inbox'] }, days: N, limit: N }, required: ['view'] },
     run: async ({ state, args, now }) => {
-      const r = D.globalSearch(state, String(args.query), { includeCompleted: !!args.include_completed, limit: args.limit ?? 50 });
-      return { result: { tasks: r.tasks.map(describe(state, now)), projects: r.projects.map((p) => ({ id: p.id, name: p.title })), labels: r.labels.map((l) => ({ id: l.id, name: l.name })) } };
-    },
-  },
-  // ---------------- views
-  {
-    name: 'views_today', title: "Today's tasks", scopes: ['tasks:read'],
-    description: "Today's plan: overdue tasks and tasks due today (in the user's time zone), plus completed-today count.",
-    input: { type: 'object', properties: {} },
-    run: async ({ state, now }) => {
       const local = nowInZone(state.preferences?.timezone ?? null, now);
+      const d = describe(state, local);
+      if (args.view === 'upcoming') {
+        const groups = upcomingView(live(state.tasks), local, Math.min(args.days ?? 7, 60)).filter((g) => g.tasks.length);
+        return { result: { view: 'upcoming', days: groups.map((g) => ({ date: g.date, tasks: g.tasks.map(d) })) } };
+      }
+      if (args.view === 'overdue') {
+        const ts = live(state.tasks).filter((t) => isOverdue(t, local)).sort(compareTasks);
+        return { result: { view: 'overdue', count: ts.length, tasks: ts.map(d) } };
+      }
+      if (args.view === 'inbox') {
+        const items = inboxTasks(live(state.tasks), lookups(state).projects).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')).slice(0, args.limit ?? 100);
+        return { result: { view: 'inbox', count: items.length, items: items.map(d) } };
+      }
       const v = todayView(live(state.tasks), local);
-      const d = describe(state, local);
       const day = D.daySummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now });
-      return { result: { date: toISODate(local), overdue: v.overdue.map(d), today: v.today.map(d), completed_today: day.completed, daily_goal: day.goal } };
-    },
-  },
-  {
-    name: 'views_upcoming', title: 'Upcoming', scopes: ['tasks:read'],
-    description: 'Tasks grouped by day for the next N days (default 7).',
-    input: { type: 'object', properties: { days: N } },
-    run: async ({ state, args, now }) => {
-      const local = nowInZone(state.preferences?.timezone ?? null, now);
-      const d = describe(state, local);
-      const groups = upcomingView(live(state.tasks), local, Math.min(args.days ?? 7, 60)).filter((g) => g.tasks.length);
-      return { result: { days: groups.map((g) => ({ date: g.date, tasks: g.tasks.map(d) })) } };
-    },
-  },
-  {
-    name: 'views_overdue', title: 'Overdue', scopes: ['tasks:read'],
-    description: 'Every open overdue task, oldest first.',
-    input: { type: 'object', properties: {} },
-    run: async ({ state, now }) => {
-      const local = nowInZone(state.preferences?.timezone ?? null, now);
-      const ts = live(state.tasks).filter((t) => isOverdue(t, local)).sort(compareTasks);
-      return { result: { count: ts.length, tasks: ts.map(describe(state, local)) } };
+      return { result: { view: 'today', date: toISODate(local), overdue: v.overdue.map(d), today: v.today.map(d), completed_today: day.completed, daily_goal: day.goal } };
     },
   },
   // ---------------- projects, sections, labels
@@ -435,7 +472,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'projects_get', title: 'Get project', scopes: ['projects:read', 'tasks:read'],
-    description: 'A project workspace: sections with their open tasks, tracker statistics (progress, overdue, blocked, due this week, trend) and recent activity. Use this to summarise a project or find blockers.',
+    description: 'A project workspace: sections with their open tasks, tracker statistics (progress, overdue, blocked, due this week, trend), the plan (status, health, category, phases, risks, budget/resources, KPIs, team check-ins, objectives), its project notes and recent activity. Use this to summarise a project or find blockers.',
     input: { type: 'object', properties: { project: { type: 'string', description: 'Name or id' }, include_completed: B } },
     run: async ({ state, args, repo, auth, now }) => {
       const p = resolveProject(state, args.project);
@@ -445,8 +482,11 @@ export const TOOLS: ToolDef[] = [
       const open = projectTasks(live(state.tasks), p.id);
       const stats = D.projectStats([p.id], { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections, now });
       const acts = (await repo.recentActivity(auth.uid, 300)).filter((a) => a.projectId === p.id).slice(0, 20);
+      const notesIndex = NV.buildIndex(state.notes ?? []);
+      const pn = projectNotes(notesIndex, p).map((n) => NV.describeNote(notesIndex, n));
       return { result: {
         id: p.id, name: p.title, description: p.description || undefined, view: p.view ?? 'list', stats,
+        plan: projectPlan(p), notes: { folder: projectFolder(p), count: pn.length, items: pn },
         no_section: open.filter((t) => !t.sectionId).map(d),
         sections: secs.map((s) => ({ id: s.id, name: s.name, tasks: open.filter((t) => t.sectionId === s.id).map(d) })),
         completed: args.include_completed ? live(state.tasks).filter((t) => t.projectId === p.id && t.completed).map(d) : undefined,
@@ -456,8 +496,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'projects_create', title: 'Create project', scopes: ['projects:write'],
-    description: 'Create a project (optionally nested, with sections, or from a template id: software-release, product-launch, kanban, weekly-review, personal).',
-    input: { type: 'object', properties: { name: S, parent: S, color: S, view: { type: 'string', enum: ['list', 'board'] }, sections: { type: 'array', items: S }, template: S, idempotency_key: S }, required: ['name'] },
+    description: 'Create a project (optionally nested, with sections, or from a template id — see workspace_overview) and, optionally, its plan fields (status, category, priority, deadline, phases, risks…).',
+    input: { type: 'object', properties: { name: S, parent: S, color: S, view: { type: 'string', enum: ['list', 'board'] }, sections: { type: 'array', items: S }, template: S, description: S, ...PLAN_FIELDS, idempotency_key: S }, required: ['name'] },
     run: async ({ state, args, ctx }) => {
       const parent = args.parent ? resolveProject(state, args.parent) : null;
       let r: D.OpResult<Project>;
@@ -466,16 +506,19 @@ export const TOOLS: ToolDef[] = [
       const edits = [...r.edits];
       let s = D.applyEdits(state, edits);
       for (const name of args.sections ?? []) { const sr = D.createSection(s, { projectId: r.result.id, name }, ctx); edits.push(...sr.edits); s = D.applyEdits(s, sr.edits); }
+      const plan = planPatch(r.result, args, ctx);
+      if (args.description !== undefined) plan.description = args.description;
+      if (Object.keys(plan).length) edits.push(...D.updateProject(s, r.result.id, plan, ctx).edits);
       return { result: { id: r.result.id, name: r.result.title }, edits, summary: `created project "${r.result.title}"` };
     },
   },
   {
     name: 'projects_update', title: 'Update project', scopes: ['projects:write'],
-    description: 'Rename, recolour, re-parent, favourite, archive/unarchive a project or change its view.',
-    input: { type: 'object', properties: { project: S, name: S, color: S, parent: S, favorite: B, archived: B, view: { type: 'string', enum: ['list', 'board', 'calendar'] }, description: S }, required: ['project'] },
+    description: 'Edit a project: rename, recolour, re-parent, favourite, archive, view, description — and its plan: status, priority, category, health, progress, dates, budget, team, stakeholders, manager, objectives/scope, and the phases, risks, resources, metrics, check-ins and alignments lists (a list you pass replaces the old one; items without id get one). add_phase / add_risk / add_checkin / add_metric append a single item.',
+    input: { type: 'object', properties: { project: S, name: S, color: S, parent: S, favorite: B, archived: B, view: { type: 'string', enum: ['list', 'board', 'calendar'] }, description: S, ...PLAN_FIELDS }, required: ['project'] },
     run: async ({ state, args, ctx }) => {
       const p = resolveProject(state, args.project)!;
-      const patch: any = {};
+      const patch: any = planPatch(p, args, ctx);
       if (args.name !== undefined) patch.title = args.name;
       for (const k of ['color', 'favorite', 'archived', 'view', 'description']) if (args[k] !== undefined) patch[k] = args[k];
       if (args.parent !== undefined) patch.parentId = args.parent ? resolveProject(state, args.parent)?.id ?? null : null;
@@ -538,12 +581,6 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: 'labels_list', title: 'List labels', scopes: ['tasks:read'],
-    description: 'All labels with open task counts.',
-    input: { type: 'object', properties: {} },
-    run: async ({ state }) => ({ result: live(state.labels).map((l) => ({ id: l.id, name: l.name, color: l.color, open: live(state.tasks).filter((t) => !t.completed && (t.labelIds ?? []).includes(l.id)).length })) }),
-  },
-  {
     name: 'labels_create', title: 'Create label', scopes: ['tasks:write'],
     description: 'Create a label (idempotent by name).',
     input: { type: 'object', properties: { name: S, color: S }, required: ['name'] },
@@ -572,42 +609,24 @@ export const TOOLS: ToolDef[] = [
       return { result: cs.map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, source: c.source, agent: c.agent })) };
     },
   },
-  {
-    name: 'reminders_set', title: 'Set reminders', scopes: ['tasks:write'],
-    description: 'Replace a task’s reminders. Each: { minutes_before } relative to the due time, or { at: "YYYY-MM-DDTHH:MM" }. Pass [] to clear. Devices re-plan notifications automatically.',
-    input: { type: 'object', properties: { task_id: S, reminders: { type: 'array', items: { type: 'object', properties: { minutes_before: N, at: S } } } }, required: ['task_id', 'reminders'] },
-    run: async ({ state, args, ctx, now }) => {
-      const edits: D.Edit[] = [];
-      const f = taskFields(state, { reminders: args.reminders }, ctx, edits, now);
-      const r = D.updateTask(state, args.task_id, { reminders: f.reminders ?? [] } as any, ctx);
-      return { result: { task_id: args.task_id, reminders: r.result.reminders }, edits: r.edits, summary: 'set reminders' };
-    },
-  },
   // ---------------- productivity & activity
   {
-    name: 'productivity_summary', title: 'Productivity summary', scopes: ['productivity:read'],
-    description: "Momentum score and level, today's progress vs daily goal, this week by day vs weekly goal, streaks and the 8-week trend.",
-    input: { type: 'object', properties: {} },
-    run: async ({ state, now }) => ({ result: D.productivitySummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }) }),
-  },
-  {
-    name: 'productivity_interval', title: 'Productivity for a period', scopes: ['productivity:read'],
-    description: 'Completed tasks for today, yesterday, this_week, last_week, this_month, last_month or a custom from/to range — with breakdowns by priority, project, on-time vs late, and source (mobile/web/agent).',
-    input: { type: 'object', properties: { interval: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'] }, from: DATE, to: DATE } },
-    run: async ({ state, args, now }) => {
-      const iv: D.Interval = args.from && args.to ? { from: args.from, to: args.to } : (args.interval ?? 'this_week');
-      const r = D.intervalSummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }, iv);
-      const names = new Map(state.projects.map((p) => [p.id, p.title]));
-      return { result: { ...r, byProject: r.byProject.map((x) => ({ ...x, project: x.projectId ? names.get(x.projectId) ?? null : 'Inbox' })) } };
-    },
-  },
-  {
-    name: 'productivity_project', title: 'Project productivity', scopes: ['productivity:read', 'projects:read'],
-    description: 'Execution tracker for a project (and its sub-projects): progress, completed this week, overdue, blocked, priority distribution, trend, recently completed and upcoming.',
-    input: { type: 'object', properties: { project: S }, required: ['project'] },
-    run: async ({ state, args, now }) => {
-      const p = resolveProject(state, args.project)!;
-      return { result: { project: p.title, ...D.projectStats(D.projectSubtree(state.projects, p.id), { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections, now }) } };
+    name: 'productivity', title: 'Productivity', scopes: ['productivity:read'],
+    description: "Productivity stats. No arguments: momentum score and level, today vs daily goal, this week by day vs weekly goal, streaks, 8-week trend. interval (today, yesterday, this_week, last_week, this_month, last_month) or from/to: completed tasks with breakdowns by priority, project, on-time vs late and source. project: execution tracker for that project and its sub-projects (progress, overdue, blocked, trend, recently completed, upcoming).",
+    input: { type: 'object', properties: { interval: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'] }, from: DATE, to: DATE, project: S } },
+    run: async ({ state, args, auth, now }) => {
+      if (args.project) {
+        if (!auth.token.scopes.includes('projects:read')) throw new AgentError('forbidden', 'This token is missing scope: projects:read.');
+        const p = resolveProject(state, args.project)!;
+        return { result: { project: p.title, ...D.projectStats(D.projectSubtree(state.projects, p.id), { tasks: state.tasks, completions: state.completions, preferences: state.preferences, sections: state.sections, now }) } };
+      }
+      if (args.interval || (args.from && args.to)) {
+        const iv: D.Interval = args.from && args.to ? { from: args.from, to: args.to } : args.interval;
+        const r = D.intervalSummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }, iv);
+        const names = new Map(state.projects.map((p) => [p.id, p.title]));
+        return { result: { ...r, byProject: r.byProject.map((x) => ({ ...x, project: x.projectId ? names.get(x.projectId) ?? null : 'Inbox' })) } };
+      }
+      return { result: D.productivitySummary({ completions: state.completions, tasks: state.tasks, preferences: state.preferences, now }) };
     },
   },
   {
@@ -622,12 +641,6 @@ export const TOOLS: ToolDef[] = [
   },
   // ---------------- filters & templates & prefs
   {
-    name: 'filters_list', title: 'Saved filters', scopes: ['tasks:read'],
-    description: 'Saved filters/views and the filter query syntax.',
-    input: { type: 'object', properties: {} },
-    run: async ({ state }) => ({ result: { filters: live(state.filters).map((f) => ({ id: f.id, name: f.name, query: f.query })), syntax: 'Terms: today, tomorrow, overdue, "no date", "this week", "next 7 days", recurring, p1–p4, #Project, ##Project (exact), /Section, @label, search: words, completed, subtask, assigned, "due before: YYYY-MM-DD", "created by: mcp". Operators: & | ! and parentheses.' } }),
-  },
-  {
     name: 'filters_save', title: 'Save filter', scopes: ['tasks:write'],
     description: 'Save a reusable filter (appears on mobile and web).',
     input: { type: 'object', properties: { name: S, query: S }, required: ['name', 'query'] },
@@ -638,27 +651,37 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: 'templates_list', title: 'Project templates', scopes: ['projects:read'],
-    description: 'Available project templates (use projects_create with template=<id>).',
+    name: 'workspace_overview', title: 'Workspace overview (start here)', scopes: ['tasks:read'],
+    description: "One call to orient yourself: the user's settings (time zone, week start, goals), labels with open counts, saved filters plus the filter query syntax, project templates, and how many items exist in every area (tasks, projects, notes, habits, goals, milestones, events, time blocks, journal, applications, learning, mind maps). Then use the area's own tools.",
     input: { type: 'object', properties: {} },
-    run: async () => ({ result: D.TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, sections: t.sections.map((s) => s.name) })) }),
-  },
-  {
-    name: 'preferences_get', title: 'User preferences', scopes: ['tasks:read'],
-    description: 'Time zone, week start, daily/weekly goals and other settings that affect dates and productivity.',
-    input: { type: 'object', properties: {} },
-    run: async ({ state }) => {
+    needs: LIFE_COLLS,
+    run: async ({ state, auth }) => {
       const p = D.resolvePreferences(state.preferences);
-      return { result: { timezone: p.timezone ?? 'device default', weekStart: p.weekStart, dailyGoal: p.dailyGoal, weeklyGoal: p.weeklyGoal, daysOff: p.daysOff, nextWeek: p.nextWeek, weekend: p.weekend } };
+      const n = (xs?: any[]) => (xs ?? []).filter((x) => !x.deleted).length;
+      const canLife = auth.token.scopes.includes('life:read');
+      const L = state.life ?? {};
+      return { result: {
+        preferences: { timezone: p.timezone ?? 'device default', weekStart: p.weekStart, dailyGoal: p.dailyGoal, weeklyGoal: p.weeklyGoal, daysOff: p.daysOff, nextWeek: p.nextWeek, weekend: p.weekend },
+        labels: live(state.labels).map((l) => ({ id: l.id, name: l.name, color: l.color, open: live(state.tasks).filter((t) => !t.completed && (t.labelIds ?? []).includes(l.id)).length })),
+        filters: live(state.filters).map((f) => ({ id: f.id, name: f.name, query: f.query })),
+        filter_syntax: FILTER_SYNTAX,
+        project_templates: D.TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, sections: t.sections.map((x) => x.name) })),
+        counts: {
+          open_tasks: live(state.tasks).filter((t) => !t.completed).length, projects: n(state.projects), notes: n(state.notes),
+          ...(canLife ? { habits: n(L.habits), goals: n(L.goals), milestones: n(L.milestones), calendar_events: n(L.events), time_blocks: n(L.dailymapper), journal_logs: n(L.logs), rants: n(L.rants), applications: n(L.applications), learning: n(L.learningresources), mindmaps: n(L.mindmaps), ai_chats: n(L.iris_conversations) } : {}),
+        },
+      } };
     },
-  },  // ---------------------------------------------------------------- notes (vault)
+  },
+  // ---------------------------------------------------------------- notes (vault)
   {
     name: 'notes_list', title: 'List notes', scopes: ['notes:read'],
-    description: 'List notes in the vault (newest first) with path, tags, link counts and an excerpt. Filter by folder (includes sub-folders unless recursive=false), tag, kind, bookmarked, or a search query (same operators as notes_search). Also returns the folder tree.',
-    input: { type: 'object', properties: { folder: S, recursive: B, tag: S, kind: { type: 'string', enum: ['note', 'daily', 'template', 'canvas'] }, bookmarked: B, query: S, include_content: B, limit: { type: 'number', description: 'Default 50, max 200' } } },
+    description: 'List or search notes in the vault. Filters: folder (includes sub-folders unless recursive=false), project (that project\'s notes), tag, kind, bookmarked. query = ranked full-text search returning matching lines, with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Also returns the folder tree.',
+    input: { type: 'object', properties: { folder: S, project: { type: 'string', description: 'Only this project\'s notes (name or id)' }, recursive: B, tag: S, kind: { type: 'string', enum: ['note', 'daily', 'template', 'canvas'] }, bookmarked: B, query: S, include_content: B, limit: { type: 'number', description: 'Default 50, max 200' } } },
     run: async ({ state, args }) => {
       const index = NV.buildIndex(state.notes ?? []);
       let list = [...index.notes];
+      if (args.project) { const p = resolveProject(state, args.project); if (!p) throw new AgentError('invalid', 'Pass a project name or id.'); const ids = new Set(projectNotes(index, p).map((n) => n.id)); list = list.filter((n) => ids.has(n.id)); }
       if (args.folder !== undefined && args.folder !== null) {
         const f = NV.normPath(String(args.folder));
         list = list.filter((n) => { const nf = NV.normPath(n.folder ?? ''); return args.recursive === false ? nf === f : nf === f || nf.startsWith(f + '/'); });
@@ -666,9 +689,14 @@ export const TOOLS: ToolDef[] = [
       if (args.tag) { const t = String(args.tag).replace(/^#/, '').toLowerCase(); list = list.filter((n) => (index.tagsOf.get(n.id) ?? []).some((x) => x === t || x.startsWith(t + '/'))); }
       if (args.kind) list = list.filter((n) => (n.kind ?? 'note') === args.kind);
       if (args.bookmarked !== undefined) list = list.filter((n) => !!n.bookmarked === !!args.bookmarked);
-      if (args.query) { const hits = new Set(NV.searchVault(index, String(args.query), 1000).map((h) => h.note.id)); list = list.filter((n) => hits.has(n.id)); }
-      list.sort((a, b) => (b.lastEdited ?? '').localeCompare(a.lastEdited ?? ''));
       const limit = Math.min(200, Math.max(1, Number(args.limit) || 50));
+      if (args.query) {
+        // Ranked full-text search with matching lines (search operators apply).
+        const keep = new Set(list.map((n) => n.id));
+        const hits = NV.searchVault(index, String(args.query), 1000).filter((h) => keep.has(h.note.id));
+        return { result: { total: hits.length, notes: hits.slice(0, limit).map((h) => ({ ...NV.describeNote(index, h.note, { content: !!args.include_content }), matches: h.matches })), folders: NV.folderSummary(index) } };
+      }
+      list.sort((a, b) => (b.lastEdited ?? '').localeCompare(a.lastEdited ?? ''));
       return { result: { total: list.length, notes: list.slice(0, limit).map((n) => NV.describeNote(index, n, { content: !!args.include_content })), folders: NV.folderSummary(index) } };
     },
   },
@@ -682,21 +710,17 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: 'notes_search', title: 'Search notes', scopes: ['notes:read'],
-    description: 'Full-text search across notes with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Returns matching lines.',
-    input: { type: 'object', properties: { query: S, limit: N }, required: ['query'] },
-    run: async ({ state, args }) => {
-      const index = NV.buildIndex(state.notes ?? []);
-      const hits = NV.searchVault(index, String(args.query), Math.min(200, Number(args.limit) || 30));
-      return { result: { total: hits.length, results: hits.map((h) => ({ ...NV.describeNote(index, h.note), matches: h.matches })) } };
-    },
-  },
-  {
     name: 'notes_create', title: 'Create note', scopes: ['notes:write'],
     description: 'Create a markdown note in the vault. Use [[Other note]] links and #tags in content; folders are created implicitly ("Projects/RanaWallet"). Titles must be unique per folder. Pass idempotency_key to make retries safe; if_exists="skip" returns the existing note instead of failing.',
-    input: { type: 'object', properties: { title: S, folder: S, content: { type: 'string', description: 'Markdown body (may include YAML frontmatter)' }, properties: { type: 'object', description: 'Frontmatter properties to set, e.g. {"status":"draft","tags":["idea"]}' }, kind: { type: 'string', enum: ['note', 'template', 'canvas'] }, bookmarked: B, if_exists: { type: 'string', enum: ['error', 'skip'] }, idempotency_key: S }, required: ['title'] },
+    input: { type: 'object', properties: { title: S, folder: S, project: { type: 'string', description: 'Attach to a project (name or id): files the note in that project\'s notes folder' }, content: { type: 'string', description: 'Markdown body (may include YAML frontmatter)' }, properties: { type: 'object', description: 'Frontmatter properties to set, e.g. {"status":"draft","tags":["idea"]}' }, kind: { type: 'string', enum: ['note', 'template', 'canvas'] }, bookmarked: B, if_exists: { type: 'string', enum: ['error', 'skip'] }, idempotency_key: S }, required: ['title'] },
     run: async ({ state, args, ctx }) => {
       const notes = state.notes ?? [];
+      if (args.project) {
+        const p = resolveProject(state, args.project);
+        if (!p) throw new AgentError('invalid', 'Pass a project name or id.');
+        if (!args.folder) args.folder = projectFolder(p);
+        args.properties = { ...(args.properties ?? {}), project: p.title };
+      }
       if (args.if_exists === 'skip') {
         const index = NV.buildIndex(notes);
         const folder = args.folder ? String(args.folder).replace(/^\/+|\/+$/g, '') : '';
@@ -782,13 +806,13 @@ export const TOOLS: ToolDef[] = [
   // ChatGPT's connectors (deep research / company knowledge) require exactly
   // `search` and `fetch` with these shapes; Claude and other clients can use them too.
   {
-    name: 'search', title: 'Search ClearMind', scopes: [],
-    description: 'Search the user\'s ClearMind tasks, projects and notes. Returns result ids to pass to `fetch` for the full text.',
+    name: 'search', title: 'Search ClearMind', scopes: [], needs: LIFE_COLLS,
+    description: 'Search everything in ClearMind at once: tasks (incl. completed), projects, notes, habits, goals, milestones, calendar events, time blocks, journal, applications, learning vault and mind maps. Returns ids to pass to `fetch` for the full item.',
     input: { type: 'object', properties: { query: { type: 'string', description: 'What to look for' } }, required: ['query'] },
     run: async ({ state, args, auth, now }) => {
       const canTasks = auth.token.scopes.includes('tasks:read');
       const canNotes = auth.token.scopes.includes('notes:read');
-      if (!canTasks && !canNotes) throw new AgentError('forbidden', 'This token can read neither tasks nor notes.');
+      if (!canTasks && !canNotes && !auth.token.scopes.includes('life:read')) throw new AgentError('forbidden', 'This token can read nothing searchable.');
       const q = String(args.query ?? '').trim();
       const results: { id: string; title: string; url: string; text?: string }[] = [];
       const origin = 'https://clearmind.meertech.tech';
@@ -802,12 +826,15 @@ export const TOOLS: ToolDef[] = [
         for (const t of r.tasks) { const x: any = d(t); results.push({ id: `task:${t.id}`, title: t.title, url: `${origin}/#today?task=${t.id}`, text: [x.due?.human, x.project, t.completed ? 'completed' : null].filter(Boolean).join(' · ') }); }
         for (const p of r.projects) results.push({ id: `project:${p.id}`, title: `Project: ${p.title}`, url: `${origin}/#project/${p.id}` });
       }
+      if (auth.token.scopes.includes('life:read') && state.life) {
+        for (const h of lifeSearch(state.life, q, 20)) results.push({ id: h.id, title: `${h.kind[0].toUpperCase()}${h.kind.slice(1)}: ${h.title}`, url: origin, text: h.text || undefined });
+      }
       return { result: { results } };
     },
   },
   {
-    name: 'fetch', title: 'Fetch ClearMind item', scopes: [],
-    description: 'Get the full content of a search result by id (note:…, task:… or project:…).',
+    name: 'fetch', title: 'Fetch ClearMind item', scopes: [], needs: LIFE_COLLS,
+    description: 'Get the full content of a search result by id (note:…, task:…, project:…, habit:…, goal:…, event:…, application:…, learning:…, log:…, rant:…, mindmap:…, block:…).',
     input: { type: 'object', properties: { id: { type: 'string', description: 'An id returned by search' } }, required: ['id'] },
     run: async ({ state, args, auth, now }) => {
       const [kind, ...rest] = String(args.id ?? '').split(':');
@@ -835,10 +862,66 @@ export const TOOLS: ToolDef[] = [
         const tasks = live(state.tasks).filter((t) => t.projectId === p.id && !t.completed);
         return { result: { id: args.id, title: p.title, text: `${p.title}\n\nOpen tasks:\n${tasks.map((t) => `- ${t.title}`).join('\n') || '(none)'}`, url: `${origin}/#project/${p.id}`, metadata: { open: tasks.length } } };
       }
+      const lc = LIFE_KIND_COLL[kind];
+      if (lc) {
+        need('life:read');
+        const r = (state.life?.[lc] ?? []).find((x: any) => x.id === id && !x.deleted);
+        if (!r) throw new AgentError('not_found', `${kind} ${id} not found.`);
+        const title = String(r.title ?? r.name ?? r.task ?? String(r.content ?? '').slice(0, 60));
+        return { result: { id: args.id, title, text: JSON.stringify(r, null, 2), url: origin, metadata: { kind } } };
+      }
       throw new AgentError('invalid', 'Unknown id — use an id returned by search.');
     },
   },
+  // ---------------- legacy (callable, not listed: merged into search / notes_list)
+  {
+    name: 'search_global', title: 'Search', scopes: ['tasks:read'], hidden: true,
+    description: 'Full-text search across task titles, descriptions, comments/notes, project and section names and labels; also returns matching projects and labels.',
+    input: { type: 'object', properties: { query: S, include_completed: B, limit: N }, required: ['query'] },
+    run: async ({ state, args, now }) => {
+      const r = D.globalSearch(state, String(args.query), { includeCompleted: !!args.include_completed, limit: args.limit ?? 50 });
+      return { result: { tasks: r.tasks.map(describe(state, now)), projects: r.projects.map((p) => ({ id: p.id, name: p.title })), labels: r.labels.map((l) => ({ id: l.id, name: l.name })) } };
+    },
+  },
+  {
+    name: 'notes_search', title: 'Search notes', scopes: ['notes:read'], hidden: true,
+    description: 'Full-text search across notes with Obsidian-style operators: words (AND), "exact phrase", -exclude, OR, tag:#x, path:folder, file:name, line:, content:, task:, task-todo:, task-done:, [property:value]. Returns matching lines.',
+    input: { type: 'object', properties: { query: S, limit: N }, required: ['query'] },
+    run: async ({ state, args }) => {
+      const index = NV.buildIndex(state.notes ?? []);
+      const hits = NV.searchVault(index, String(args.query), Math.min(200, Number(args.limit) || 30));
+      return { result: { total: hits.length, results: hits.map((h) => ({ ...NV.describeNote(index, h.note), matches: h.matches })) } };
+    },
+  },
+  // ---------------- every other area (habits, goals, calendar, daily map, journal, applications, learning, mind maps, AI chats)
+  ...LIFE_TOOLS.map((t): ToolDef => ({
+    name: t.name, title: t.title, description: t.description, scopes: t.scopes, input: t.input, needs: t.needs,
+    run: ({ state, args, ctx, now, confirm }) => t.run({ life: state.life ?? {}, args, now, timezone: ctx.timezone ?? null, confirm }),
+  })),
 ];
+
+/**
+ * Former tool names, merged into broader tools. Not listed (the catalog stays
+ * lean) but still callable, so existing scripts and connected agents keep working.
+ */
+export const TOOL_ALIASES: Record<string, { to: string; map: (a: Args) => Args }> = {
+  views_today: { to: 'tasks_view', map: (a) => ({ ...a, view: 'today' }) },
+  views_upcoming: { to: 'tasks_view', map: (a) => ({ ...a, view: 'upcoming' }) },
+  views_overdue: { to: 'tasks_view', map: (a) => ({ ...a, view: 'overdue' }) },
+  inbox_list: { to: 'tasks_view', map: (a) => ({ ...a, view: 'inbox' }) },
+  tasks_complete: { to: 'tasks_update', map: (a) => ({ id: a.id, completed: true }) },
+  tasks_reopen: { to: 'tasks_update', map: (a) => ({ id: a.id, completed: false }) },
+  reminders_set: { to: 'tasks_update', map: (a) => ({ id: a.task_id, reminders: a.reminders }) },
+  tasks_move: { to: 'tasks_bulk_update', map: (a) => a },
+  tasks_bulk_complete: { to: 'tasks_bulk_update', map: (a) => ({ ...a, complete: true }) },
+  productivity_summary: { to: 'productivity', map: () => ({}) },
+  productivity_interval: { to: 'productivity', map: (a) => ({ interval: a.from && a.to ? undefined : a.interval ?? 'this_week', from: a.from, to: a.to }) },
+  productivity_project: { to: 'productivity', map: (a) => ({ project: a.project }) },
+  labels_list: { to: 'workspace_overview', map: () => ({}) },
+  filters_list: { to: 'workspace_overview', map: () => ({}) },
+  templates_list: { to: 'workspace_overview', map: () => ({}) },
+  preferences_get: { to: 'workspace_overview', map: () => ({}) },
+};
 
 /** Run a pure note op, translating its errors to agent errors. */
 function noteRef<T>(fn: () => T): T {
@@ -889,15 +972,18 @@ export interface CallOptions { sha256: (s: string) => Promise<string>; now?: Dat
 export const toolByName = (name: string) => TOOLS.find((t) => t.name === name);
 
 /** Execute one tool call end-to-end: scope check, rate limit, run, commit, audit. */
-export interface ToolResult { ok: boolean; result?: unknown; error?: { code: string; message: string; data?: unknown } }
+export interface ToolResult { ok: boolean; result?: unknown; summary?: string; error?: { code: string; message: string; data?: unknown } }
 
 export async function callTool(repo: AgentRepo, auth: AuthContext, name: string, args: Args, opts: CallOptions): Promise<ToolResult> {
   sha256Ref.fn = opts.sha256;
   const now = opts.now ?? new Date();
+  const called = name; // audited under the name the client used
+  const alias = TOOL_ALIASES[name];
+  if (alias && args && typeof args === 'object' && !Array.isArray(args)) { args = alias.map(args); name = alias.to; }
   const tool = toolByName(name);
   const audit = (ok: boolean, summary: string | null, error: string | null) => repo.audit(auth.uid, {
     id: `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, at: now.toISOString(), tokenId: auth.tokenHash.slice(0, 12),
-    agent: auth.token.name, tool: name, ok, summary, error, source: auth.source,
+    agent: auth.token.name, tool: called, ok, summary, error, source: auth.source,
   }).catch(() => undefined);
   try {
     if (!tool) throw new AgentError('not_found', `Unknown tool ${name}.`);
@@ -909,14 +995,22 @@ export async function callTool(repo: AgentRepo, auth: AuthContext, name: string,
     try { clean = validateArgs(tool.input, args); } catch (e) { if (e instanceof ArgError) throw new AgentError('invalid', e.message); throw e; }
     for (const r of tool.input.required ?? []) if (clean[r] === undefined || clean[r] === null || clean[r] === '') throw new AgentError('invalid', `Missing required argument: ${r}.`);
     const state = await repo.loadState(auth.uid);
+    if (tool.needs?.length) {
+      if (!repo.loadCollections) throw new AgentError('invalid', 'This server cannot reach that part of ClearMind.');
+      state.life = (await repo.loadCollections(auth.uid, tool.needs)) as FullState['life'];
+    }
     const ctx: D.Ctx = { source: auth.source, agent: auth.token.name, timezone: state.preferences?.timezone ?? null, now };
-    const out = await tool.run({ state, args: clean, ctx, auth, repo, now });
+    const confirm: Confirm = async (toolName, ids, message, preview) => {
+      const want = [await confirmToken(opts.sha256, auth.uid, toolName, ids, now.getTime()), await confirmToken(opts.sha256, auth.uid, toolName, ids, now.getTime(), 1)];
+      if (!clean.confirm_token || !want.includes(clean.confirm_token)) throw new AgentError('confirm_required', message, { confirm_token: want[0], count: ids.length, preview });
+    };
+    const out = await tool.run({ state, args: clean, ctx, auth, repo, now, confirm });
     if (out.edits?.length) {
       await repo.commit(auth.uid, out.edits, { clientId: opts.clientId ?? `${auth.source}-${auth.tokenHash.slice(0, 8)}`, mutationId: `${auth.source}:${auth.tokenHash.slice(0, 8)}:${now.getTime()}` });
     }
     void repo.touchToken(auth.uid, auth.tokenHash, now.toISOString()).catch(() => undefined);
     await audit(true, out.summary ?? null, null);
-    return { ok: true, result: out.result };
+    return { ok: true, result: out.result, ...(out.summary ? { summary: out.summary } : {}) };
   } catch (e: any) {
     const code = e instanceof AgentError ? e.code : e instanceof D.DomainError ? (e.code === 'not_found' ? 'not_found' : 'invalid') : 'internal';
     const message = code === 'internal' ? 'Internal error' : e.message;
@@ -926,4 +1020,4 @@ export async function callTool(repo: AgentRepo, auth: AuthContext, name: string,
 }
 
 /** Tool list for MCP tools/list and the REST API index. */
-export const toolManifest = () => TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.input, scopes: t.scopes }));
+export const toolManifest = () => TOOLS.filter((t) => !t.hidden).map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.input, scopes: t.scopes }));

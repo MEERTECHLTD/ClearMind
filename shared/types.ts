@@ -180,6 +180,8 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: Date;
+  /** What the AI did during this reply (chips under the message). */
+  actions?: { label: string; ok: boolean; write: boolean }[] | null;
 }
 
 // Four priority levels (P1..P4). 'None' (P4) was added for the Todoist-style
@@ -204,7 +206,7 @@ export interface TaskRecurrence {
 }
 
 /** Where a change came from — every synced record and activity entry carries one. */
-export type ChangeSource = 'android' | 'ios' | 'web' | 'mcp' | 'api' | 'cli' | 'widget' | 'notification' | 'system';
+export type ChangeSource = 'android' | 'ios' | 'web' | 'mcp' | 'api' | 'cli' | 'widget' | 'notification' | 'system' | 'ai';
 
 /** A reminder attached to a task. */
 export interface TaskReminder {
@@ -398,13 +400,18 @@ export interface AgentToken {
   /** ISO time after which the token is rejected (OAuth-issued access tokens). Absent = no expiry. */
   expiresAt?: string | null;
   prefix: string;    // first characters, for display ("cm_live_ab12…")
+  /** 2 = created after the life:* scopes existed. Older tokens get them implied (see effectiveScopes). */
+  scopeVersion?: number | null;
 }
 
 export type AgentScope =
   | 'tasks:read' | 'tasks:write' | 'tasks:delete'
   | 'projects:read' | 'projects:write' | 'projects:delete'
   | 'productivity:read' | 'bulk'
-  | 'notes:read' | 'notes:write' | 'notes:delete';
+  | 'notes:read' | 'notes:write' | 'notes:delete'
+  /** Everything else in ClearMind: habits, goals, milestones, calendar, daily map,
+   *  journal, applications, learning vault, mind maps, AI chats, project plans. */
+  | 'life:read' | 'life:write' | 'life:delete';
 
 /** Audit entry for every agent/API call (users/{uid}/agentAudit). */
 export interface AgentAudit {

@@ -60,7 +60,7 @@ export default function ProductivityScreen() {
   const todayPct = Math.min(1, today.goal ? today.completed / today.goal : 0);
   const weekMax = Math.max(today.goal, ...sum.week.days.map((d) => d.completed), 1);
   const trendMax = Math.max(...sum.trend.map((t) => t.completed), 1);
-  const SOURCE_LABEL: Record<string, string> = { android: 'Android', ios: 'iPhone', web: 'Web', mcp: 'AI agents', api: 'API', cli: 'CLI', widget: 'Widget', notification: 'Notification', unknown: 'Earlier' };
+  const SOURCE_LABEL: Record<string, string> = { android: 'Android', ios: 'iPhone', web: 'Web', mcp: 'AI agents', api: 'API', cli: 'CLI', widget: 'Widget', notification: 'Notification', ai: 'ClearMind AI', unknown: 'Earlier' };
 
   return (
     <Screen padded={false}>

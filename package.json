@@ -26,6 +26,7 @@
     "test:e2e:mac": "npm run test:e2e -w apps/desktop"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-markdown": "^6.5.2",

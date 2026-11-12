@@ -405,3 +405,42 @@ keyed plan. That plan covers:
 - Creating the App Store Connect app record is a human step. Apple's API can't do it.
 - See docs/RELEASE.md.
 
+
+## D18 — Claude everywhere: one catalog for MCP and the in-app AI
+
+**Decision:** every ClearMind area is reachable by agents, and the in-app AI (Iris)
+is Claude running on that same catalog.
+
+- **Catalog** (`shared/agents/tools.ts` + `shared/agents/lifeTools.ts`): tasks,
+  projects (with plans and project notes), notes, plus habits, goals, milestones,
+  calendar, daily map, journal, applications, learning vault, mind maps and AI chat
+  history. Each new area has `<area>_list` / `<area>_save` / `<area>_delete`
+  (plus `habits_check`). Collections load on demand per tool (`needs`).
+- **Collapsed duplicates:** `tasks_view` replaces views_today/upcoming/overdue and
+  inbox_list. `tasks_update {completed}` replaces tasks_complete/reopen and
+  reminders_set. `tasks_bulk_update` absorbs tasks_move and tasks_bulk_complete.
+  `productivity` replaces the three productivity tools. `workspace_overview`
+  replaces labels_list, filters_list, templates_list and preferences_get.
+  `search` covers every area, and `notes_list {query}` covers notes_search. Old
+  names stay callable as hidden aliases (`TOOL_ALIASES`; `search_global` and
+  `notes_search` as hidden tools with their exact old output), so existing clients
+  and scripts keep working.
+- **Scopes:** `life:read|write|delete` cover the new areas. Tokens minted before
+  them (no `scopeVersion`) get them implied from their `tasks:*` scopes
+  (`effectiveScopes`). OAuth refreshes upgrade too.
+- **Project notes:** vault notes under `Projects/<title>`, or with `project:` in
+  their frontmatter (`shared/projects/notes.ts`). They are shown in the project
+  workspace and exposed by `projects_get` / `notes_create {project}`.
+- **AI provider:** Claude (`server/claude.ts`; model `AI_MODEL`, default
+  `claude-opus-5-5`; effort `AI_EFFORT`, default `medium`; server-side refusal
+  fallback on).
+  - `POST /api/v1/ai/agent` runs the agent loop with the full catalog, acting as
+    the signed-in user (source `ai`, agent "ClearMind AI", audited). It stops at
+    a ~38 s budget, and the client continues the turn.
+  - The transcript is client-held and append-only (thinking blocks are passed
+    back unchanged).
+  - `POST /api/v1/ai/generate` keeps its old contract on Claude
+    (urlContext → web_fetch, googleSearch → web_search).
+- **Key:** Vercel env `ANTHROPIC_API_KEY` (Production). If it is missing or
+  rejected, `/ai/generate` falls back to the old Gemini key so features don't go
+  dark. `/ai/agent` requires Claude.

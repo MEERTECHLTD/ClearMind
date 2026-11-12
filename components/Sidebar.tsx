@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Avatar } from './Avatar';
+import { AppIcon } from './ui-kit/AppIcon';
 import {
   FileText, Repeat, Target, Flag, Sparkles, Calendar, ClipboardList, Briefcase, BookOpen, NotebookPen, TrendingUp, FolderKanban,
   ChevronLeft, ChevronDown, ChevronRight, MoreHorizontal, Flame,
@@ -39,23 +40,23 @@ type ToolGroup = { key: string; label: string; items: ToolItem[] };
 const GROUPS: ToolGroup[] = [
   {
     key: 'plan', label: 'Plan', items: [
-      { id: 'calendar', label: 'Calendar', icon: <Calendar size={18} className="text-rose-500" /> },
-      { id: 'dailymapper', label: 'Daily Mapper', icon: <ClipboardList size={18} className="text-cyan-500" /> },
-      { id: 'goals', label: 'Goals', icon: <Target size={18} className="text-emerald-500" /> },
-      { id: 'milestones', label: 'Milestones', icon: <Flag size={18} className="text-violet-500" /> },
-      { id: 'habits', label: 'Habits', icon: <Repeat size={18} className="text-orange-500" /> },
+      { id: 'calendar', label: 'Calendar', icon: <AppIcon icon={Calendar} tint="red" /> },
+      { id: 'dailymapper', label: 'Daily Mapper', icon: <AppIcon icon={ClipboardList} tint="cyan" /> },
+      { id: 'goals', label: 'Goals', icon: <AppIcon icon={Target} tint="green" /> },
+      { id: 'milestones', label: 'Milestones', icon: <AppIcon icon={Flag} tint="violet" /> },
+      { id: 'habits', label: 'Habits', icon: <AppIcon icon={Flame} tint="orange" /> },
     ],
   },
   {
     key: 'think', label: 'Think', items: [
-      { id: 'journal', label: 'Journal', icon: <NotebookPen size={18} className="text-pink-500" />, also: ['dailylog', 'rant'] },
-      { id: 'iris', label: 'Iris (AI)', icon: <Sparkles size={18} className="text-purple-500" /> },
+      { id: 'journal', label: 'Journal', icon: <AppIcon icon={NotebookPen} tint="pink" />, also: ['dailylog', 'rant'] },
+      { id: 'iris', label: 'Iris AI', icon: <AppIcon icon={Sparkles} tint="indigo" /> },
     ],
   },
   {
     key: 'grow', label: 'Grow', items: [
-      { id: 'applications', label: 'Applications', icon: <Briefcase size={18} className="text-blue-500" />, also: ['reviewer'] },
-      { id: 'learningvault', label: 'Learning Vault', icon: <BookOpen size={18} className="text-teal-500" /> },
+      { id: 'applications', label: 'Applications', icon: <AppIcon icon={Briefcase} tint="blue" />, also: ['reviewer'] },
+      { id: 'learningvault', label: 'Learning Vault', icon: <AppIcon icon={BookOpen} tint="teal" /> },
     ],
   },
 ];
@@ -144,12 +145,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
               {expanded ? <><span className="flex-1 text-left">Add task</span><kbd className="text-[10px] font-normal text-gray-400 border border-gray-300 dark:border-gray-700 rounded px-1">Q</kbd></> : null}
             </button>
           </li>
-          <Item id="search" label="Search" icon={<Search size={18} />} />
-          <Item id="inbox" label="Inbox" icon={<Inbox size={18} className="text-blue-500" />} count={counts.get(null)} />
-          <Item id="today" label="Today" icon={<CalendarCheck size={18} className="text-green-600" />} count={todayCount} />
-          <Item id="upcoming" label="Upcoming" icon={<CalendarRange size={18} className="text-violet-500" />} />
-          <Item id="notes" label="Notes" icon={<FileText size={18} className="text-amber-500" />} active={currentView === 'notes' || currentView === 'mindmap'} />
-          <Item id="filters" label="Filters & Labels" icon={<LayoutGrid size={18} className="text-orange-500" />} />
+          <Item id="search" label="Search" icon={<AppIcon icon={Search} tint="gray" />} />
+          <Item id="inbox" label="Inbox" icon={<AppIcon icon={Inbox} tint="blue" />} count={counts.get(null)} />
+          <Item id="today" label="Today" icon={<AppIcon icon={CalendarCheck} tint="green" />} count={todayCount} />
+          <Item id="upcoming" label="Upcoming" icon={<AppIcon icon={CalendarRange} tint="violet" />} />
+          <Item id="notes" label="Notes" icon={<AppIcon icon={FileText} tint="amber" />} active={currentView === 'notes' || currentView === 'mindmap'} />
+          <Item id="filters" label="Filters & Labels" icon={<AppIcon icon={LayoutGrid} tint="orange" />} />
           {expanded ? saved.filters.filter((f) => !f.favorite).slice(0, 8).map((f) => (
             <li key={f.id}>
               <button onClick={() => go(`filter/saved:${f.id}`)} className={navBtn(currentView === 'filter' && currentParam === `saved:${f.id}`)} style={{ paddingLeft: 28 }}>
@@ -157,7 +158,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
               </button>
             </li>
           )) : null}
-          <Item id="completed" label="Completed" icon={<CircleCheck size={18} className="text-emerald-500" />} />
+          <Item id="completed" label="Completed" icon={<AppIcon icon={CircleCheck} tint="green" />} />
           <li>
             <button onClick={() => onChangeView('insights')} className={navBtn(currentView === 'insights')} title={!expanded ? `Insights · ${prod.done}/${prod.goal} today` : undefined} aria-label={!expanded ? 'Insights' : undefined} aria-current={currentView === 'insights' ? 'page' : undefined}>
               <span className="shrink-0"><TrendingUp size={18} className="text-orange-500" /></span>
@@ -175,8 +176,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
               ) : null}
             </button>
           </li>
-          <Item id="activity" label="Activity" icon={<History size={18} className="text-sky-500" />} />
-          <Item id="templates" label="Templates" icon={<LayoutTemplate size={18} className="text-teal-500" />} />
+          <Item id="activity" label="Activity" icon={<AppIcon icon={History} tint="cyan" />} />
+          <Item id="templates" label="Templates" icon={<AppIcon icon={LayoutTemplate} tint="teal" />} />
         </ul>
 
         {/* Favorites */}
@@ -264,7 +265,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, currentParam, onChangeVi
             ) : null}
           </div>
         ) : (
-          <ul className="space-y-0.5 mt-3"><Item id="projects" label="All projects & plans" icon={<FolderKanban size={18} className="text-gray-500 dark:text-gray-400" />} /></ul>
+          <ul className="space-y-0.5 mt-3"><Item id="projects" label="All projects & plans" icon={<AppIcon icon={FolderKanban} tint="graphite" />} /></ul>
         )}
 
         {/* ClearMind tools, grouped */}

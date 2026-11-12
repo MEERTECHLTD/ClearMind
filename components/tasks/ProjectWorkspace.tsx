@@ -29,6 +29,7 @@ import { ProjectForm, go } from './TaskViews';
 import { Segmented } from '../views/PageShell';
 import { useHashTab } from '../views/useHashTab';
 import { ProjectPlanPanel } from '../projects/PlanView';
+import { ProjectNotes } from '../projects/ProjectNotes';
 import { hasPlan, formatDate } from '../../utils/planModel';
 
 /** Tasks | Plan — the planner and the task list are the same Project record. */
@@ -491,6 +492,7 @@ export function ProjectWorkspace({ id }: { id: string }) {
         ) : null}
         {searching && !open.length && !(showDone && done.length) ? <Empty icon={<SearchIcon size={30} className={cx.muted} />} title="No matching tasks" subtitle={`Nothing in ${project.title} matches “${query.trim()}”.`} /> : null}
         {!searching && !hasAnything ? <Empty icon={<CircleCheck size={32} style={{ color }} />} title="No tasks here yet" subtitle="Add a task, or add a section to organise work." /> : null}
+        {!searching ? <ProjectNotes project={project} /> : null}
         </>)}
       </div>
 
