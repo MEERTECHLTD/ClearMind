@@ -9,9 +9,9 @@ import { addComment, deleteComment } from './actions';
 import { cx } from './ui';
 
 export const SOURCE_LABEL: Record<ChangeSource, string> = {
-  android: 'Android', ios: 'iOS', web: 'web', mcp: 'MCP', api: 'API', cli: 'CLI', widget: 'widget', notification: 'a notification', system: 'ClearMind',
+  android: 'Android', ios: 'iOS', web: 'web', mcp: 'MCP', api: 'API', cli: 'CLI', widget: 'widget', notification: 'a notification', system: 'ClearMind', ai: 'ClearMind AI',
 };
-export const isAgentSource = (s?: ChangeSource | null) => s === 'mcp' || s === 'api' || s === 'cli';
+export const isAgentSource = (s?: ChangeSource | null) => s === 'mcp' || s === 'api' || s === 'cli' || s === 'ai';
 
 /** "just now", "5m ago", "3h ago", "2d ago", else "Oct 7, 2026". */
 export function timeAgo(iso?: string | null, now = Date.now()): string {

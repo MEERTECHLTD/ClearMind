@@ -37,7 +37,35 @@ The token screen also shows ready-to-paste snippets for each client.
 | `notes:read` | Notes vault: list, read, search, backlinks |
 | `notes:write` | Create, edit, rename/move and import notes |
 | `notes:delete` ⚠ | Delete notes (more than one needs confirmation) |
+| `life:read` | Habits, goals, milestones, calendar, daily map, journal, applications, learning vault, mind maps, AI chats |
+| `life:write` | Create and update all of the above (check in habits, plan time blocks, track applications…) |
+| `life:delete` ⚠ | Delete in those areas (more than one item needs confirmation) |
 | `bulk` ⚠ | Bulk changes and deletes (with confirmation) |
+
+Tokens created before the `life:*` scopes existed get them automatically from their
+`tasks:*` scopes, so connected agents see the new areas without reconnecting.
+
+### What agents can reach
+
+| Area | Tools |
+|---|---|
+| Orientation | `workspace_overview`, `search`, `fetch` |
+| Tasks | `inbox_capture`, `tasks_create`, `tasks_get`, `tasks_list`, `tasks_view` (today, upcoming, overdue, inbox), `tasks_update` (`completed: true` completes), `tasks_delete`, `tasks_restore`, `tasks_bulk_update` (move, complete, re-prioritise), `tasks_bulk_delete`, `comments_*`, `labels_create`, `filters_save`, `activity_list` |
+| Projects | `projects_list`, `projects_get` (plan + project notes), `projects_create`, `projects_update` (status, phases, risks, budget, KPIs, check-ins…), `projects_delete`, `sections_*`, `productivity` |
+| Notes | `notes_list` (with `query` for search and `project` for project notes), `notes_get`, `notes_create` (`project` files it under the project), `notes_update`, `notes_daily`, `notes_import`, `notes_delete` |
+| Habits | `habits_list`, `habits_save`, `habits_check`, `habits_delete` |
+| Goals / Milestones | `goals_*`, `milestones_*` |
+| Calendar | `calendar_list`, `calendar_save`, `calendar_delete` |
+| Daily map | `daily_map_list`, `daily_map_save` (`permanent` for repeating blocks), `daily_map_delete` |
+| Journal | `journal_list`, `journal_save` (daily log or rant), `journal_delete` |
+| Applications | `applications_list`, `applications_save` (requirements and contacts), `applications_delete` |
+| Learning vault | `learning_list`, `learning_save` (`add_note`), `learning_delete` |
+| Mind maps | `mindmaps_list` (with outline), `mindmaps_save` (from a nested outline), `mindmaps_delete` |
+| AI chats | `ai_chats_list`, `ai_chats_delete` |
+
+Older tool names (`views_today`, `tasks_complete`, `productivity_summary`, …) still work as aliases.
+
+The in-app AI (Iris) is Claude running on this same catalog (`POST /api/v1/ai/agent`), so it can do everything listed here.
 
 Revoke one connection, or all of them, under **Settings → Integrations** or
 **Settings → Security**. Revocation takes effect on the agent's next request.

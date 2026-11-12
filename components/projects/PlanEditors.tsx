@@ -470,9 +470,9 @@ export function PlanEditors({ project, editor, onClose, persist }: {
                     onChange={(e) => setNewCheckIn({ ...newCheckIn, mood: e.target.value as TeamCheckIn['mood'] })}
                     className="w-full dark:bg-gray-800 bg-gray-100 dark:text-white text-gray-900 px-4 py-3 rounded-lg border dark:border-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="Positive">Positive 😊</option>
-                    <option value="Neutral">Neutral 😐</option>
-                    <option value="Concerned">Concerned 😟</option>
+                    <option value="Positive">Positive</option>
+                    <option value="Neutral">Neutral</option>
+                    <option value="Concerned">Concerned</option>
                   </select>
                 </div>
               </div>

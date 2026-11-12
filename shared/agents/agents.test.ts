@@ -25,6 +25,7 @@ class MemRepo implements AgentRepo {
       notes: this.all('notes'),
     };
   }
+  async loadCollections(_uid: string, colls: string[]) { return Object.fromEntries(colls.map((c) => [c, this.all(c)])); }
   async commit(_uid: string, edits: Edit[], meta: { clientId: string; mutationId: string }) {
     this.commits++;
     for (const e of edits) {
@@ -310,7 +311,7 @@ describe('notes tools', () => {
     expect((r as any).error.code).toBe('forbidden');
     const r2 = await call(full, 'notes_list', {});
     expect((r2 as any).error.code).toBe('forbidden'); // task tokens don't get notes implicitly
-    expect(toolManifest().filter((t) => t.name.startsWith('notes_')).map((t) => t.name)).toEqual(['notes_list', 'notes_get', 'notes_search', 'notes_create', 'notes_update', 'notes_daily', 'notes_import', 'notes_delete']);
+    expect(toolManifest().filter((t) => t.name.startsWith('notes_')).map((t) => t.name)).toEqual(['notes_list', 'notes_get', 'notes_create', 'notes_update', 'notes_daily', 'notes_import', 'notes_delete']);
   });
 });
 
@@ -330,5 +331,108 @@ describe('search & fetch (ChatGPT connector contract)', () => {
     const tasksOnly = await ok(readonly, 'search', { query: 'flutterwave' });
     expect(tasksOnly.results.every((x: any) => !x.id.startsWith('note:'))).toBe(true);
     expect((await call(readonly, 'fetch', { id: note.id })) .ok).toBe(false);
+  });
+});
+
+describe('every app area (life tools)', () => {
+  it('implies life scopes for legacy tokens only', async () => {
+    const legacy = await authenticate(repo, await issue('Legacy', ['tasks:read', 'tasks:write']), sha256, 'mcp');
+    expect(legacy.token.scopes).toEqual(expect.arrayContaining(['life:read', 'life:write']));
+    expect(legacy.token.scopes).not.toContain('life:delete');
+    const modern = await authenticate(repo, await issue('Modern', ['tasks:read'], { scopeVersion: 2 }), sha256, 'mcp');
+    expect(modern.token.scopes).not.toContain('life:read');
+  });
+
+  it('habits: create, check in, streak, delete', async () => {
+    const h = await ok(full, 'habits_save', { name: 'Read 20 min' });
+    expect(h).toMatchObject({ name: 'Read 20 min', done_today: false, streak: 0 });
+    await ok(full, 'habits_check', { habit: 'read 20 min', date: '2026-10-06' });
+    const c = await ok(full, 'habits_check', { habit: h.id });
+    expect(c).toMatchObject({ done_today: true, streak: 2 });
+    expect(c.last_7_days.slice(-2)).toEqual([true, true]);
+    const list = await ok(full, 'habits_list', {});
+    expect(list.done).toBe(1);
+    await ok(full, 'habits_delete', { ids: [h.id] });
+    expect((await ok(full, 'habits_list', {})).habits).toHaveLength(0);
+  });
+
+  it('goals, milestones, calendar, journal, applications, learning, mind maps, daily map', async () => {
+    const g = await ok(full, 'goals_save', { title: 'Ship v2', category: 'Career', progress: 140 });
+    expect(g.progress).toBe(100);
+    await ok(full, 'goals_save', { id: 'Ship v2', progress: 40 });
+    expect((await ok(full, 'goals_list', { category: 'Career' })).goals[0].progress).toBe(40);
+
+    await ok(full, 'milestones_save', { title: 'First customer', completed: true });
+    expect((await ok(full, 'milestones_list', { completed: true })).count).toBe(1);
+
+    await ok(full, 'calendar_save', { title: 'Investor call', date: '2026-10-09', startTime: '14:00', endTime: '15:00' });
+    expect((await call(full, 'calendar_save', { title: 'Bad', date: '2026-10-09', startTime: '25:00' })).ok).toBe(false);
+    expect((await ok(full, 'calendar_list', {})).events.map((e: any) => e.title)).toEqual(['Investor call']);
+
+    await ok(full, 'journal_save', { content: 'Deep work all morning', mood: 'Flow State' });
+    await ok(full, 'journal_save', { kind: 'rant', content: 'The build broke again', mood: 'frustrated' });
+    expect((await ok(full, 'journal_list', {})).entries.map((e: any) => e.kind).sort()).toEqual(['log', 'rant']);
+
+    const app = await ok(full, 'applications_save', { name: 'Mozilla grant', type: 'grant', submissionDeadline: '2026-10-20', add_requirement: 'Budget' });
+    await ok(full, 'applications_save', { id: app.id, check_requirement: 'budget', status: 'submitted' });
+    const got = await ok(full, 'applications_list', { id: app.id });
+    expect(got).toMatchObject({ status: 'submitted', submittedDate: '2026-10-07' });
+    expect(got.requirements[0].done).toBe(true);
+
+    const lr = await ok(full, 'learning_save', { url: 'https://youtu.be/abc', title: 'Rust talk', folder: 'Rust', add_note: 'lifetimes', note_timestamp: 90 });
+    expect(lr).toMatchObject({ sourcePlatform: 'youtube', status: 'unwatched' });
+    const lv = await ok(full, 'learning_list', {});
+    expect(lv.folders.map((f: any) => f.name)).toEqual(['Rust']);
+
+    const mm = await ok(full, 'mindmaps_save', { title: 'Launch', outline: { text: 'Launch', children: [{ text: 'Marketing', children: [{ text: 'Blog' }] }, { text: 'Sales' }] } });
+    expect(mm.nodes).toHaveLength(4);
+    expect((await ok(full, 'mindmaps_list', { id: mm.id })).outline).toContain('    - Blog');
+
+    const b = await ok(full, 'daily_map_save', { task: 'Gym', startTime: '06:00', endTime: '07:00', permanent: 'workday' });
+    await ok(full, 'daily_map_save', { id: b.id, completed: 'yes' });
+    const dm = await ok(full, 'daily_map_list', {});
+    expect(dm.completion).toBe('1/1');
+    expect(dm.permanent).toHaveLength(1);
+
+    // search reaches every area
+    const s = await ok(full, 'search', { query: 'mozilla' });
+    expect(s.results.map((r: any) => r.id.split(':')[0])).toContain('application');
+    const ov = await ok(full, 'workspace_overview', {});
+    expect(ov.counts).toMatchObject({ goals: 1, applications: 1, mindmaps: 1, time_blocks: 1 });
+  });
+
+  it('multi-delete needs a confirm_token', async () => {
+    const a = await ok(full, 'goals_save', { title: 'A' });
+    const b = await ok(full, 'goals_save', { title: 'B' });
+    const first = await call(full, 'goals_delete', { ids: [a.id, b.id] });
+    expect(first.ok).toBe(false);
+    expect(first.error!.code).toBe('confirm_required');
+    await ok(full, 'goals_delete', { ids: [a.id, b.id], confirm_token: (first.error!.data as any).confirm_token });
+    expect((await ok(full, 'goals_list', {})).count).toBe(0);
+  });
+
+  it('read-only life scope cannot write', async () => {
+    const r = await authenticate(repo, await issue('LifeReader', ['life:read'], { scopeVersion: 2 }), sha256, 'api');
+    expect((await call(r, 'habits_save', { name: 'x' })).error!.code).toBe('forbidden');
+    expect((await ok(r, 'habits_list', {})).habits).toEqual([]);
+  });
+
+  it('projects: plan fields, project notes, completion via tasks_update and merged tools', async () => {
+    await ok(full, 'projects_create', { name: 'Solar Farm', status: 'Planning', category: 'Green Energy', phases: [{ name: 'Survey' }] });
+    await ok(full, 'projects_update', { project: 'Solar Farm', add_risk: { title: 'Permit delay', severity: 'High' }, health: 'At Risk' });
+    const notesWriter = await authenticate(repo, await issue('Notes', ['notes:read', 'notes:write', 'projects:read', 'tasks:read'], { scopeVersion: 2 }), sha256, 'mcp');
+    const n = await ok(notesWriter, 'notes_create', { title: 'Kickoff', project: 'Solar Farm', content: 'Site visit Friday' });
+    expect(n.path).toBe('Projects/Solar Farm/Kickoff');
+    const p = await ok(full, 'projects_get', { project: 'Solar Farm' });
+    expect(p.plan).toMatchObject({ status: 'Planning', category: 'Green Energy', health: 'At Risk' });
+    expect(p.plan.phases[0]).toMatchObject({ name: 'Survey', status: 'Not Started' });
+    expect(p.plan.risks[0]).toMatchObject({ title: 'Permit delay', status: 'Open' });
+    expect(p.notes.items.map((x: any) => x.title)).toEqual(['Kickoff']);
+    expect((await ok(notesWriter, 'notes_list', { project: 'Solar Farm' })).total).toBe(1);
+
+    const t = await ok(full, 'tasks_create', { title: 'Order panels', project: 'Solar Farm' });
+    expect((await ok(full, 'tasks_update', { id: t.id, completed: true })).completed).toBe(true);
+    expect((await ok(full, 'tasks_complete', { id: t.id })).completed).toBe(true); // alias still works
+    expect((await ok(full, 'productivity', { project: 'Solar Farm' })).project).toBe('Solar Farm');
   });
 });

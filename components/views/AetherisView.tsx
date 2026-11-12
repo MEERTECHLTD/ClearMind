@@ -35,7 +35,7 @@ const IRISView: React.FC = () => {
     setIsTyping(true);
 
     try {
-      // Format history for Gemini
+      // Format history for the AI
       const history = messages.map(m => ({
         role: m.role,
         parts: [{ text: m.text }]

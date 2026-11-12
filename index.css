@@ -81,3 +81,20 @@ body {
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Iris (ClearMind AI) replies: compact markdown typography */
+.iris-md > * + * { margin-top: 0.6em; }
+.iris-md ul, .iris-md ol { padding-left: 1.25em; }
+.iris-md ul { list-style: disc; }
+.iris-md ol { list-style: decimal; }
+.iris-md li + li { margin-top: 0.25em; }
+.iris-md li::marker { color: rgb(139 92 246); }
+.iris-md strong { font-weight: 600; }
+.iris-md h1, .iris-md h2, .iris-md h3 { font-weight: 600; font-size: 1em; margin-top: 1em; }
+.iris-md a { color: rgb(124 58 237); text-decoration: underline; text-underline-offset: 2px; }
+.iris-md code { font-size: 0.875em; padding: 0.1em 0.35em; border-radius: 6px; background: rgba(127,127,127,0.12); }
+.iris-md pre { padding: 0.75em 1em; border-radius: 12px; background: rgba(127,127,127,0.1); overflow-x: auto; }
+.iris-md pre code { background: none; padding: 0; }
+.iris-md table { border-collapse: collapse; font-size: 0.9em; }
+.iris-md th, .iris-md td { border: 1px solid rgba(127,127,127,0.25); padding: 0.3em 0.6em; text-align: left; }
+.iris-md blockquote { border-left: 3px solid rgb(139 92 246 / 0.5); padding-left: 0.75em; opacity: 0.85; }

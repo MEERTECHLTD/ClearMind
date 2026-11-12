@@ -4,7 +4,7 @@
 
 🌐 **Live Demo:** [clearmind.meertech.tech](https://clearmind.meertech.tech)
 
-ClearMind is a comprehensive, feature-rich productivity application designed for developers, professionals, and creators who want to stay organized, track their progress, and maintain mental clarity. Built with React 19, TypeScript, and powered by Google's Gemini AI with optional Firebase cloud sync.
+ClearMind is a comprehensive, feature-rich productivity application designed for developers, professionals, and creators who want to stay organized, track their progress, and maintain mental clarity. Built with React 19 and TypeScript, with Firebase cloud sync. Its AI, Iris, runs on Anthropic's Claude with full access to every part of the app, the same tools Claude and other agents get over MCP.
 
 ![ClearMind](https://img.shields.io/badge/Version-1.0.0-blue)
 ![React](https://img.shields.io/badge/React-19.2.3-61DAFB?logo=react)

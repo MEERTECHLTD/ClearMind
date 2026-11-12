@@ -21,7 +21,10 @@ import {
 import { dayInZone, nowInZone } from '../tasks/time';
 import { TEMPLATES } from './templates';
 
-export type Coll = 'tasks' | 'projects' | 'labels' | 'sections' | 'comments' | 'completions' | 'activity' | 'preferences' | 'filters' | 'notes';
+export type Coll = 'tasks' | 'projects' | 'labels' | 'sections' | 'comments' | 'completions' | 'activity' | 'preferences' | 'filters' | 'notes'
+  // The rest of the app (synced by the same engine; written by agents through shared/agents/lifeTools.ts).
+  | 'habits' | 'goals' | 'milestones' | 'logs' | 'rants' | 'events' | 'dailymapper' | 'dailymappertemplates'
+  | 'applications' | 'learningresources' | 'learningfolders' | 'mindmaps' | 'iris_conversations';
 
 export interface DomainState {
   tasks: Task[];

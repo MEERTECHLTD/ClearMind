@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { adminApp, adminProjectId } from '../server/firestoreRepo';
 import { verifyFirebaseIdToken } from './idToken';
-import { makeToken, secretFromBytes, tokenPrefix, parseToken, DEFAULT_RATE_LIMIT } from '../shared/agents/tokens';
+import { makeToken, secretFromBytes, tokenPrefix, parseToken, DEFAULT_RATE_LIMIT, SCOPE_VERSION, effectiveScopes } from '../shared/agents/tokens';
 import {
   validateRegistration, verifyPkce, redirectMatches, parseScopes, protectedResourceMetadata, authorizationServerMetadata,
   redirectWith, OAUTH_CODE_TTL_MS, OAUTH_ACCESS_TTL_MS, OAUTH_REFRESH_TTL_MS, CLIENT_ID_RE,
@@ -57,17 +57,23 @@ async function limited(req: Req, res: ServerResponse, rule: LimitRule): Promise<
 /** A string parameter of bounded length, else ''. */
 const str = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : '');
 
-async function mintAccessToken(uid: string, scopes: AgentScope[], clientId: string, clientName: string) {
+/**
+ * scopeVersion: SCOPE_VERSION for a fresh consent; absent for refresh grants
+ * from before life:* existed, which are upgraded here (effectiveScopes) so a
+ * connected Claude/ChatGPT gains the new areas on its next refresh.
+ */
+async function mintAccessToken(uid: string, granted: AgentScope[], clientId: string, clientName: string, scopeVersion?: number | null) {
+  const scopes = effectiveScopes({ scopes: granted, scopeVersion });
   const token = makeToken(uid, rand(40));
   const hash = sha(token);
   const now = Date.now();
   await fdb().doc(`users/${uid}/agentTokens/${hash}`).set({
     id: hash, name: clientName, scopes, createdAt: new Date(now).toISOString(), prefix: tokenPrefix(token),
-    rateLimit: DEFAULT_RATE_LIMIT, revoked: false, via: 'oauth', clientId, expiresAt: new Date(now + OAUTH_ACCESS_TTL_MS).toISOString(),
+    rateLimit: DEFAULT_RATE_LIMIT, revoked: false, via: 'oauth', scopeVersion: SCOPE_VERSION, clientId, expiresAt: new Date(now + OAUTH_ACCESS_TTL_MS).toISOString(),
   });
   const refresh = `cmr_${rand(48)}`;
   await fdb().doc(`oauthRefresh/${sha(refresh)}`).set({
-    uid, clientId, clientName, scopes, accessHash: hash, createdAt: new Date(now).toISOString(), expiresAt: now + OAUTH_REFRESH_TTL_MS,
+    uid, clientId, clientName, scopes, scopeVersion: SCOPE_VERSION, accessHash: hash, createdAt: new Date(now).toISOString(), expiresAt: now + OAUTH_REFRESH_TTL_MS,
   });
   return { access_token: token, token_type: 'Bearer', expires_in: Math.floor(OAUTH_ACCESS_TTL_MS / 1000), refresh_token: refresh, scope: scopes.join(' ') };
 }
@@ -154,7 +160,7 @@ async function handle(req: Req, res: ServerResponse) {
         if (f.redirect_uri && f.redirect_uri !== claim.redirectUri) return oauthError(res, 400, 'invalid_grant', 'redirect_uri mismatch');
         if (!(await verifyPkce(String(f.code_verifier ?? ''), claim.codeChallenge, shaBytes))) return oauthError(res, 400, 'invalid_grant', 'PKCE verification failed');
         await ref.delete().catch(() => undefined);
-        return sendJson(res, 200, await mintAccessToken(claim.uid, claim.scopes, claim.clientId, claim.clientName));
+        return sendJson(res, 200, await mintAccessToken(claim.uid, claim.scopes, claim.clientId, claim.clientName, SCOPE_VERSION));
       }
       if (f.grant_type === 'refresh_token') {
         const ref = fdb().doc(`oauthRefresh/${sha(String(f.refresh_token ?? ''))}`);
@@ -174,7 +180,7 @@ async function handle(req: Req, res: ServerResponse) {
         if (!oldSnap.exists || oldSnap.data()?.revoked) return oauthError(res, 400, 'invalid_grant', 'Access was revoked');
         // The superseded access token is deleted (not just flagged) so daily rotations don't pile up in Settings.
         await old.delete();
-        return sendJson(res, 200, await mintAccessToken(d.uid, d.scopes, d.clientId, d.clientName));
+        return sendJson(res, 200, await mintAccessToken(d.uid, d.scopes, d.clientId, d.clientName, d.scopeVersion ?? null));
       }
       return oauthError(res, 400, 'unsupported_grant_type', 'Use authorization_code or refresh_token');
     }
