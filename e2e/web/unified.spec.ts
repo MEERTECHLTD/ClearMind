@@ -22,7 +22,7 @@ test('sidebar: Notes in the primary group, grouped tools, no legacy entries', as
   for (const group of ['Plan', 'Think', 'Grow']) {
     await expect(nav.getByRole('button', { name: group, exact: true })).toBeVisible();
   }
-  for (const name of ['Calendar', 'Daily Mapper', 'Goals', 'Milestones', 'Habits', 'Journal', 'Iris (AI)', 'Applications', 'Learning Vault']) {
+  for (const name of ['Calendar', 'Daily Mapper', 'Goals', 'Milestones', 'Habits', 'Journal', 'Iris AI', 'Applications', 'Learning Vault']) {
     await expect(nav.getByRole('button', { name, exact: true })).toHaveCount(1);
   }
   await expect(nav.getByRole('button', { name: 'All projects & plans' })).toBeVisible();
