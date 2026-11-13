@@ -1008,7 +1008,9 @@ export async function callTool(repo: AgentRepo, auth: AuthContext, name: string,
     if (out.edits?.length) {
       await repo.commit(auth.uid, out.edits, { clientId: opts.clientId ?? `${auth.source}-${auth.tokenHash.slice(0, 8)}`, mutationId: `${auth.source}:${auth.tokenHash.slice(0, 8)}:${now.getTime()}` });
     }
-    void repo.touchToken(auth.uid, auth.tokenHash, now.toISOString()).catch(() => undefined);
+    // "Last used" only needs minute-level accuracy; one write per 10 min, not per call (Firestore write quota).
+    const lastUsed = auth.token.lastUsedAt ? Date.parse(auth.token.lastUsedAt) : 0;
+    if (!(now.getTime() - lastUsed < 10 * 60_000)) void repo.touchToken(auth.uid, auth.tokenHash, now.toISOString()).catch(() => undefined);
     await audit(true, out.summary ?? null, null);
     return { ok: true, result: out.result, ...(out.summary ? { summary: out.summary } : {}) };
   } catch (e: any) {
