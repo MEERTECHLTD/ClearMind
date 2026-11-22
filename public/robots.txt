@@ -3,4 +3,6 @@ Allow: /
 Disallow: /api/
 Disallow: /oauth/
 
+# Built by MeerTech Ltd: https://www.meertech.tech/portfolio/clearmind
+
 Sitemap: https://clearmind.one/sitemap.xml
